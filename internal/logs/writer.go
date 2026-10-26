@@ -1,8 +1,10 @@
 package logs
 
 import (
-	"encoding/json"
+	"bytes"
+	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,13 +26,17 @@ type Writer struct {
 	prunedOn string
 }
 
-func (w *Writer) Write(record any) error {
-	line, err := json.Marshal(record)
-	if err != nil {
+func (w *Writer) Write(record Record) error {
+	var line bytes.Buffer
+	entry := slog.NewRecord(record.LogTime(), slog.LevelInfo, w.Name, 0)
+	entry.AddAttrs(slog.Any("", record))
+	if err := slog.NewJSONHandler(&line, nil).Handle(context.Background(), entry); err != nil {
 		return fmt.Errorf("encoding %s log record: %w", w.Name, err)
 	}
+
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
 	now := w.now()
 	day := now.Format(time.DateOnly)
 	if day != w.prunedOn {
@@ -39,12 +45,13 @@ func (w *Writer) Write(record any) error {
 		}
 		w.prunedOn = day
 	}
+
 	path := filepath.Join(w.Dir, w.Name+"-"+day+".jsonl")
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, fileMode)
 	if err != nil {
 		return fmt.Errorf("opening %s: %w", path, err)
 	}
-	if _, err := f.Write(append(line, '\n')); err != nil {
+	if _, err := f.Write(line.Bytes()); err != nil {
 		f.Close()
 		return fmt.Errorf("writing %s: %w", path, err)
 	}
@@ -66,6 +73,7 @@ func (w *Writer) prune(now time.Time) error {
 	if err != nil {
 		return fmt.Errorf("listing %s logs: %w", w.Name, err)
 	}
+
 	cutoff := now.AddDate(0, 0, -retentionDays).Format(time.DateOnly)
 	for _, path := range paths {
 		day := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), w.Name+"-"), ".jsonl")

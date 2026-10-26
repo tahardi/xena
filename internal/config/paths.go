@@ -65,5 +65,6 @@ func homePath(parts ...string) string {
 	if err != nil {
 		home = "/nonexistent"
 	}
+
 	return filepath.Join(append([]string{home}, parts...)...)
 }

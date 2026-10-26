@@ -117,6 +117,7 @@ func TestLoad(t *testing.T) {
 			if mode == 0 {
 				mode = 0o640
 			}
+
 			dir := t.TempDir()
 			path := filepath.Join(dir, "sample.yaml")
 			require.NoError(t, os.WriteFile(path, []byte(tt.file), mode))
@@ -128,13 +129,16 @@ func TestLoad(t *testing.T) {
 			// then
 			require.ErrorIs(t, err, tt.wantErr)
 			require.Equal(t, tt.want, got)
+
 			temps, globErr := filepath.Glob(filepath.Join(dir, "*.tmp-*"))
 			require.NoError(t, globErr)
 			require.Empty(t, temps)
+
 			if tt.wantBackup == "" {
 				backups, globErr := filepath.Glob(filepath.Join(dir, "*.bak"))
 				require.NoError(t, globErr)
 				require.Empty(t, backups)
+
 				unchanged, readErr := os.ReadFile(path)
 				require.NoError(t, readErr)
 				require.Equal(t, tt.file, string(unchanged))
@@ -143,9 +147,11 @@ func TestLoad(t *testing.T) {
 			backup, backupErr := os.ReadFile(filepath.Join(dir, tt.wantBackup))
 			require.NoError(t, backupErr)
 			require.Equal(t, tt.file, string(backup))
+
 			info, err := os.Stat(path)
 			require.NoError(t, err)
 			require.Equal(t, mode, info.Mode().Perm())
+
 			again, err := Load[sample](path, tt.current, nil)
 			require.NoError(t, err)
 			require.Equal(t, tt.want, again)

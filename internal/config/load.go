@@ -26,10 +26,12 @@ func Load[T any](
 	if err != nil {
 		return zero, fmt.Errorf("reading %s: %w", path, err)
 	}
+
 	var raw map[string]any
 	if err := yaml.Unmarshal(original, &raw); err != nil {
 		return zero, fmt.Errorf("parsing %s: %w", path, err)
 	}
+
 	version, ok := raw["version"].(int)
 	if !ok || version < 1 {
 		return zero, fmt.Errorf("reading version of %s: %w", path, ErrMissingVersion)
@@ -37,6 +39,7 @@ func Load[T any](
 	if version > current {
 		return zero, fmt.Errorf("loading %s version %d: %w", path, version, ErrUnknownVersion)
 	}
+
 	data := original
 	if version < current {
 		data, err = migrateFile(path, original, raw, version, current, migrate)
@@ -44,6 +47,7 @@ func Load[T any](
 			return zero, err
 		}
 	}
+
 	var out T
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -71,15 +75,18 @@ func migrateFile(
 			return nil, fmt.Errorf("migrating %s from version %d: %w", path, v, err)
 		}
 	}
+
 	raw["version"] = current
 	data, err := yaml.Marshal(raw)
 	if err != nil {
 		return nil, fmt.Errorf("encoding %s: %w", path, err)
 	}
+
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading mode of %s: %w", path, err)
 	}
+
 	backup := fmt.Sprintf("%s.v%d.bak", path, from)
 	if err := writeAtomic(backup, original, info.Mode().Perm()); err != nil {
 		return nil, err
@@ -96,6 +103,7 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 		return fmt.Errorf("creating temp file for %s: %w", path, err)
 	}
 	defer os.Remove(tmp.Name())
+
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
 		return fmt.Errorf("writing %s: %w", tmp.Name(), err)
@@ -103,6 +111,7 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("closing %s: %w", tmp.Name(), err)
 	}
+
 	if err := os.Chmod(tmp.Name(), mode); err != nil {
 		return fmt.Errorf("setting mode of %s: %w", tmp.Name(), err)
 	}

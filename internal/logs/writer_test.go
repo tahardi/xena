@@ -17,10 +17,10 @@ import (
 func TestWriter_Write(t *testing.T) {
 	day := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
 	entry := ProxyEntry{Time: day, Host: "example.com", Port: 443, Decision: DecisionAllow, BytesOut: 10, BytesIn: 20}
-	want := `{"time":"2026-10-24T12:00:00Z","host":"example.com","port":443,"decision":"allow",` +
-		`"bytes_out":10,"bytes_in":20}` + "\n"
+	want := `{"time":"2026-10-24T12:00:00Z","level":"INFO","msg":"proxy","host":"example.com","port":443,` +
+		`"decision":"allow","bytes_out":10,"bytes_in":20}` + "\n"
 
-	t.Run("happy path - appends lines to the daily file", func(t *testing.T) {
+	t.Run("happy path - appends slog lines to the daily file", func(t *testing.T) {
 		// given
 		dir := t.TempDir()
 		w := &Writer{Dir: dir, Name: "proxy", Now: func() time.Time { return day }}
@@ -34,9 +34,58 @@ func TestWriter_Write(t *testing.T) {
 		got, err := os.ReadFile(path)
 		require.NoError(t, err)
 		require.Equal(t, want+want, string(got))
+
 		info, err := os.Stat(path)
 		require.NoError(t, err)
 		require.Equal(t, fs.FileMode(0o640), info.Mode().Perm())
+	})
+
+	t.Run("happy path - lines decode back into each record type", func(t *testing.T) {
+		tests := []struct {
+			name   string
+			record Record
+			decode func([]byte) (Record, error)
+		}{
+			{
+				name:   "proxy entry",
+				record: entry,
+				decode: decodeAs[ProxyEntry],
+			},
+			{
+				name:   "gateway entry",
+				record: GatewayEntry{Time: day, Tool: ToolGetNote, Path: "Notes/example.md", Decision: DecisionAllow},
+				decode: decodeAs[GatewayEntry],
+			},
+			{
+				name: "alert",
+				record: Alert{
+					Time:     day,
+					Rule:     "example-rule",
+					Severity: SeverityHigh,
+					Guard:    true,
+					Entries:  []json.RawMessage{json.RawMessage(`{"host":"example.com"}`)},
+				},
+				decode: decodeAs[Alert],
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				// given
+				dir := t.TempDir()
+				w := &Writer{Dir: dir, Name: "proxy", Now: func() time.Time { return day }}
+
+				// when
+				require.NoError(t, w.Write(tt.record))
+
+				// then
+				line, err := os.ReadFile(filepath.Join(dir, "proxy-2026-10-24.jsonl"))
+				require.NoError(t, err)
+
+				got, err := tt.decode(line)
+				require.NoError(t, err)
+				require.Equal(t, tt.record, got)
+			})
+		}
 	})
 
 	t.Run("happy path - starts a new file each day", func(t *testing.T) {
@@ -83,6 +132,7 @@ func TestWriter_Write(t *testing.T) {
 		dir := t.TempDir()
 		w := &Writer{Dir: dir, Name: "proxy", Now: func() time.Time { return day }}
 		require.NoError(t, w.Write(entry))
+
 		old := filepath.Join(dir, "proxy-2026-07-25.jsonl")
 		require.NoError(t, os.WriteFile(old, nil, 0o640))
 
@@ -125,20 +175,6 @@ func TestWriter_Write(t *testing.T) {
 		require.Equal(t, strings.Repeat(want, writers), string(got))
 	})
 
-	t.Run("error - record cannot be encoded", func(t *testing.T) {
-		// given
-		dir := t.TempDir()
-		w := &Writer{Dir: dir, Name: "proxy", Now: func() time.Time { return day }}
-
-		// when
-		err := w.Write(make(chan int))
-
-		// then
-		var typeErr *json.UnsupportedTypeError
-		require.ErrorAs(t, err, &typeErr)
-		require.NoFileExists(t, filepath.Join(dir, "proxy-2026-10-24.jsonl"))
-	})
-
 	t.Run("error - directory missing", func(t *testing.T) {
 		// given
 		w := &Writer{Dir: filepath.Join(t.TempDir(), "missing"), Name: "proxy", Now: func() time.Time { return day }}
@@ -149,4 +185,10 @@ func TestWriter_Write(t *testing.T) {
 		// then
 		require.ErrorIs(t, err, fs.ErrNotExist)
 	})
+}
+
+func decodeAs[T Record](line []byte) (Record, error) {
+	var record T
+	err := json.Unmarshal(line, &record)
+	return record, err
 }
