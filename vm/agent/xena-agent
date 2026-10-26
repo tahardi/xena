@@ -1,0 +1,118 @@
+#!/bin/bash -p
+set -euo pipefail
+
+if [[ "${XENA_AGENT_CLEAN:-}" != "1" ]]; then
+  exec /usr/bin/env -i \
+    XENA_AGENT_CLEAN=1 \
+    HOME="${HOME}" \
+    PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+    SSH_ORIGINAL_COMMAND="${SSH_ORIGINAL_COMMAND:-}" \
+    /bin/bash --noprofile --norc "$0"
+fi
+
+lib_dir="$(cd "$(dirname "$0")" && pwd)"
+readonly lib_dir
+readonly xena_dir="${HOME}/.config/xena"
+
+refuse() {
+  echo "refusing verb" >&2
+  exit 2
+}
+
+is_secret_name() {
+  case "$1" in
+    jira-token | aws-credentials | gcp-token) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+write_file() {
+  local name="$1"
+  local tmp
+
+  mkdir -p "${xena_dir}"
+  chmod 700 "${xena_dir}"
+
+  tmp="$(mktemp "${xena_dir}/.${name}.XXXXXX")"
+  cat >"${tmp}"
+
+  if [[ ! -s "${tmp}" ]]; then
+    rm -f "${tmp}"
+    echo "refusing empty value" >&2
+    exit 1
+  fi
+
+  chmod 600 "${tmp}"
+  mv -f "${tmp}" "${xena_dir}/${name}"
+}
+
+memory_export() {
+  cd "${HOME}"
+  shopt -s nullglob
+
+  local paths=(.claude/projects/*/memory)
+  if [[ -d .claude-mem ]]; then
+    paths+=(.claude-mem)
+  fi
+
+  tar -cf - -T /dev/null "${paths[@]}"
+}
+
+import_dir=""
+
+memory_import() {
+  shopt -s nullglob
+
+  local existing=("${HOME}"/.claude/projects/*/memory/*)
+  if [[ -e "${HOME}/.claude-mem/claude-mem.db" || "${#existing[@]}" -gt 0 ]]; then
+    echo "refusing import: memory exists" >&2
+    exit 3
+  fi
+
+  umask 077
+  import_dir="$(mktemp -d)"
+  trap 'rm -rf "${import_dir}"' EXIT
+  tar --no-same-owner --no-same-permissions -xf - -C "${import_dir}"
+
+  if [[ -n "$(find "${import_dir}" ! -type f ! -type d)" ]]; then
+    echo "refusing import: archive holds links or special files" >&2
+    exit 1
+  fi
+
+  local dir name
+  for dir in "${import_dir}"/projects/*/memory; do
+    [[ -d "${dir}" && ! -L "${dir}" ]] || continue
+    name="$(basename "$(dirname "${dir}")")"
+    mkdir -p "${HOME}/.claude/projects/${name}"
+    cp -R "${dir}" "${HOME}/.claude/projects/${name}/"
+  done
+
+  if [[ -f "${import_dir}/claude-mem/claude-mem.sql" ]]; then
+    mkdir -p "${HOME}/.claude-mem"
+    sqlite3 -safe "${HOME}/.claude-mem/claude-mem.db" <"${import_dir}/claude-mem/claude-mem.sql"
+  fi
+}
+
+command="${SSH_ORIGINAL_COMMAND:-}"
+[[ "${command}" =~ ^[a-z0-9\ -]+$ ]] || refuse
+read -r -a words <<<"${command}"
+
+case "${words[0]:-}:${#words[@]}" in
+  health:1) echo ok ;;
+  token-put:1) write_file github-token ;;
+  secret-put:2)
+    is_secret_name "${words[1]}" || refuse
+    write_file "${words[1]}"
+    ;;
+  secret-clear:2)
+    is_secret_name "${words[1]}" || refuse
+    rm -f "${xena_dir:?}/${words[1]}"
+    ;;
+  memory-export:1) memory_export ;;
+  memory-import:1) memory_import ;;
+  guard:2)
+    [[ -f "${lib_dir}/guard/${words[1]}.sh" ]] || refuse
+    exec /bin/bash --noprofile --norc "${lib_dir}/guard/${words[1]}.sh"
+    ;;
+  *) refuse ;;
+esac

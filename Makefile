@@ -18,7 +18,8 @@ pre-pr: \
 	test-unit \
 	vuln \
 	secrets \
-	shellcheck
+	shellcheck \
+	test-agent
 
 .PHONY: tidy
 tidy:
@@ -40,6 +41,10 @@ lint-version:
 test-unit: tidy
 	@go test -v -count=1 -race ./...
 
+.PHONY: test-agent
+test-agent:
+	@bash vm/agent/xena-agent_test.sh
+
 .PHONY: vuln
 vuln: tidy
 	@go tool -modfile=$(vuln_modfile) govulncheck ./...
@@ -53,4 +58,7 @@ secrets:
 
 .PHONY: shellcheck
 shellcheck:
-	@git ls-files -z '*.sh' | xargs -0 -r shellcheck
+	@git ls-files -z \
+		'*.sh' \
+		vm/agent/xena-agent \
+		| xargs -0 -r shellcheck
