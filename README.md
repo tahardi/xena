@@ -7,6 +7,7 @@ Xena moves agentic coding into a disposable, encrypted VM behind a network wall 
 | Command | What it does |
 |---|---|
 | `xena version` | Prints the installed version. |
+| `xena secrets put\|list\|verify\|delete` | Store and check secrets in the YubiKey-encrypted secrets store. |
 
 ## Development
 
