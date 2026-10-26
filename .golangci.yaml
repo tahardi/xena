@@ -1,0 +1,89 @@
+version: "2"
+linters:
+  settings:
+    tagliatelle:
+      case:
+        rules:
+          json: snake
+          yaml: snake
+  exclusions:
+    generated: lax
+    rules:
+      # Plan contract names these functions ConfigDir, StateDir, and so on.
+      - path: internal/config/paths\.go
+        linters:
+          - revive
+        text: stutters
+      - path: _test\.go
+        linters:
+          - gosec
+        text: G306
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+  enable:
+    - asciicheck
+    - bidichk
+    - containedctx
+    - contextcheck
+    - durationcheck
+    - embeddedstructfieldcheck
+    - err113
+    - errcheck
+    - errchkjson
+    - errname
+    - errorlint
+    - exhaustive
+    - fatcontext
+    - forcetypeassert
+    - funcorder
+    - gocheckcompilerdirectives
+    - gocritic
+    - godoclint
+    - godox
+    - gosec
+    - govet
+    - iface
+    - importas
+    - inamedparam
+    - ineffassign
+    - loggercheck
+    - makezero
+    - mirror
+    - mnd
+    - modernize
+    - musttag
+    - nilnesserr
+    - nilnil
+    - noctx
+    - nosprintfhostport
+    - perfsprint
+    - prealloc
+    - predeclared
+    - protogetter
+    - reassign
+    - recvcheck
+    - revive
+    - sloglint
+    - staticcheck
+    - tagalign
+    - tagliatelle
+    - testifylint
+    - thelper
+    - unconvert
+    - unused
+    - wastedassign
+    - whitespace
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

@@ -1,0 +1,14 @@
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+.env
+.env.*
+
+*.test
+*.out
+coverage.*
+
+tmp/
+/xena
