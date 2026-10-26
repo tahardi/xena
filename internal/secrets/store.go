@@ -37,7 +37,7 @@ type Store struct {
 	Age            string
 }
 
-func Default() (Store, error) {
+func NewDefaultStore() (Store, error) {
 	age, err := exec.LookPath("age")
 	if err != nil {
 		return Store{}, fmt.Errorf("finding age: %w", err)
@@ -74,7 +74,7 @@ func (s Store) Get(ctx context.Context, name string) ([]byte, error) {
 	}
 
 	var out bytes.Buffer
-	// #nosec G204 -- s.Age is the age binary from Default and every argument is a path, never secret data.
+	// #nosec G204 -- s.Age is the age binary from NewDefaultStore and every argument is a path, never secret data.
 	cmd := exec.CommandContext(ctx, s.Age, "-d", "-i", s.IdentityFile, path)
 	cmd.Stdout = &out
 	cmd.Stderr = os.Stderr
@@ -145,7 +145,7 @@ func (s Store) writeTemp(tmp *os.File, value io.Reader) error {
 		return err
 	}
 
-	// #nosec G204 -- s.Age is the age binary from Default and every argument is a path, never secret data.
+	// #nosec G204 -- s.Age is the age binary from NewDefaultStore and every argument is a path, never secret data.
 	cmd := exec.CommandContext(context.Background(), s.Age, "-e", "-R", s.RecipientsFile)
 	cmd.Stdin = value
 	cmd.Stdout = tmp

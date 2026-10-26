@@ -95,7 +95,7 @@ func newSecretsStore(t *testing.T) secrets.Store {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(configDir, "age-recipients.txt"), out, 0o600))
 
-	store, err := secrets.Default()
+	store, err := secrets.NewDefaultStore()
 	require.NoError(t, err)
 
 	return store

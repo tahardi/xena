@@ -38,7 +38,7 @@ func run(ctx context.Context, args []string, _ *slog.Logger) error {
 		_, err := fmt.Fprintln(os.Stdout, version)
 		return err
 	case "secrets":
-		store, err := secrets.Default()
+		store, err := secrets.NewDefaultStore()
 		if err != nil {
 			return fmt.Errorf("building secrets store: %w", err)
 		}

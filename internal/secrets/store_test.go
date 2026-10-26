@@ -283,7 +283,7 @@ func TestStore_Delete(t *testing.T) {
 	}
 }
 
-func TestDefault(t *testing.T) {
+func TestNewDefaultStore(t *testing.T) {
 	t.Run("happy path - builds from paths", func(t *testing.T) {
 		// given
 		secretsDir := t.TempDir()
@@ -295,7 +295,7 @@ func TestDefault(t *testing.T) {
 		require.NoError(t, err)
 
 		// when
-		got, err := secrets.Default()
+		got, err := secrets.NewDefaultStore()
 
 		// then
 		require.NoError(t, err)
@@ -312,7 +312,7 @@ func TestDefault(t *testing.T) {
 		t.Setenv("PATH", t.TempDir())
 
 		// when
-		_, err := secrets.Default()
+		_, err := secrets.NewDefaultStore()
 
 		// then
 		require.Error(t, err)
