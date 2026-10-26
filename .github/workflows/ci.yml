@@ -46,6 +46,9 @@ jobs:
         with:
           go-version-file: './go.mod'
 
+      - name: Install age
+        run: sudo apt-get update && sudo apt-get install --yes age
+
       - name: Run Unit Tests
         run: make test-unit
 

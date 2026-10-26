@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/tahardi/xena/internal/secrets"
 )
 
 var (
@@ -27,7 +29,7 @@ func main() {
 	}
 }
 
-func run(_ context.Context, args []string, _ *slog.Logger) error {
+func run(ctx context.Context, args []string, _ *slog.Logger) error {
 	if len(args) == 0 {
 		return errNoCommand
 	}
@@ -35,6 +37,13 @@ func run(_ context.Context, args []string, _ *slog.Logger) error {
 	case "version":
 		_, err := fmt.Fprintln(os.Stdout, version)
 		return err
+	case "secrets":
+		store, err := secrets.NewDefaultStore()
+		if err != nil {
+			return fmt.Errorf("building secrets store: %w", err)
+		}
+
+		return runSecrets(ctx, store, args[1:], os.Stdin, os.Stdout)
 	default:
 		return fmt.Errorf("%w: %s", errUnknownCommand, args[0])
 	}
