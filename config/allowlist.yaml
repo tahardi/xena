@@ -1,0 +1,21 @@
+version: 1
+hosts:
+  - host: api.anthropic.com
+  - host: github.com
+  - host: api.github.com
+  - host: codeload.github.com
+  - host: "*.githubusercontent.com"
+  - host: proxy.golang.org
+  - host: sum.golang.org
+  - host: vuln.go.dev
+  - host: registry.npmjs.org
+  - host: pypi.org
+  - host: files.pythonhosted.org
+  - host: crates.io
+  - host: index.crates.io
+  - host: static.crates.io
+  - host: taylorantoniohardin.atlassian.net
+  - host: archive.ubuntu.com
+    ports: [80, 443]
+  - host: security.ubuntu.com
+    ports: [80, 443]
