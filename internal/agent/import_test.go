@@ -128,7 +128,7 @@ func TestAgent_importMemory(t *testing.T) {
 			members: []member{
 				{name: "claude-mem/claude-mem.sql", typeflag: tar.TypeReg, body: ".shell touch PWNED\n"},
 			},
-			wantFail:  true,
+			wantFail: true,
 		},
 	}
 

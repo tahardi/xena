@@ -14,6 +14,7 @@ gitleaks_modfile=modfiles/gitleaks/go.mod
 pre-pr: \
 	tidy \
 	fix \
+	fmt \
 	lint \
 	test-unit \
 	vuln \
@@ -27,6 +28,10 @@ tidy:
 .PHONY: fix
 fix:
 	@go fix ./...
+
+.PHONY: fmt
+fmt:
+	@go tool -modfile=$(lint_modfile) golangci-lint fmt --config .golangci.yaml
 
 .PHONY: lint
 lint: tidy
