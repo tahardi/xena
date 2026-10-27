@@ -81,6 +81,13 @@ linters:
     - wastedassign
     - whitespace
 formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/tahardi/xena
   exclusions:
     generated: lax
     paths:
