@@ -58,13 +58,6 @@ type Server struct {
 	overlay allowlist.Allowlist
 }
 
-type sourceListener struct {
-	net.Listener
-
-	source netip.Addr
-	logger *slog.Logger
-}
-
 func NewServer(
 	source netip.Addr,
 	base allowlist.Allowlist,
@@ -289,23 +282,6 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, upstream *count
 func (s *Server) writeEntry(entry *logs.ProxyEntry) {
 	if err := s.log.Write(*entry); err != nil {
 		s.logger.Warn("writing proxy log", "error", err)
-	}
-}
-
-func (l *sourceListener) Accept() (net.Conn, error) {
-	for {
-		conn, err := l.Listener.Accept()
-		if err != nil {
-			return nil, err
-		}
-
-		remote, err := netip.ParseAddrPort(conn.RemoteAddr().String())
-		if err == nil && remote.Addr().Unmap() == l.source {
-			return conn, nil
-		}
-
-		l.logger.Warn("refusing connection", "remote", conn.RemoteAddr().String())
-		_ = conn.Close()
 	}
 }
 
