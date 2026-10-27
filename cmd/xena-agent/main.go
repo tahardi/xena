@@ -26,15 +26,15 @@ func run() int {
 		return 1
 	}
 
-	a := agent.Agent{
-		Home:     home,
-		GuardDir: filepath.Join(filepath.Dir(exe), "guard"),
-		Bash:     "/bin/bash",
-		SQLite:   "/usr/bin/sqlite3",
-		Stdin:    os.Stdin,
-		Stdout:   os.Stdout,
-		Stderr:   os.Stderr,
-	}
+	a := agent.NewAgent(
+		home,
+		filepath.Join(filepath.Dir(exe), "guard"),
+		"/bin/bash",
+		"/usr/bin/sqlite3",
+		os.Stdin,
+		os.Stdout,
+		os.Stderr,
+	)
 
 	return a.Run(context.Background(), os.Getenv("SSH_ORIGINAL_COMMAND"))
 }

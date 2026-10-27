@@ -119,13 +119,8 @@ func TestSSH_Run(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
 			fake := &fakeExec{out: tt.fakeOut, err: tt.fakeErr}
-			s := SSH{
-				Key:        "/k/automation_ed25519",
-				KnownHosts: "/k/known_hosts",
-				User:       "dev",
-				Addr:       "192.168.150.10",
-				run:        fake.run,
-			}
+			s := NewSSH("/k/automation_ed25519", "/k/known_hosts", "dev", "192.168.150.10")
+			s.run = fake.run
 
 			// when
 			got, err := s.Run(context.Background(), tt.verb, tt.args, tt.stdin)

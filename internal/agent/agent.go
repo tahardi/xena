@@ -26,25 +26,45 @@ var (
 )
 
 type Agent struct {
-	Home     string
-	GuardDir string
-	Bash     string
-	SQLite   string
-	Stdin    io.Reader
-	Stdout   io.Writer
-	Stderr   io.Writer
+	home     string
+	guardDir string
+	bash     string
+	sqlite   string
+	stdin    io.Reader
+	stdout   io.Writer
+	stderr   io.Writer
 }
 
-func (a Agent) Run(ctx context.Context, command string) int {
+func NewAgent(
+	home string,
+	guardDir string,
+	bash string,
+	sqlite string,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+) *Agent {
+	return &Agent{
+		home:     home,
+		guardDir: guardDir,
+		bash:     bash,
+		sqlite:   sqlite,
+		stdin:    stdin,
+		stdout:   stdout,
+		stderr:   stderr,
+	}
+}
+
+func (a *Agent) Run(ctx context.Context, command string) int {
 	code, err := a.dispatch(ctx, command)
 	if err != nil {
-		_, _ = fmt.Fprintln(a.Stderr, err)
+		_, _ = fmt.Fprintln(a.stderr, err)
 	}
 
 	return code
 }
 
-func (a Agent) dispatch(ctx context.Context, command string) (int, error) {
+func (a *Agent) dispatch(ctx context.Context, command string) (int, error) {
 	words := strings.Fields(command)
 	if !validCommand.MatchString(command) || len(words) == 0 {
 		return result(ErrRefusedVerb)
@@ -54,7 +74,7 @@ func (a Agent) dispatch(ctx context.Context, command string) (int, error) {
 
 	switch {
 	case verb == "health" && len(args) == 0:
-		_, err := fmt.Fprintln(a.Stdout, "ok")
+		_, err := fmt.Fprintln(a.stdout, "ok")
 		return result(err)
 	case verb == "token-put" && len(args) == 0:
 		return result(a.writeSecret("github-token"))

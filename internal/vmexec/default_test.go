@@ -13,20 +13,20 @@ func TestDefault(t *testing.T) {
 	tests := []struct {
 		name          string
 		file          string
-		want          func(configDir string) SSH
+		want          func(configDir string) *SSH
 		wantErrPrefix string
 		wantErr       error
 	}{
 		{
 			name: "happy path - vm address from vm.yaml",
 			file: "version: 1\nnetwork:\n  vm_address: 192.168.150.10\n",
-			want: func(configDir string) SSH {
-				return SSH{
-					Key:        filepath.Join(configDir, "automation_ed25519"),
-					KnownHosts: filepath.Join(configDir, "known_hosts"),
-					User:       "dev",
-					Addr:       "192.168.150.10",
-				}
+			want: func(configDir string) *SSH {
+				return NewSSH(
+					filepath.Join(configDir, "automation_ed25519"),
+					filepath.Join(configDir, "known_hosts"),
+					"dev",
+					"192.168.150.10",
+				)
 			},
 		},
 		{
@@ -59,7 +59,7 @@ func TestDefault(t *testing.T) {
 			// then
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
-				require.Equal(t, SSH{}, got)
+				require.Nil(t, got)
 				return
 			}
 
@@ -71,7 +71,11 @@ func TestDefault(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			require.Equal(t, tt.want(configDir), got)
+			require.NotNil(t, got.run)
+
+			want := tt.want(configDir)
+			want.run, got.run = nil, nil
+			require.Equal(t, want, got)
 		})
 	}
 }

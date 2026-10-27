@@ -10,14 +10,14 @@ import (
 	"path/filepath"
 )
 
-func (a Agent) exportMemory() error {
-	roots, err := filepath.Glob(filepath.Join(a.Home, ".claude", "projects", "*", "memory"))
+func (a *Agent) exportMemory() error {
+	roots, err := filepath.Glob(filepath.Join(a.home, ".claude", "projects", "*", "memory"))
 	if err != nil {
 		return fmt.Errorf("finding memory dirs: %w", err)
 	}
 
-	roots = append(roots, filepath.Join(a.Home, ".claude-mem"))
-	tw := tar.NewWriter(a.Stdout)
+	roots = append(roots, filepath.Join(a.home, ".claude-mem"))
+	tw := tar.NewWriter(a.stdout)
 
 	for _, root := range roots {
 		if err := a.addTree(tw, root); err != nil {
@@ -32,7 +32,7 @@ func (a Agent) exportMemory() error {
 	return nil
 }
 
-func (a Agent) addTree(tw *tar.Writer, root string) error {
+func (a *Agent) addTree(tw *tar.Writer, root string) error {
 	if !isRealDir(root) || !isRealDir(filepath.Dir(root)) {
 		return nil
 	}
@@ -50,13 +50,13 @@ func (a Agent) addTree(tw *tar.Writer, root string) error {
 	})
 }
 
-func (a Agent) addMember(tw *tar.Writer, path string, d fs.DirEntry) error {
+func (a *Agent) addMember(tw *tar.Writer, path string, d fs.DirEntry) error {
 	info, err := d.Info()
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", path, err)
 	}
 
-	rel, err := filepath.Rel(a.Home, path)
+	rel, err := filepath.Rel(a.home, path)
 	if err != nil {
 		return fmt.Errorf("naming %s: %w", path, err)
 	}

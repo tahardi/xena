@@ -29,7 +29,7 @@ func TestAgent_Run(t *testing.T) {
 			wantCode: 3,
 			setup: func(t *testing.T, h harness) {
 				t.Helper()
-				writeFile(t, filepath.Join(h.agent.GuardDir, "fail-case.sh"), "exit 3\n")
+				writeFile(t, filepath.Join(h.agent.guardDir, "fail-case.sh"), "exit 3\n")
 			},
 		},
 		{
@@ -45,7 +45,7 @@ func TestAgent_Run(t *testing.T) {
 			wantStderr: "refusing import: memory exists\n",
 			setup: func(t *testing.T, h harness) {
 				t.Helper()
-				writeFile(t, filepath.Join(h.agent.Home, ".claude-mem", "claude-mem.db"), "")
+				writeFile(t, filepath.Join(h.agent.home, ".claude-mem", "claude-mem.db"), "")
 			},
 		},
 		{name: "error - unknown verb", command: "rm -rf /", wantCode: 2, wantStderr: "refusing verb\n"},
@@ -109,7 +109,7 @@ func TestAgent_Run(t *testing.T) {
 	t.Run("error - github-token survives refused secret-clear", func(t *testing.T) {
 		// given
 		h := newHarness(t, "")
-		token := filepath.Join(h.agent.Home, ".config", "xena", "github-token")
+		token := filepath.Join(h.agent.home, ".config", "xena", "github-token")
 		writeFile(t, token, "tok-fake-1")
 
 		// when

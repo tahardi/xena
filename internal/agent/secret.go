@@ -23,11 +23,11 @@ func isSecretName(name string) bool {
 	}
 }
 
-func (a Agent) xenaDir() string {
-	return filepath.Join(a.Home, ".config", "xena")
+func (a *Agent) xenaDir() string {
+	return filepath.Join(a.home, ".config", "xena")
 }
 
-func (a Agent) writeSecret(name string) error {
+func (a *Agent) writeSecret(name string) error {
 	dir := a.xenaDir()
 	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return fmt.Errorf("creating %s: %w", dir, err)
@@ -43,7 +43,7 @@ func (a Agent) writeSecret(name string) error {
 	}
 	defer os.Remove(tmp.Name())
 
-	n, err := io.Copy(tmp, a.Stdin)
+	n, err := io.Copy(tmp, a.stdin)
 	if closeErr := tmp.Close(); err == nil {
 		err = closeErr
 	}
@@ -67,7 +67,7 @@ func (a Agent) writeSecret(name string) error {
 	return nil
 }
 
-func (a Agent) clearSecret(name string) error {
+func (a *Agent) clearSecret(name string) error {
 	err := os.Remove(filepath.Join(a.xenaDir(), name))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("removing %s: %w", name, err)

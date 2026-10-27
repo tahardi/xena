@@ -74,7 +74,7 @@ func TestAgent_importMemory(t *testing.T) {
 			wantFiles: []string{".claude/projects/p1/memory/m.md"},
 			setup: func(t *testing.T, h harness) {
 				t.Helper()
-				require.NoError(t, os.MkdirAll(filepath.Join(h.agent.Home, ".claude", "projects", "p1", "memory"), 0o700))
+				require.NoError(t, os.MkdirAll(filepath.Join(h.agent.home, ".claude", "projects", "p1", "memory"), 0o700))
 			},
 		},
 		{
@@ -83,7 +83,7 @@ func TestAgent_importMemory(t *testing.T) {
 			wantErr: ErrMemoryExists,
 			setup: func(t *testing.T, h harness) {
 				t.Helper()
-				writeFile(t, filepath.Join(h.agent.Home, ".claude-mem", "claude-mem.db"), "")
+				writeFile(t, filepath.Join(h.agent.home, ".claude-mem", "claude-mem.db"), "")
 			},
 		},
 		{
@@ -93,7 +93,7 @@ func TestAgent_importMemory(t *testing.T) {
 			absent:  []string{".claude-mem/claude-mem.db"},
 			setup: func(t *testing.T, h harness) {
 				t.Helper()
-				writeFile(t, filepath.Join(h.agent.Home, ".claude", "projects", "p2", "memory", "m.md"), "")
+				writeFile(t, filepath.Join(h.agent.home, ".claude", "projects", "p2", "memory", "m.md"), "")
 			},
 		},
 		{
@@ -154,11 +154,11 @@ func TestAgent_importMemory(t *testing.T) {
 			}
 
 			for _, name := range tt.wantFiles {
-				require.FileExists(t, filepath.Join(h.agent.Home, name))
+				require.FileExists(t, filepath.Join(h.agent.home, name))
 			}
 
 			for _, name := range tt.absent {
-				require.NoFileExists(t, filepath.Join(h.agent.Home, name))
+				require.NoFileExists(t, filepath.Join(h.agent.home, name))
 			}
 
 			outside, err := filepath.Glob(filepath.Join(h.tmp, "outside"))
@@ -168,9 +168,9 @@ func TestAgent_importMemory(t *testing.T) {
 			pwned, err := filepath.Glob(filepath.Join(h.tmp, "*", "*", "PWNED"))
 			require.NoError(t, err)
 			require.Empty(t, pwned)
-			require.NoFileExists(t, filepath.Join(h.agent.Home, "PWNED"))
+			require.NoFileExists(t, filepath.Join(h.agent.home, "PWNED"))
 
-			leftover, err := filepath.Glob(filepath.Join(h.agent.Home, ".xena-import-*"))
+			leftover, err := filepath.Glob(filepath.Join(h.agent.home, ".xena-import-*"))
 			require.NoError(t, err)
 			require.Empty(t, leftover)
 		})

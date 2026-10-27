@@ -41,7 +41,7 @@ func TestAgent_writeSecret(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
 			h := newHarness(t, tt.stdin)
-			dir := filepath.Join(h.agent.Home, ".config", "xena")
+			dir := filepath.Join(h.agent.home, ".config", "xena")
 			path := filepath.Join(dir, tt.secret)
 
 			if tt.existing != "" {
@@ -86,7 +86,7 @@ func TestAgent_clearSecret(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
 			h := newHarness(t, "")
-			path := filepath.Join(h.agent.Home, ".config", "xena", "jira-token")
+			path := filepath.Join(h.agent.home, ".config", "xena", "jira-token")
 
 			if tt.existing {
 				writeFile(t, path, "jira-fake")

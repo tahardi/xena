@@ -12,7 +12,7 @@ import (
 )
 
 type harness struct {
-	agent  Agent
+	agent  *Agent
 	tmp    string
 	stdout *bytes.Buffer
 	stderr *bytes.Buffer
@@ -34,15 +34,7 @@ func newHarness(t *testing.T, stdin string) harness {
 	require.NoError(t, os.MkdirAll(guardDir, 0o700))
 
 	h := harness{tmp: tmp, stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}}
-	h.agent = Agent{
-		Home:     home,
-		GuardDir: guardDir,
-		Bash:     bash,
-		SQLite:   sqlite,
-		Stdin:    strings.NewReader(stdin),
-		Stdout:   h.stdout,
-		Stderr:   h.stderr,
-	}
+	h.agent = NewAgent(home, guardDir, bash, sqlite, strings.NewReader(stdin), h.stdout, h.stderr)
 
 	return h
 }

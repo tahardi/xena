@@ -15,7 +15,7 @@ import (
 
 const cleanPath = "PATH=/usr/sbin:/usr/bin:/sbin:/bin"
 
-func (a Agent) importMemory(ctx context.Context) error {
+func (a *Agent) importMemory(ctx context.Context) error {
 	exists, err := a.memoryExists()
 	if err != nil {
 		return err
@@ -25,13 +25,13 @@ func (a Agent) importMemory(ctx context.Context) error {
 		return ErrMemoryExists
 	}
 
-	tmp, err := os.MkdirTemp(a.Home, ".xena-import-")
+	tmp, err := os.MkdirTemp(a.home, ".xena-import-")
 	if err != nil {
 		return fmt.Errorf("creating import dir: %w", err)
 	}
 	defer os.RemoveAll(tmp)
 
-	if err := extract(a.Stdin, tmp); err != nil {
+	if err := extract(a.stdin, tmp); err != nil {
 		return err
 	}
 
@@ -42,8 +42,8 @@ func (a Agent) importMemory(ctx context.Context) error {
 	return a.loadDatabase(ctx, filepath.Join(tmp, "claude-mem", "claude-mem.sql"))
 }
 
-func (a Agent) memoryExists() (bool, error) {
-	_, err := os.Lstat(filepath.Join(a.Home, ".claude-mem", "claude-mem.db"))
+func (a *Agent) memoryExists() (bool, error) {
+	_, err := os.Lstat(filepath.Join(a.home, ".claude-mem", "claude-mem.db"))
 	if err == nil {
 		return true, nil
 	}
@@ -52,7 +52,7 @@ func (a Agent) memoryExists() (bool, error) {
 		return false, fmt.Errorf("checking claude-mem database: %w", err)
 	}
 
-	files, err := filepath.Glob(filepath.Join(a.Home, ".claude", "projects", "*", "memory", "*"))
+	files, err := filepath.Glob(filepath.Join(a.home, ".claude", "projects", "*", "memory", "*"))
 	if err != nil {
 		return false, fmt.Errorf("checking memory files: %w", err)
 	}
@@ -127,7 +127,7 @@ func writeMember(root *os.Root, r io.Reader, name string) error {
 	return nil
 }
 
-func (a Agent) moveMemory(tmp string) error {
+func (a *Agent) moveMemory(tmp string) error {
 	dirs, err := filepath.Glob(filepath.Join(tmp, "projects", "*", "memory"))
 	if err != nil {
 		return fmt.Errorf("finding imported memory: %w", err)
@@ -138,7 +138,7 @@ func (a Agent) moveMemory(tmp string) error {
 			continue
 		}
 
-		project := filepath.Join(a.Home, ".claude", "projects", filepath.Base(filepath.Dir(dir)))
+		project := filepath.Join(a.home, ".claude", "projects", filepath.Base(filepath.Dir(dir)))
 		if err := os.MkdirAll(project, dirMode); err != nil {
 			return fmt.Errorf("creating %s: %w", project, err)
 		}
@@ -156,7 +156,7 @@ func (a Agent) moveMemory(tmp string) error {
 	return nil
 }
 
-func (a Agent) loadDatabase(ctx context.Context, sqlPath string) error {
+func (a *Agent) loadDatabase(ctx context.Context, sqlPath string) error {
 	info, err := os.Lstat(sqlPath)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -170,7 +170,7 @@ func (a Agent) loadDatabase(ctx context.Context, sqlPath string) error {
 		return nil
 	}
 
-	dbDir := filepath.Join(a.Home, ".claude-mem")
+	dbDir := filepath.Join(a.home, ".claude-mem")
 	if err := os.MkdirAll(dbDir, dirMode); err != nil {
 		return fmt.Errorf("creating %s: %w", dbDir, err)
 	}
@@ -181,12 +181,12 @@ func (a Agent) loadDatabase(ctx context.Context, sqlPath string) error {
 	}
 	defer sql.Close()
 
-	// #nosec G204 -- a.SQLite is fixed in main and the only argument is the database path under Home.
-	cmd := exec.CommandContext(ctx, a.SQLite, "-safe", filepath.Join(dbDir, "claude-mem.db"))
-	cmd.Dir = a.Home
-	cmd.Env = []string{"HOME=" + a.Home, cleanPath}
+	// #nosec G204 -- a.sqlite is fixed in main and the only argument is the database path under home.
+	cmd := exec.CommandContext(ctx, a.sqlite, "-safe", filepath.Join(dbDir, "claude-mem.db"))
+	cmd.Dir = a.home
+	cmd.Env = []string{"HOME=" + a.home, cleanPath}
 	cmd.Stdin = sql
-	cmd.Stderr = a.Stderr
+	cmd.Stderr = a.stderr
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("importing claude-mem database: %w", err)

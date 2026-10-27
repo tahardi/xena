@@ -9,21 +9,21 @@ import (
 	"path/filepath"
 )
 
-func (a Agent) runGuard(ctx context.Context, name string) (int, error) {
-	script := filepath.Join(a.GuardDir, name+".sh")
+func (a *Agent) runGuard(ctx context.Context, name string) (int, error) {
+	script := filepath.Join(a.guardDir, name+".sh")
 
 	info, err := os.Stat(script)
 	if err != nil || !info.Mode().IsRegular() {
 		return result(ErrRefusedVerb)
 	}
 
-	// #nosec G204 -- a.Bash is fixed in main, and name matched ^[a-z0-9-]+$ and names an existing file in GuardDir.
-	cmd := exec.CommandContext(ctx, a.Bash, "--noprofile", "--norc", script)
-	cmd.Dir = a.Home
-	cmd.Env = []string{"HOME=" + a.Home, cleanPath}
-	cmd.Stdin = a.Stdin
-	cmd.Stdout = a.Stdout
-	cmd.Stderr = a.Stderr
+	// #nosec G204 -- a.bash is fixed in main, and name matched ^[a-z0-9-]+$ and names an existing file in guardDir.
+	cmd := exec.CommandContext(ctx, a.bash, "--noprofile", "--norc", script)
+	cmd.Dir = a.home
+	cmd.Env = []string{"HOME=" + a.home, cleanPath}
+	cmd.Stdin = a.stdin
+	cmd.Stdout = a.stdout
+	cmd.Stderr = a.stderr
 
 	err = cmd.Run()
 

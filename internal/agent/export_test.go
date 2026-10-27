@@ -87,7 +87,7 @@ func TestAgent_exportMemory(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
 			h := newHarness(t, "")
-			tt.setup(t, h.agent.Home)
+			tt.setup(t, h.agent.home)
 
 			// when
 			err := h.agent.exportMemory()

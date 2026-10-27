@@ -36,7 +36,7 @@ func TestAgent_runGuard(t *testing.T) {
 			writeFile(t, filepath.Join(h.tmp, "evil.sh"), "touch \""+filepath.Join(h.tmp, "pwned")+"\"\n")
 
 			if tt.script != "" {
-				writeFile(t, filepath.Join(h.agent.GuardDir, tt.guard+".sh"), tt.script)
+				writeFile(t, filepath.Join(h.agent.guardDir, tt.guard+".sh"), tt.script)
 			}
 
 			// when
