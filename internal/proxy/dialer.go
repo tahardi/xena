@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"sync/atomic"
 
 	"github.com/tahardi/xena/internal/allowlist"
 	"github.com/tahardi/xena/internal/logs"
@@ -19,35 +18,8 @@ var (
 	ErrNoUpstreamDials = errors.New("no upstream dials")
 )
 
-type Resolver interface {
-	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
-}
-
 type Dialer interface {
 	DialContext(ctx context.Context, network, address string) (net.Conn, error)
-}
-
-type countingConn struct {
-	net.Conn
-
-	in, out atomic.Int64
-}
-
-func (c *countingConn) Read(p []byte) (int, error) {
-	n, err := c.Conn.Read(p)
-	c.in.Add(int64(n))
-	return n, err
-}
-
-func (c *countingConn) Write(p []byte) (int, error) {
-	n, err := c.Conn.Write(p)
-	c.out.Add(int64(n))
-	return n, err
-}
-
-func (c *countingConn) CloseWrite() error {
-	closeWrite(c.Conn)
-	return nil
 }
 
 func (s *Server) dialChecked(ctx context.Context, host string, port int) (*countingConn, string, error) {
@@ -80,10 +52,4 @@ func (s *Server) dialChecked(ctx context.Context, host string, port int) (*count
 	}
 
 	return nil, logs.DecisionErrorDial, fmt.Errorf("dialing upstream: %w", errors.Join(errs...))
-}
-
-func closeWrite(conn net.Conn) {
-	if cw, ok := conn.(interface{ CloseWrite() error }); ok {
-		_ = cw.CloseWrite()
-	}
 }
