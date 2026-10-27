@@ -40,10 +40,6 @@ var hopHeaders = []string{
 	"Upgrade",
 }
 
-type RecordWriter interface {
-	Write(record logs.Record) error
-}
-
 type Server struct {
 	source      netip.Addr
 	base        allowlist.Allowlist
@@ -51,7 +47,7 @@ type Server struct {
 	resolver    Resolver
 	dialer      Dialer
 	prompter    Prompter
-	log         RecordWriter
+	log         *logs.Writer
 	logger      *slog.Logger
 
 	mu      sync.Mutex
@@ -65,7 +61,7 @@ func NewServer(
 	resolver Resolver,
 	dialer Dialer,
 	prompter Prompter,
-	log RecordWriter,
+	log *logs.Writer,
 	logger *slog.Logger,
 ) *Server {
 	return &Server{
@@ -124,7 +120,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	host, port := splitTarget(target)
 	entry := logs.ProxyEntry{Time: start, Host: host, Port: port}
-	defer s.writeEntry(&entry)
+	// The entry must be written even after the request context ends, and logs.Writer.Write takes no context.
+	defer s.writeEntry(&entry) //nolint:contextcheck
 
 	status := s.decide(r.Context(), &entry)
 	if status != 0 {

@@ -137,32 +137,6 @@ func (p *fakePrompter) Calls() []promptCall {
 	return append([]promptCall(nil), p.calls...)
 }
 
-type fakeLog struct {
-	mu      sync.Mutex
-	records []logs.Record
-	err     error
-}
-
-func (l *fakeLog) Write(record logs.Record) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	l.records = append(l.records, record)
-	return l.err
-}
-
-func (l *fakeLog) Entries() []logs.ProxyEntry {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	entries := make([]logs.ProxyEntry, 0, len(l.records))
-	for _, record := range l.records {
-		entry, _ := record.(logs.ProxyEntry)
-		entries = append(entries, entry)
-	}
-	return entries
-}
-
 type upstreamRequest struct {
 	host    string
 	path    string
@@ -175,7 +149,8 @@ type proxyFixture struct {
 	resolver *fakeResolver
 	dialer   *fakeDialer
 	prompter *fakePrompter
-	log      *fakeLog
+	logDir   string
+	log      *logs.Writer
 	upstream chan upstreamRequest
 }
 
@@ -207,11 +182,13 @@ func startEcho(t *testing.T, extra int) string {
 func newProxyFixture(t *testing.T, extra int) *proxyFixture {
 	t.Helper()
 
+	logDir := t.TempDir()
 	f := &proxyFixture{
 		stateDir: t.TempDir(),
+		logDir:   logDir,
+		log:      &logs.Writer{Dir: logDir, Name: "proxy"},
 		resolver: &fakeResolver{answers: map[string][]netip.Addr{}},
 		prompter: &fakePrompter{},
-		log:      &fakeLog{},
 		upstream: make(chan upstreamRequest, 1),
 	}
 
@@ -333,11 +310,33 @@ func (f *proxyFixture) get(t *testing.T, target string, headers map[string]strin
 	return resp.StatusCode, string(body)
 }
 
+func (f *proxyFixture) rawLog() string {
+	paths, _ := filepath.Glob(filepath.Join(f.logDir, "proxy-*.jsonl"))
+
+	var out strings.Builder
+	for _, path := range paths {
+		data, _ := os.ReadFile(path)
+		out.Write(data)
+	}
+	return out.String()
+}
+
+func (f *proxyFixture) entries() []logs.ProxyEntry {
+	var entries []logs.ProxyEntry
+	for line := range strings.Lines(f.rawLog()) {
+		var entry logs.ProxyEntry
+		if json.Unmarshal([]byte(line), &entry) == nil {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
+}
+
 func (f *proxyFixture) entry(t *testing.T) logs.ProxyEntry {
 	t.Helper()
 
-	require.Eventually(t, func() bool { return len(f.log.Entries()) == 1 }, time.Second, 5*time.Millisecond)
-	return f.log.Entries()[0]
+	require.Eventually(t, func() bool { return len(f.entries()) == 1 }, time.Second, 5*time.Millisecond)
+	return f.entries()[0]
 }
 
 func addrs(values ...string) []netip.Addr {
@@ -660,13 +659,11 @@ func TestServer_ServeHTTP(t *testing.T) {
 				r.Empty(got.headers.Values("Proxy-Authorization"))
 				r.Empty(got.headers.Values("Proxy-Connection"))
 
-				for _, entry := range f.log.Entries() {
-					line, err := json.Marshal(entry)
-					r.NoError(err)
-					r.NotContains(string(line), "s3cr3t")
-					r.NotContains(string(line), "/x")
-					r.NotContains(string(line), "Zm9v")
-				}
+				log := f.rawLog()
+				r.NotEmpty(log)
+				r.NotContains(log, "s3cr3t")
+				r.NotContains(log, "/x")
+				r.NotContains(log, "Zm9v")
 			},
 		},
 		{
@@ -821,7 +818,7 @@ func TestServer_ServeHTTP(t *testing.T) {
 			}
 
 			if tt.noEntry {
-				require.Never(t, func() bool { return len(f.log.Entries()) > 0 }, 50*time.Millisecond, 5*time.Millisecond)
+				require.Never(t, func() bool { return len(f.entries()) > 0 }, 50*time.Millisecond, 5*time.Millisecond)
 				return
 			}
 
@@ -868,8 +865,8 @@ func TestServer_ServeHTTP(t *testing.T) {
 		status, _ = f.connect(t, "new.example.net:8443", ping)
 		require.Equal(t, http.StatusForbidden, status)
 
-		require.Eventually(t, func() bool { return len(f.log.Entries()) == 3 }, time.Second, 5*time.Millisecond)
-		entries := f.log.Entries()
+		require.Eventually(t, func() bool { return len(f.entries()) == 3 }, time.Second, 5*time.Millisecond)
+		entries := f.entries()
 		require.Equal(t, logs.DecisionAllow, entries[1].Decision)
 		require.Equal(t, logs.DecisionRefusePort, entries[2].Decision)
 		require.Len(t, f.prompter.Calls(), 1)
@@ -920,7 +917,7 @@ func TestServer_ServeHTTP(t *testing.T) {
 		// given
 		f := newProxyFixture(t, 0)
 		f.resolver.answers["example.com"] = addrs("192.0.2.10")
-		f.log.err = errFake
+		f.log.Dir = filepath.Join(t.TempDir(), "missing")
 		f.start(t)
 
 		// when
@@ -959,8 +956,8 @@ func TestServer_ServeHTTP(t *testing.T) {
 
 		// then
 		require.Error(t, err)
-		require.Never(t, func() bool { return len(f.log.Entries()) > 1 }, 50*time.Millisecond, 5*time.Millisecond)
-		require.Equal(t, logs.DecisionRefusePort, f.log.Entries()[0].Decision)
+		require.Never(t, func() bool { return len(f.entries()) > 1 }, 50*time.Millisecond, 5*time.Millisecond)
+		require.Equal(t, logs.DecisionRefusePort, f.entries()[0].Decision)
 		require.Empty(t, f.dialer.Calls())
 	})
 
@@ -982,7 +979,7 @@ func TestServer_ServeHTTP(t *testing.T) {
 		// then
 		require.NoError(t, err)
 		require.Empty(t, got)
-		require.Never(t, func() bool { return len(f.log.Entries()) > 0 }, 50*time.Millisecond, 5*time.Millisecond)
+		require.Never(t, func() bool { return len(f.entries()) > 0 }, 50*time.Millisecond, 5*time.Millisecond)
 		require.Empty(t, f.prompter.Calls())
 	})
 
@@ -1001,7 +998,7 @@ func TestServer_ServeHTTP(t *testing.T) {
 			&fakeResolver{},
 			&fakeDialer{},
 			&fakePrompter{},
-			&fakeLog{},
+			&logs.Writer{Dir: t.TempDir(), Name: "proxy"},
 			slog.New(slog.DiscardHandler),
 		)
 
