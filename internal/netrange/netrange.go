@@ -7,26 +7,47 @@ import (
 )
 
 var refusedPrefixes = []netip.Prefix{
+	// "This network": 0.0.0.0 can mean the local host on some stacks.
 	netip.MustParsePrefix("0.0.0.0/8"),
+	// Private LAN addresses (RFC 1918).
 	netip.MustParsePrefix("10.0.0.0/8"),
+	// Carrier-grade NAT space; can reach the ISP's shared network or Tailscale peers.
 	netip.MustParsePrefix("100.64.0.0/10"),
+	// Loopback: the machine itself, where desktop services listen.
 	netip.MustParsePrefix("127.0.0.0/8"),
+	// Link-local, including the cloud metadata address 169.254.169.254.
 	netip.MustParsePrefix("169.254.0.0/16"),
+	// Private LAN addresses (RFC 1918); also Docker's default networks.
 	netip.MustParsePrefix("172.16.0.0/12"),
+	// IETF protocol assignments, such as NAT64 and DS-Lite gateways; never a public site.
 	netip.MustParsePrefix("192.0.0.0/24"),
+	// Private LAN addresses (RFC 1918): home router, LAN devices, and the VM bridge 192.168.150.0/24.
 	netip.MustParsePrefix("192.168.0.0/16"),
+	// Benchmarking range; some appliances and proxies use it internally.
 	netip.MustParsePrefix("198.18.0.0/15"),
+	// Multicast: reaches every listener on the LAN, such as mDNS and SSDP.
 	netip.MustParsePrefix("224.0.0.0/4"),
+	// Reserved and limited broadcast (255.255.255.255).
 	netip.MustParsePrefix("240.0.0.0/4"),
+	// IPv6 unspecified (::), loopback (::1), and IPv4-compatible forms that can hide a private IPv4.
 	netip.MustParsePrefix("::/96"),
+	// NAT64 well-known prefix: wraps any IPv4 address, private ones included.
 	netip.MustParsePrefix("64:ff9b::/96"),
+	// NAT64 local-use prefix: wraps IPv4 addresses on a local translator.
 	netip.MustParsePrefix("64:ff9b:1::/48"),
+	// Discard-only range; no legitimate destination.
 	netip.MustParsePrefix("100::/64"),
+	// Teredo tunnels: embed an IPv4 address and tunnel through it.
 	netip.MustParsePrefix("2001::/32"),
+	// 6to4 tunnels: embed an IPv4 address, which can be private.
 	netip.MustParsePrefix("2002::/16"),
+	// IPv6 unique local addresses, the IPv6 version of a private LAN.
 	netip.MustParsePrefix("fc00::/7"),
+	// IPv6 link-local: the router and devices on the same LAN segment.
 	netip.MustParsePrefix("fe80::/10"),
+	// Deprecated IPv6 site-local; some old networks still use it as private space.
 	netip.MustParsePrefix("fec0::/10"),
+	// IPv6 multicast: reaches every listener on the LAN.
 	netip.MustParsePrefix("ff00::/8"),
 }
 
