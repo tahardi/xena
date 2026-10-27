@@ -6,6 +6,25 @@ import (
 	"strings"
 )
 
+// The agent inside the VM is untrusted. Its only way out is the proxy, which should let it reach public hosts on the
+// allowlist and nothing else. A hostname is not enough to enforce that: an allowlisted or approved name can resolve
+// to any address, and an attacker who controls a name's DNS can point it at an internal address (DNS rebinding).
+// So the proxy checks the resolved address too, and refuses every range below.
+//
+// These ranges hold things that are reachable from this desktop but must never be reachable from the agent:
+//   - The desktop itself (loopback): the proxy, secrets store, prompt service, and anything else listening locally.
+//   - The home network (private LAN, link-local, unique local, the VM bridge): the router's admin page, NAS,
+//     printers, cameras, and other devices that often have weak or no login because they trust the local network.
+//   - Cloud metadata (169.254.169.254): hands out machine credentials to anything that asks.
+//   - Private overlay networks (CGNAT space, used by Tailscale): every other machine on the tailnet.
+//   - Multicast and broadcast: reach every device on the network at once and can be used to discover targets.
+//
+// Services in these ranges usually assume any caller is already trusted, so one request from the agent could read
+// secrets, change settings, or give it a foothold on another machine.
+//
+// Some IPv6 ranges (NAT64, Teredo, 6to4, IPv4-compatible) wrap an IPv4 address inside an IPv6 one. They are refused
+// so a private IPv4 address cannot be smuggled past this check in IPv6 form. Reserved, discard, and benchmarking
+// ranges have no legitimate public destination, so refusing them costs nothing.
 var refusedPrefixes = []netip.Prefix{
 	// "This network": 0.0.0.0 can mean the local host on some stacks.
 	netip.MustParsePrefix("0.0.0.0/8"),
