@@ -9,6 +9,12 @@ Xena moves agentic coding into a disposable, encrypted VM behind a network wall 
 | `xena version` | Prints the installed version. |
 | `xena secrets put\|list\|verify\|delete` | Store and check secrets in the YubiKey-encrypted secrets store. |
 
+## Talking to the VM
+
+Desktop programs reach the VM through `internal/vmexec`, which runs `ssh` with the automation key and sends one short command such as `health` or `secret-put jira-token`.
+
+`xena-agent` (`cmd/xena-agent`) runs inside the VM. The VM's SSH server starts it for every login with the automation key, so that key can only run the commands the agent allows. It never runs on the desktop.
+
 ## Development
 
 Requires Go 1.27 and shellcheck. `make pre-pr` runs tidy, fix, lint, unit tests, govulncheck, gitleaks, and shellcheck, the same checks CI runs. See `docs/rulesets.md` for the branch rules on `main`.
