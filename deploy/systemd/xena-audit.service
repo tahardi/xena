@@ -1,0 +1,14 @@
+[Unit]
+Description=Xena desktop audit
+
+[Service]
+Type=oneshot
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/local/bin/xena audit
+ExecStopPost=/bin/sh -c 'if [ "$$SERVICE_RESULT" != success ]; then /usr/bin/notify-send --urgency=critical "Xena audit found drift" "Run xena audit or /audit for details."; fi'
+TimeoutStartSec=30min
+NoNewPrivileges=yes
+LockPersonality=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+UMask=0077

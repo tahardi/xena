@@ -29,7 +29,7 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, args []string, _ *slog.Logger) error {
+func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	if len(args) == 0 {
 		return errNoCommand
 	}
@@ -44,6 +44,8 @@ func run(ctx context.Context, args []string, _ *slog.Logger) error {
 		}
 
 		return runSecrets(ctx, store, args[1:], os.Stdin, os.Stdout)
+	case "audit":
+		return runAudit(ctx, args[1:], logger)
 	default:
 		return fmt.Errorf("%w: %s", errUnknownCommand, args[0])
 	}
