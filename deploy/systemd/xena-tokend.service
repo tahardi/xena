@@ -1,0 +1,18 @@
+[Unit]
+Description=Xena GitHub App token service
+
+[Service]
+ExecStart=/usr/local/bin/xena-tokend
+Restart=on-failure
+RestartSec=30
+UMask=0077
+NoNewPrivileges=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=default.target
