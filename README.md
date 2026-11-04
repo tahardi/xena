@@ -8,6 +8,8 @@ Xena moves agentic coding into a disposable, encrypted VM behind a network wall 
 |---|---|
 | `xena version` | Prints the installed version. |
 | `xena secrets put\|list\|verify\|delete` | Store and check secrets in the YubiKey-encrypted secrets store. |
+| `xena inventory check [--file-cards]` | Check the token inventory and file rotation cards. |
+| `xena rotate NAME` | Rotate one token and confirm the old value is rejected. |
 
 ## Talking to the VM
 
