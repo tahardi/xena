@@ -10,6 +10,8 @@ lint_modfile=modfiles/golangci-lint/go.mod
 vuln_modfile=modfiles/govulncheck/go.mod
 gitleaks_modfile=modfiles/gitleaks/go.mod
 
+VERSION ?= $(shell git describe --tags --abbrev=0 --match 'v*' origin/main 2>/dev/null)
+
 .PHONY: pre-pr
 pre-pr: \
 	tidy \
@@ -19,7 +21,8 @@ pre-pr: \
 	test-unit \
 	vuln \
 	secrets \
-	shellcheck
+	shellcheck \
+	test-scripts
 
 .PHONY: tidy
 tidy:
@@ -59,3 +62,20 @@ secrets:
 .PHONY: shellcheck
 shellcheck:
 	@git ls-files -z '*.sh' | xargs -0 -r shellcheck
+
+.PHONY: test-scripts
+test-scripts:
+	@./scripts/install_test.sh
+
+.PHONY: install
+install:
+	./scripts/install.sh install $(VERSION)
+
+.PHONY: rollback
+rollback:
+	$(if $(filter command line,$(origin VERSION)),,$(error rollback needs VERSION=vX.Y.Z))
+	./scripts/install.sh install $(VERSION)
+
+.PHONY: uninstall
+uninstall:
+	./scripts/uninstall.sh

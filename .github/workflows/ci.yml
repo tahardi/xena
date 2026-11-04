@@ -95,3 +95,6 @@ jobs:
 
       - name: Run shellcheck
         run: make shellcheck
+
+      - name: Run script tests
+        run: make test-scripts
