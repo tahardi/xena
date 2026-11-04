@@ -30,6 +30,10 @@ write_fakes() {
 
 	write_fake xena </dev/null
 
+	write_fake getent <<'EOF'
+[[ " ${FAKE_GETENT-xena-proxy xena-watch xena-prompt} " == *" $2 "* ]]
+EOF
+
 	write_fake virsh <<'EOF'
 if [[ -z "${FAKE_VM_STATE:-}" ]]; then
 	exit 1
@@ -414,6 +418,14 @@ test_rollback_needs_version() {
 	[[ "$err" == *"rollback needs VERSION=vX.Y.Z"* ]] || fail "output '$err' does not contain the rollback message"
 }
 
+test_services_skip_without_vm_config() {
+	local unit
+	for unit in xena-proxy.service xena-tokend.service; do
+		grep -qxF "ConditionPathExists=/usr/local/share/xena/config/vm.yaml" "$script_dir/../deploy/systemd/$unit" ||
+			fail "$unit does not skip a missing vm config"
+	done
+}
+
 test_nftables_unit_skips_without_table() {
 	grep -qxF "ConditionPathExists=/etc/nftables.d/xena.nft" "$script_dir/../deploy/systemd/xena-nftables.service" ||
 		fail "xena-nftables.service does not skip a missing table file"
@@ -527,6 +539,17 @@ test_uninstall_purge() {
 	assert_log "groupdel xena-prompt"
 }
 
+test_uninstall_purge_skips_missing_accounts() {
+	run_install v0.1.0 >/dev/null
+	local out
+
+	out=$(PURGE=1 FAKE_GETENT="" run_uninstall 2>&1)
+
+	[[ "$out" == *"uninstalled xena" ]] || fail "output '$out' does not end with 'uninstalled xena'"
+	assert_no_log_match '^userdel'
+	assert_no_log_match '^groupdel'
+}
+
 run_test() {
 	local name=$1
 
@@ -575,6 +598,7 @@ tests=(
 	test_install_usage
 	test_rollback_needs_version
 	test_nftables_unit_skips_without_table
+	test_services_skip_without_vm_config
 	test_uninstall_keeps_state
 	test_uninstall_stops_running_vm
 	test_uninstall_refuses_when_vm_stop_fails
@@ -584,6 +608,7 @@ tests=(
 	test_uninstall_removes_drop_ins
 	test_uninstall_keeps_other_binaries
 	test_uninstall_purge
+	test_uninstall_purge_skips_missing_accounts
 )
 
 for t in "${tests[@]}"; do

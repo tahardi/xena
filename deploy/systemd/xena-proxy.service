@@ -2,6 +2,7 @@
 Description=Xena egress proxy
 After=network-online.target libvirtd.service
 Wants=network-online.target
+ConditionPathExists=/usr/local/share/xena/config/vm.yaml
 
 [Service]
 Type=simple
