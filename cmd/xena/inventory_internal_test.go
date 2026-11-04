@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"os"
 	"path/filepath"
@@ -29,6 +30,7 @@ func TestRunInventory(t *testing.T) {
 		inventory string
 		secrets   []string
 		script    string
+		scriptAt  string
 		args      []string
 		want      string
 		wantErr   string
@@ -52,6 +54,19 @@ func TestRunInventory(t *testing.T) {
 			args:      []string{"check", "--file-cards"},
 			script:    "import sys\nif sys.argv[1] != 'list':\n    print('XENA-99')\n",
 			want:      "overdue a due 2026-09-29\nfiled Rotate a\n",
+		},
+		{
+			name: "happy path - files cards with configured script and project",
+			inventory: strings.Replace(
+				overdueInventory,
+				"entries:",
+				"settings:\n  jira_script: ~/bin/jira.py\n  jira_project: ABC\nentries:",
+				1,
+			),
+			args:     []string{"check", "--file-cards"},
+			script:   "import sys\nif sys.argv[2] != 'ABC':\n    sys.exit(1)\n",
+			scriptAt: "bin/jira.py",
+			want:     "overdue a due 2026-09-29\nfiled Rotate a\n",
 		},
 		{
 			name:      "error - unknown flag",
@@ -83,7 +98,7 @@ func TestRunInventory(t *testing.T) {
 			}
 			home := t.TempDir()
 			if tt.script != "" {
-				script := filepath.Join(home, ".claude/skills/card/scripts/jira.py")
+				script := filepath.Join(home, cmp.Or(tt.scriptAt, ".claude/skills/card/scripts/jira.py"))
 				require.NoError(t, os.MkdirAll(filepath.Dir(script), 0o700))
 				require.NoError(t, os.WriteFile(script, []byte(tt.script), 0o600))
 			}

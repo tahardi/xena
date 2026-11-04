@@ -13,8 +13,6 @@ import (
 )
 
 const (
-	NearExpiry = 14 * 24 * time.Hour
-
 	KindNearExpiry    = "near-expiry"
 	KindOverdue       = "overdue"
 	KindUncappedSpend = "uncapped-spend"
@@ -54,7 +52,7 @@ func Check(inv Inventory, found []string, now time.Time) []Finding {
 			switch {
 			case due.Before(now):
 				out = append(out, Finding{Kind: KindOverdue, Token: tok.Name, Detail: detail})
-			case !due.After(now.Add(NearExpiry)):
+			case !due.After(now.AddDate(0, 0, inv.Settings.WarnDays)):
 				out = append(out, Finding{Kind: KindNearExpiry, Token: tok.Name, Detail: detail})
 			}
 		}

@@ -55,7 +55,12 @@ func TestJiraToken_Create(t *testing.T) {
 			// given
 			srv := jiraServer(t)
 			var out bytes.Buffer
-			tok := inventory.JiraToken{In: bufio.NewReader(strings.NewReader(tt.in)), Out: &out, HTTP: srv.Client()}
+			tok := inventory.JiraToken{
+				In:         bufio.NewReader(strings.NewReader(tt.in)),
+				Out:        &out,
+				HTTP:       srv.Client(),
+				ExpiryDays: 45,
+			}
 			if tt.hidden != "" {
 				tok.ReadHidden = func() ([]byte, error) { return []byte(tt.hidden), nil }
 			}
@@ -69,6 +74,7 @@ func TestJiraToken_Create(t *testing.T) {
 
 			// then
 			assert.Contains(t, out.String(), "https://id.atlassian.com/manage-profile/security/api-tokens")
+			assert.Contains(t, out.String(), "with a 45-day expiry")
 			assert.NotContains(t, out.String(), "old-token")
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)

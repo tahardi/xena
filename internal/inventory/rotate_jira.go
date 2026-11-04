@@ -26,14 +26,16 @@ type JiraToken struct {
 	Out        io.Writer
 	HTTP       *http.Client
 	ReadHidden func() ([]byte, error)
+	ExpiryDays int
 }
 
 func (j JiraToken) Create(ctx context.Context, old []byte) ([]byte, error) {
 	_, err := fmt.Fprintf(
 		j.Out,
-		"Open %s as the bot user, create a token named xena-vm-%s with a 90-day expiry, and paste it here: ",
+		"Open %s as the bot user, create a token named xena-vm-%s with a %d-day expiry, and paste it here: ",
 		atlassianSecurityPage,
 		time.Now().Format(time.DateOnly),
+		j.ExpiryDays,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("prompting for new jira token: %w", err)

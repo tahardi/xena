@@ -58,8 +58,8 @@ func runInventory(ctx context.Context, args []string, home string, out io.Writer
 
 	jira := inventory.JiraScript{
 		Python:  "python3",
-		Script:  filepath.Join(home, ".claude/skills/card/scripts/jira.py"),
-		Project: "XENA",
+		Script:  expandHome(inv.Settings.JiraScript, home),
+		Project: inv.Settings.JiraProject,
 	}
 	filed, err := inventory.FileCards(ctx, jira, inv, findings)
 	for _, summary := range filed {
@@ -69,6 +69,14 @@ func runInventory(ctx context.Context, args []string, home string, out io.Writer
 	}
 
 	return err
+}
+
+func expandHome(path, home string) string {
+	if rest, ok := strings.CutPrefix(path, "~/"); ok {
+		return filepath.Join(home, rest)
+	}
+
+	return path
 }
 
 func today() time.Time {

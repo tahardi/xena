@@ -1,6 +1,7 @@
 package inventory_test
 
 import (
+	"cmp"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,6 +35,7 @@ func TestCheck(t *testing.T) {
 		tokens []inventory.Token
 		found  []string
 		now    time.Time
+		warn   int
 		want   []inventory.Finding
 	}{
 		{
@@ -67,8 +69,14 @@ func TestCheck(t *testing.T) {
 		},
 		{
 			name:   "happy path - near expiry at exactly 14 days",
-			tokens: token(func(tok *inventory.Token) { tok.Expires = now.Add(inventory.NearExpiry) }),
+			tokens: token(func(tok *inventory.Token) { tok.Expires = now.AddDate(0, 0, 14) }),
 			want:   []inventory.Finding{{Kind: inventory.KindNearExpiry, Token: "a", Detail: "due 2026-11-07"}},
+		},
+		{
+			name:   "happy path - near expiry in 20 days with a 30-day window",
+			tokens: token(func(tok *inventory.Token) { tok.Expires = now.AddDate(0, 0, 20) }),
+			warn:   30,
+			want:   []inventory.Finding{{Kind: inventory.KindNearExpiry, Token: "a", Detail: "due 2026-11-13"}},
 		},
 		{
 			name:   "happy path - due in 15 days",
@@ -128,7 +136,7 @@ func TestCheck(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
-			inv := inventory.Inventory{Version: 1, Entries: tt.tokens}
+			inv := inventory.Inventory{Version: 1, Settings: inventory.Settings{WarnDays: cmp.Or(tt.warn, 14)}, Entries: tt.tokens}
 			at := now
 			if !tt.now.IsZero() {
 				at = tt.now

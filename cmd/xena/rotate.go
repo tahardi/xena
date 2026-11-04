@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -16,11 +17,7 @@ import (
 	"github.com/tahardi/xena/internal/secrets"
 )
 
-const (
-	rotateAttempts = 6
-	rotateWait     = 10 * time.Second
-	jiraTimeout    = 30 * time.Second
-)
+const jiraTimeout = 30 * time.Second
 
 var errRotateUsage = errors.New("usage: xena rotate NAME")
 
@@ -41,9 +38,10 @@ func runRotate(ctx context.Context, args []string, in io.Reader, out io.Writer) 
 	}
 
 	jira := inventory.JiraToken{
-		In:   bufio.NewReader(in),
-		Out:  out,
-		HTTP: &http.Client{Timeout: jiraTimeout},
+		In:         bufio.NewReader(in),
+		Out:        out,
+		HTTP:       &http.Client{Timeout: jiraTimeout},
+		ExpiryDays: cmp.Or(*tok.RotationDays, inventory.DefaultRotationDays),
 	}
 	if f, ok := in.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
 		jira.ReadHidden = func() ([]byte, error) { return term.ReadPassword(int(f.Fd())) }
@@ -70,8 +68,8 @@ func runRotate(ctx context.Context, args []string, in io.Reader, out io.Writer) 
 		Inventory: inventoryPath(),
 		Now:       time.Now,
 		Sleep:     inventory.Sleep,
-		Attempts:  rotateAttempts,
-		Wait:      rotateWait,
+		Attempts:  inv.Settings.RetryAttempts,
+		Wait:      inv.Settings.RetryWait(),
 	}
 	if err := rotation.Run(ctx, name, rot); err != nil {
 		return err

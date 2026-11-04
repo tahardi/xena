@@ -94,6 +94,53 @@ entries:
 			},
 		},
 		{
+			name:    "happy path - settings default",
+			content: twoEntries,
+			check: func(t *testing.T, inv inventory.Inventory) {
+				t.Helper()
+				assert.Equal(t, inventory.Settings{
+					WarnDays:         14,
+					JiraScript:       "~/.claude/skills/card/scripts/jira.py",
+					JiraProject:      "XENA",
+					RetryAttempts:    6,
+					RetryWaitSeconds: 10,
+				}, inv.Settings)
+				assert.Equal(t, 10*time.Second, inv.Settings.RetryWait())
+			},
+		},
+		{
+			name: "happy path - settings from file",
+			content: strings.Replace(
+				twoEntries,
+				"entries:",
+				"settings:\n  warn_days: 30\n  jira_script: /opt/jira.py\n  jira_project: ABC\n"+
+					"  retry_attempts: 3\n  retry_wait_seconds: 2\nentries:",
+				1,
+			),
+			check: func(t *testing.T, inv inventory.Inventory) {
+				t.Helper()
+				assert.Equal(t, inventory.Settings{
+					WarnDays:         30,
+					JiraScript:       "/opt/jira.py",
+					JiraProject:      "ABC",
+					RetryAttempts:    3,
+					RetryWaitSeconds: 2,
+				}, inv.Settings)
+			},
+		},
+		{
+			name:    "error - negative retry attempts",
+			content: strings.Replace(twoEntries, "entries:", "settings:\n  retry_attempts: -1\nentries:", 1),
+			wantErr: inventory.ErrInvalidSetting,
+			wantMsg: "retry_attempts",
+		},
+		{
+			name:    "error - negative warn days",
+			content: strings.Replace(twoEntries, "entries:", "settings:\n  warn_days: -1\nentries:", 1),
+			wantErr: inventory.ErrInvalidSetting,
+			wantMsg: "warn_days",
+		},
+		{
 			name: "error - duplicate name",
 			content: `version: 1
 entries:

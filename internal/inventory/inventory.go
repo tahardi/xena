@@ -32,8 +32,9 @@ const (
 )
 
 type Inventory struct {
-	Version int     `yaml:"version"`
-	Entries []Token `yaml:"entries"`
+	Version  int      `yaml:"version"`
+	Settings Settings `yaml:"settings"`
+	Entries  []Token  `yaml:"entries"`
 }
 
 type Token struct {
@@ -53,6 +54,10 @@ type Token struct {
 func Load(path string) (Inventory, error) {
 	inv, err := config.Load[Inventory](path, currentVersion, nil)
 	if err != nil {
+		return Inventory{}, err
+	}
+
+	if inv.Settings, err = inv.Settings.withDefaults(); err != nil {
 		return Inventory{}, err
 	}
 

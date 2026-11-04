@@ -1,4 +1,10 @@
 version: 1
+settings:
+  warn_days: 14
+  jira_script: ~/.claude/skills/card/scripts/jira.py
+  jira_project: XENA
+  retry_attempts: 6
+  retry_wait_seconds: 10
 entries:
   - name: github-app-key
     service: github
