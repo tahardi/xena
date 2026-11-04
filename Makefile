@@ -10,7 +10,7 @@ lint_modfile=modfiles/golangci-lint/go.mod
 vuln_modfile=modfiles/govulncheck/go.mod
 gitleaks_modfile=modfiles/gitleaks/go.mod
 
-VERSION ?= $(shell git describe --tags --abbrev=0 --match 'v*' origin/main 2>/dev/null)
+VERSION ?=
 
 .PHONY: pre-pr
 pre-pr: \

@@ -12,6 +12,9 @@ write_fake() {
 	cat >"$work/fakebin/$name" <<'EOF'
 #!/usr/bin/env bash
 echo "$(basename "$0") $*" >>"$FAKE_LOG"
+if [[ " ${FAKE_FAIL:-} " == *" $(basename "$0") "* ]]; then
+	exit 1
+fi
 EOF
 	cat >>"$work/fakebin/$name"
 	chmod +x "$work/fakebin/$name"
@@ -24,6 +27,15 @@ write_fakes() {
 	for name in systemctl systemd-sysusers systemd-tmpfiles usermod userdel groupdel chown nft; do
 		write_fake "$name" </dev/null
 	done
+
+	write_fake xena </dev/null
+
+	write_fake virsh <<'EOF'
+if [[ -z "${FAKE_VM_STATE:-}" ]]; then
+	exit 1
+fi
+echo "$FAKE_VM_STATE"
+EOF
 
 	write_fake go <<'EOF'
 echo "go-env GOWORK=${GOWORK-} GOFLAGS=${GOFLAGS-} GOENV=${GOENV-} GOTOOLCHAIN=${GOTOOLCHAIN-}" >>"$FAKE_LOG"
@@ -205,6 +217,7 @@ test_install_happy_path() {
 	assert_log "systemctl restart xena-nftables.service xena-proxy.service"
 	assert_log "systemctl --user enable xena-report.timer"
 	assert_log "systemctl --user restart xena-report.timer"
+	assert_log_match '^go build .*-X main\.version=v0\.1\.0 '
 	assert_no_log_match 'enable.*xena-cut\.service'
 	assert_no_log_match '^usermod'
 }
@@ -281,7 +294,71 @@ test_install_refuses_copied_tag() {
 }
 
 test_install_refuses_missing_tag() {
-	assert_refused "refusing tag v9.9.9: not found" v9.9.9
+	assert_refused "cannot locate tag for version v9.9.9" v9.9.9
+}
+
+test_install_refuses_no_tags() {
+	git -C "$clone" tag -d v0.1.0 >/dev/null
+	git -C "$clone" push -q origin :refs/tags/v0.1.0
+
+	assert_refused "cannot locate tag for version latest"
+}
+
+test_install_defaults_to_latest_tag_after_fetch() {
+	local other="$work/other"
+	git clone -q "$work/origin.git" "$other"
+	git -C "$other" config user.email test@example.com
+	git -C "$other" config user.name Test
+	git -C "$other" commit -q --allow-empty -m next
+	git -C "$other" push -q origin main
+	git -C "$other" -c gpg.format=ssh -c user.signingkey="$work/key" tag -s v0.1.1 -m v0.1.1
+	git -C "$other" push -q origin v0.1.1
+
+	run_install >/dev/null
+
+	assert_log_match '^go build .*-X main\.version=v0\.1\.1 '
+}
+
+test_install_removes_stale_units() {
+	run_install v0.1.0 >/dev/null
+	git -C "$clone" rm -q deploy/systemd/xena-report.timer deploy/systemd/xena-cut.service
+	git -C "$clone" commit -q -m drop
+	git -C "$clone" push -q origin main
+	signed_tag "$work/key" v0.2.0
+
+	run_install v0.2.0 >/dev/null
+
+	assert_absent "$root/etc/systemd/user/xena-report.timer"
+	assert_absent "$root/etc/systemd/system/xena-cut.service"
+	assert_file "$root/etc/systemd/system/xena-proxy.service"
+	assert_log "systemctl --user disable --now xena-report.timer"
+	assert_log "systemctl disable --now xena-cut.service"
+}
+
+test_install_backs_up_foreign_hook() {
+	mkdir -p "$root/etc/libvirt/hooks"
+	echo other >"$root/etc/libvirt/hooks/qemu"
+
+	run_install v0.1.0 >/dev/null
+	run_install v0.1.0 >/dev/null
+
+	grep -qxF other "$root/etc/libvirt/hooks/qemu.pre-xena" || fail "foreign hook not backed up"
+	grep -qxF "#!/bin/sh" "$root/etc/libvirt/hooks/qemu" || fail "xena hook not installed"
+
+	run_uninstall >/dev/null
+
+	grep -qxF other "$root/etc/libvirt/hooks/qemu" || fail "foreign hook not restored"
+	assert_absent "$root/etc/libvirt/hooks/qemu.pre-xena"
+}
+
+test_install_prints_progress() {
+	local out
+
+	out=$(run_install v0.1.0)
+
+	[[ "$out" == *"building xena v0.1.0"* ]] || fail "missing build line in '$out'"
+	[[ "$out" == *"installing xena v0.1.0 system files (sudo may ask for your password)"* ]] ||
+		fail "missing sudo line in '$out'"
 }
 
 test_install_refuses_lightweight_tag() {
@@ -342,17 +419,6 @@ test_nftables_unit_skips_without_table() {
 		fail "xena-nftables.service does not skip a missing table file"
 }
 
-test_install_refuses_missing_version() {
-	local err
-
-	if err=$(run_install 2>&1 >/dev/null); then
-		fail "install succeeded, want refusal"
-	fi
-
-	[[ "$err" == *"missing version: make install VERSION=vX.Y.Z"* ]] ||
-		fail "stderr '$err' does not contain the missing version message"
-}
-
 test_uninstall_keeps_state() {
 	run_install v0.1.0 >/dev/null
 	mkdir -p "$root/var/lib/xena-proxy"
@@ -368,6 +434,50 @@ test_uninstall_keeps_state() {
 	assert_file "$root/var/lib/xena-proxy/keep.txt"
 	assert_log "nft delete table inet xena"
 	assert_no_log_match '^userdel'
+}
+
+test_uninstall_stops_running_vm() {
+	run_install v0.1.0 >/dev/null
+
+	FAKE_VM_STATE=running run_uninstall >/dev/null
+
+	assert_log "xena vm stop"
+	[[ $(grep -n '^xena vm stop' "$FAKE_LOG" | cut -d: -f1) -lt $(grep -n '^nft delete' "$FAKE_LOG" | cut -d: -f1) ]] ||
+		fail "vm stopped after the nftables table was deleted"
+}
+
+test_uninstall_refuses_when_vm_stop_fails() {
+	run_install v0.1.0 >/dev/null
+	local err
+
+	if err=$(FAKE_VM_STATE=running FAKE_FAIL=xena run_uninstall 2>&1 >/dev/null); then
+		fail "uninstall succeeded, want refusal"
+	fi
+
+	[[ "$err" == *"refusing uninstall: could not stop vm xena-dev, run xena vm stop first"* ]] ||
+		fail "stderr '$err' does not contain the vm refusal"
+	assert_file "$root/usr/local/bin/xena-watch"
+	assert_no_log_match '^nft delete'
+}
+
+test_uninstall_skips_stopped_vm() {
+	run_install v0.1.0 >/dev/null
+
+	FAKE_VM_STATE="shut off" run_uninstall >/dev/null
+
+	assert_no_log_match '^xena vm stop'
+}
+
+test_uninstall_warns_on_failures() {
+	run_install v0.1.0 >/dev/null
+	local out err="$work/err"
+
+	out=$(PURGE=1 FAKE_FAIL="nft userdel groupdel" run_uninstall 2>"$err")
+
+	[[ "$out" == *"uninstalled xena with 4 warnings"* ]] || fail "stdout '$out' does not count 4 warnings"
+	grep -qF "warning: deleting nftables table inet xena failed" "$err" || fail "missing nft warning"
+	grep -qF "warning: removing user xena-proxy failed" "$err" || fail "missing userdel warning"
+	grep -qF "warning: removing group xena-prompt failed" "$err" || fail "missing groupdel warning"
 }
 
 test_uninstall_idempotent() {
@@ -447,16 +557,24 @@ tests=(
 	test_install_refuses_cut_during_build
 	test_install_refuses_copied_tag
 	test_install_refuses_missing_tag
+	test_install_refuses_no_tags
+	test_install_defaults_to_latest_tag_after_fetch
+	test_install_removes_stale_units
+	test_install_backs_up_foreign_hook
+	test_install_prints_progress
 	test_install_refuses_lightweight_tag
 	test_install_refuses_missing_signers_file
 	test_install_refuses_unpushed_main_tag
-	test_install_refuses_missing_version
 	test_install_build_failure_cleans_up
 	test_install_clears_go_environment
 	test_install_usage
 	test_rollback_needs_version
 	test_nftables_unit_skips_without_table
 	test_uninstall_keeps_state
+	test_uninstall_stops_running_vm
+	test_uninstall_refuses_when_vm_stop_fails
+	test_uninstall_skips_stopped_vm
+	test_uninstall_warns_on_failures
 	test_uninstall_idempotent
 	test_uninstall_removes_drop_ins
 	test_uninstall_keeps_other_binaries

@@ -35,6 +35,10 @@ refuse() {
 	exit 1
 }
 
+warn() {
+	echo "warning: $*" >&2
+}
+
 as_root() {
 	if [[ -n "$sudo_cmd" ]]; then
 		"$sudo_cmd" "$@"
@@ -67,18 +71,29 @@ check_not_cut() {
 	fi
 }
 
-verify_tag() {
+resolve_tag() {
 	local tag=$1
 
-	if [[ "$tag" != v* ]]; then
+	if [[ -n "$tag" && "$tag" != v* ]]; then
 		refuse "refusing tag $tag: not a v* tag"
 	fi
 
 	git -C "$repo_dir" fetch -q --tags origin main
 
-	if ! git -C "$repo_dir" rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-		refuse "refusing tag $tag: not found"
+	if [[ -z "$tag" ]]; then
+		tag=$(git -C "$repo_dir" describe --tags --abbrev=0 --match 'v*' origin/main 2>/dev/null) ||
+			refuse "cannot locate tag for version latest"
 	fi
+
+	if ! git -C "$repo_dir" rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+		refuse "cannot locate tag for version $tag"
+	fi
+
+	echo "$tag"
+}
+
+verify_tag() {
+	local tag=$1
 
 	if ! git -C "$repo_dir" \
 		-c gpg.format=ssh \
@@ -104,7 +119,11 @@ build() {
 		cd "$build_dir"
 		export GOWORK=off GOFLAGS="" GOENV=off GOTOOLCHAIN=local
 		go mod verify
-		CGO_ENABLED=0 go build -trimpath -o "$build_dir/bin/" ./cmd/...
+		CGO_ENABLED=0 go build \
+			-trimpath \
+			-ldflags "-X main.version=$tag" \
+			-o "$build_dir/bin/" \
+			./cmd/...
 	)
 }
 
@@ -114,6 +133,40 @@ install_file() {
 	if [[ -f "$src" ]]; then
 		as_root install -D -m "$mode" "$src" "$destdir$dst"
 	fi
+}
+
+install_hook() {
+	local src=$1 dst="$destdir/etc/libvirt/hooks/qemu"
+
+	if [[ ! -f "$src" ]]; then
+		return
+	fi
+
+	if [[ -f "$dst" && ! -e "$dst.pre-xena" ]] && ! cmp -s "$src" "$dst"; then
+		as_root cp -p "$dst" "$dst.pre-xena"
+	fi
+
+	install_file 0755 "$src" /etc/libvirt/hooks/qemu
+}
+
+remove_stale_units() {
+	local src=$1 unit name
+
+	for unit in "$destdir"/etc/systemd/system/xena* "$destdir"/etc/systemd/user/xena*; do
+		name=$(basename "$unit")
+
+		if [[ ! -f "$unit" || -f "$src/$name" ]]; then
+			continue
+		fi
+
+		if [[ "$unit" == "$destdir/etc/systemd/system/"* ]]; then
+			as_root systemctl disable --now "$name" || warn "disabling $name failed"
+		else
+			systemctl --user disable --now "$name" || warn "disabling $name failed"
+		fi
+
+		as_root rm -rf "$unit" "$unit.d"
+	done
 }
 
 install_files() {
@@ -130,7 +183,8 @@ install_files() {
 	install_file 0644 "$src/deploy/nftables/xena.nft" /etc/nftables.d/xena.nft
 	install_file 0644 "$src/deploy/polkit/50-xena.rules" /etc/polkit-1/rules.d/50-xena.rules
 	install_file 0644 "$src/deploy/sysusers/xena.conf" /etc/sysusers.d/xena.conf
-	install_file 0755 "$src/deploy/libvirt/hooks/qemu" /etc/libvirt/hooks/qemu
+	install_hook "$src/deploy/libvirt/hooks/qemu"
+	remove_stale_units "$src/deploy/systemd"
 
 	for file in "$src"/deploy/systemd/*; do
 		if [[ ! -f "$file" ]]; then
@@ -195,20 +249,20 @@ enable_units() {
 }
 
 install_tag() {
-	local tag=${1:-}
-
-	if [[ -z "$tag" ]]; then
-		refuse "missing version: make install VERSION=vX.Y.Z"
-	fi
+	local tag
 
 	check_not_root
 	check_not_cut
+	tag=$(resolve_tag "${1:-}")
 	verify_tag "$tag"
 
 	build_dir=$(mktemp -d)
 	trap 'rm -rf "$build_dir"' EXIT
 
+	echo "building xena $tag"
 	build "$tag"
+
+	echo "installing xena $tag system files (sudo may ask for your password)"
 	install_files
 	create_users
 	create_dirs
@@ -227,7 +281,7 @@ uninstall)
 	exec "$script_dir/uninstall.sh"
 	;;
 *)
-	echo "usage: install.sh install VERSION | uninstall" >&2
+	echo "usage: install.sh install [VERSION] | uninstall" >&2
 	exit 2
 	;;
 esac
