@@ -1,0 +1,20 @@
+[Unit]
+Description=Xena nftables table
+Before=libvirtd.service xena-proxy.service
+After=network-pre.target
+ConditionPathExists=/etc/nftables.d/xena.nft
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/nftables.d/xena.nft
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=
+RestrictAddressFamilies=AF_NETLINK AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+set -euo pipefail
+shopt -s nullglob
+
+destdir=${DESTDIR:-}
+sudo_cmd=${SUDO-sudo}
+purge=${PURGE:-}
+vm_name=${XENA_VM_NAME:-xena-dev}
+warnings=0
+
+binaries=(
+	xena
+	xena-proxy
+	xena-prompt
+	xena-tokend
+	xena-vault
+	xena-watch
+)
+
+state_dirs=(
+	/var/lib/xena-proxy
+	/var/lib/xena-watch
+	/var/lib/xena-desktop
+	/var/lib/xena-expose
+	/var/lib/xena-vm
+	/var/lib/xena
+)
+
+as_root() {
+	if [[ -n "$sudo_cmd" ]]; then
+		"$sudo_cmd" "$@"
+	else
+		"$@"
+	fi
+}
+
+warn() {
+	echo "warning: $*" >&2
+	warnings=$((warnings + 1))
+}
+
+stop_vm() {
+	local state
+
+	state=$(virsh -c qemu:///system domstate "$vm_name" 2>/dev/null) || return 0
+
+	if [[ "$state" == "shut off" ]]; then
+		return 0
+	fi
+
+	if ! xena vm stop; then
+		echo "refusing uninstall: could not stop vm $vm_name, run xena vm stop first" >&2
+		exit 1
+	fi
+}
+
+disable_units() {
+	local unit
+
+	for unit in "$destdir"/etc/systemd/system/xena*; do
+		[[ -f "$unit" ]] || continue
+		as_root systemctl disable --now "$(basename "$unit")" || warn "disabling $(basename "$unit") failed"
+	done
+
+	for unit in "$destdir"/etc/systemd/user/xena*; do
+		[[ -f "$unit" ]] || continue
+		systemctl --user disable --now "$(basename "$unit")" || warn "disabling $(basename "$unit") failed"
+	done
+}
+
+remove_files() {
+	local name files=(
+		"$destdir"/etc/systemd/system/xena*
+		"$destdir"/etc/systemd/user/xena*
+		"$destdir"/etc/nftables.d/xena.nft
+		"$destdir"/etc/polkit-1/rules.d/50-xena.rules
+		"$destdir"/etc/sysusers.d/xena.conf
+		"$destdir"/etc/tmpfiles.d/xena-guard.conf
+	)
+
+	for name in "${binaries[@]}"; do
+		files+=("$destdir/usr/local/bin/$name")
+	done
+
+	as_root rm -rf "${files[@]}" "$destdir/usr/local/share/xena"
+}
+
+remove_hook() {
+	local hook="$destdir/etc/libvirt/hooks/qemu"
+
+	if [[ -f "$hook.pre-xena" ]]; then
+		as_root mv "$hook.pre-xena" "$hook"
+	else
+		as_root rm -f "$hook"
+	fi
+}
+
+purge_state() {
+	local dir
+
+	for dir in "${state_dirs[@]}"; do
+		as_root rm -rf "$destdir$dir"
+	done
+
+	as_root userdel xena-proxy || warn "removing user xena-proxy failed"
+	as_root userdel xena-watch || warn "removing user xena-watch failed"
+	as_root groupdel xena-prompt || warn "removing group xena-prompt failed"
+}
+
+stop_vm
+disable_units
+remove_files
+remove_hook
+as_root nft delete table inet xena || warn "deleting nftables table inet xena failed"
+as_root systemctl daemon-reload || warn "reloading systemd failed"
+systemctl --user daemon-reload || warn "reloading user systemd failed"
+
+if [[ "$purge" == "1" ]]; then
+	purge_state
+fi
+
+if [[ $warnings -gt 0 ]]; then
+	echo "uninstalled xena with $warnings warnings"
+else
+	echo "uninstalled xena"
+fi
