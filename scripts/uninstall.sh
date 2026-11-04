@@ -96,22 +96,28 @@ remove_hook() {
 }
 
 purge_state() {
-	local dir
+	local dir name
 
 	for dir in "${state_dirs[@]}"; do
 		as_root rm -rf "$destdir$dir"
 	done
 
-	as_root userdel xena-proxy || warn "removing user xena-proxy failed"
-	as_root userdel xena-watch || warn "removing user xena-watch failed"
-	as_root groupdel xena-prompt || warn "removing group xena-prompt failed"
+	for name in xena-proxy xena-watch; do
+		if getent passwd "$name" >/dev/null; then
+			as_root userdel "$name" || warn "removing user $name failed"
+		fi
+	done
+
+	if getent group xena-prompt >/dev/null; then
+		as_root groupdel xena-prompt || warn "removing group xena-prompt failed"
+	fi
 }
 
 stop_vm
 disable_units
 remove_files
 remove_hook
-as_root nft delete table inet xena || warn "deleting nftables table inet xena failed"
+as_root nft destroy table inet xena || warn "deleting nftables table inet xena failed"
 as_root systemctl daemon-reload || warn "reloading systemd failed"
 systemctl --user daemon-reload || warn "reloading user systemd failed"
 

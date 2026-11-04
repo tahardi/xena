@@ -1,5 +1,6 @@
 [Unit]
 Description=Xena GitHub App token service
+ConditionPathExists=/usr/local/share/xena/config/vm.yaml
 
 [Service]
 ExecStart=/usr/local/bin/xena-tokend
