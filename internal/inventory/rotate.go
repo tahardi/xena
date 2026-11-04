@@ -43,7 +43,7 @@ type Rotation struct {
 	Store     Store
 	Inventory string
 	Now       func() time.Time
-	Sleep     func(time.Duration)
+	Sleep     func(context.Context, time.Duration) error
 	Attempts  int
 	Wait      time.Duration
 }
@@ -71,8 +71,8 @@ func (r Rotation) Run(ctx context.Context, name string, rot Rotator) error {
 		return fmt.Errorf("storing new %s: %w", name, err)
 	}
 
-	if err := rot.Revoke(ctx, old, current); err != nil {
-		return fmt.Errorf("revoking old %s: %w", name, err)
+	if err := r.revoke(ctx, old, current, rot); err != nil {
+		return fmt.Errorf("revoking old %s, new value is stored: %w", name, err)
 	}
 
 	if err := r.waitRejected(ctx, old, rot); err != nil {
@@ -82,10 +82,41 @@ func (r Rotation) Run(ctx context.Context, name string, rot Rotator) error {
 	return SetRotated(r.Inventory, name, r.Now())
 }
 
+func Sleep(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("waiting to retry: %w", ctx.Err())
+	}
+}
+
+func (r Rotation) revoke(ctx context.Context, old, current []byte, rot Rotator) error {
+	var err error
+	for i := range r.Attempts {
+		if i > 0 {
+			if sleepErr := r.Sleep(ctx, r.Wait); sleepErr != nil {
+				return sleepErr
+			}
+		}
+
+		if err = rot.Revoke(ctx, old, current); err == nil {
+			return nil
+		}
+	}
+
+	return err
+}
+
 func (r Rotation) waitRejected(ctx context.Context, old []byte, rot Rotator) error {
 	for i := range r.Attempts {
 		if i > 0 {
-			r.Sleep(r.Wait)
+			if err := r.Sleep(ctx, r.Wait); err != nil {
+				return err
+			}
 		}
 
 		rejected, err := rot.Rejected(ctx, old)

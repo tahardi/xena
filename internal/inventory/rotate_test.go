@@ -56,11 +56,12 @@ func (f *fakeStore) Put(name string, value io.Reader) error {
 
 type fakeRotator struct {
 	createErr  error
-	revokeErr  error
+	revokeErrs []error
 	checkErr   error
 	rejected   []bool
 	createdOld string
 	revoked    []string
+	revokes    int
 	checks     int
 }
 
@@ -76,8 +77,13 @@ func (f *fakeRotator) Create(_ context.Context, old []byte) ([]byte, error) {
 
 func (f *fakeRotator) Revoke(_ context.Context, old, current []byte) error {
 	f.revoked = []string{string(old), string(current)}
+	f.revokes++
 
-	return f.revokeErr
+	if len(f.revokeErrs) == 0 {
+		return nil
+	}
+
+	return f.revokeErrs[min(f.revokes, len(f.revokeErrs))-1]
 }
 
 func (f *fakeRotator) Rejected(context.Context, []byte) (bool, error) {
@@ -98,6 +104,7 @@ func TestRotation_Run(t *testing.T) {
 		wantErr    error
 		wantPrefix string
 		wantText   string
+		sleepErr   error
 		check      func(t *testing.T, s *fakeStore, r *fakeRotator, sleeps int)
 	}{
 		{
@@ -139,16 +146,46 @@ func TestRotation_Run(t *testing.T) {
 			},
 		},
 		{
+			name:    "happy path - revoke retried until the new key works",
+			token:   "a",
+			store:   &fakeStore{},
+			rotator: &fakeRotator{revokeErrs: []error{errFake, nil}, rejected: []bool{true}},
+			check: func(t *testing.T, _ *fakeStore, r *fakeRotator, sleeps int) {
+				t.Helper()
+				assert.Equal(t, 2, r.revokes)
+				assert.Equal(t, 1, r.checks)
+				assert.Equal(t, 1, sleeps)
+			},
+		},
+		{
 			name:       "error - revoke fails",
 			token:      "a",
 			store:      &fakeStore{},
-			rotator:    &fakeRotator{revokeErr: errFake, rejected: []bool{true}},
+			rotator:    &fakeRotator{revokeErrs: []error{errFake}, rejected: []bool{true}},
 			wantErr:    errFake,
 			wantPrefix: "revoking old a",
-			check: func(t *testing.T, s *fakeStore, r *fakeRotator, _ int) {
+			wantText:   "new value is stored",
+			check: func(t *testing.T, s *fakeStore, r *fakeRotator, sleeps int) {
 				t.Helper()
 				assert.Equal(t, "new-value", s.putVal)
+				assert.Equal(t, 3, r.revokes)
+				assert.Equal(t, 2, sleeps)
 				assert.Equal(t, 0, r.checks)
+			},
+		},
+		{
+			name:       "error - canceled while waiting",
+			token:      "a",
+			store:      &fakeStore{},
+			rotator:    &fakeRotator{rejected: []bool{false}},
+			sleepErr:   context.Canceled,
+			wantErr:    context.Canceled,
+			wantPrefix: "verifying old a",
+			wantText:   "new value is stored",
+			check: func(t *testing.T, _ *fakeStore, r *fakeRotator, sleeps int) {
+				t.Helper()
+				assert.Equal(t, 1, r.checks)
+				assert.Equal(t, 1, sleeps)
 			},
 		},
 		{
@@ -222,9 +259,12 @@ func TestRotation_Run(t *testing.T) {
 				Store:     tt.store,
 				Inventory: path,
 				Now:       func() time.Time { return now },
-				Sleep:     func(d time.Duration) { sleeps = append(sleeps, d) },
-				Attempts:  3,
-				Wait:      time.Second,
+				Sleep: func(_ context.Context, d time.Duration) error {
+					sleeps = append(sleeps, d)
+					return tt.sleepErr
+				},
+				Attempts: 3,
+				Wait:     time.Second,
 			}
 
 			// when
@@ -284,4 +324,32 @@ func (f *fakeCommand) Output(_ context.Context, env []string, name string, args 
 	r := f.results[strings.Join(args[:min(2, len(args))], " ")]
 
 	return r.out, r.err
+}
+
+func TestSleep(t *testing.T) {
+	tests := []struct {
+		name     string
+		canceled bool
+		wait     time.Duration
+		wantErr  error
+	}{
+		{name: "happy path - waits", wait: time.Millisecond},
+		{name: "error - canceled", canceled: true, wait: time.Hour, wantErr: context.Canceled},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// given
+			ctx, cancel := context.WithCancel(context.Background())
+			if tt.canceled {
+				cancel()
+			}
+			defer cancel()
+
+			// when
+			err := inventory.Sleep(ctx, tt.wait)
+
+			// then
+			require.ErrorIs(t, err, tt.wantErr)
+		})
+	}
 }

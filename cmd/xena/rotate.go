@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
+
+	"golang.org/x/term"
 
 	"github.com/tahardi/xena/internal/inventory"
 	"github.com/tahardi/xena/internal/secrets"
@@ -37,14 +40,19 @@ func runRotate(ctx context.Context, args []string, in io.Reader, out io.Writer) 
 		return err
 	}
 
+	jira := inventory.JiraToken{
+		In:   bufio.NewReader(in),
+		Out:  out,
+		HTTP: &http.Client{Timeout: jiraTimeout},
+	}
+	if f, ok := in.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		jira.ReadHidden = func() ([]byte, error) { return term.ReadPassword(int(f.Fd())) }
+	}
+
 	rotators := map[string]inventory.Rotator{
-		"aws-grant": inventory.AWSKey{Cmd: inventory.Exec{}},
-		"gcp-grant": inventory.GCPKey{Cmd: inventory.Exec{}},
-		"jira-bot-token": inventory.JiraToken{
-			In:   bufio.NewReader(in),
-			Out:  out,
-			HTTP: &http.Client{Timeout: jiraTimeout},
-		},
+		"aws-grant":      inventory.AWSKey{Cmd: inventory.Exec{}},
+		"gcp-grant":      inventory.GCPKey{Cmd: inventory.Exec{}},
+		"jira-bot-token": jira,
 	}
 	rot, ok := rotators[name]
 	if !ok {
@@ -61,7 +69,7 @@ func runRotate(ctx context.Context, args []string, in io.Reader, out io.Writer) 
 		Store:     store,
 		Inventory: inventoryPath(),
 		Now:       time.Now,
-		Sleep:     time.Sleep,
+		Sleep:     inventory.Sleep,
 		Attempts:  rotateAttempts,
 		Wait:      rotateWait,
 	}

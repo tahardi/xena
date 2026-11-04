@@ -129,6 +129,38 @@ entries:
 			wantMsg: "decoding",
 		},
 		{
+			name: "error - stored unknown kind",
+			content: `version: 1
+entries:
+  - {name: a, service: aws, stored: "s3:bucket", rotated: 2026-01-01, rotate: x}
+`,
+			wantErr: inventory.ErrInvalidStored,
+		},
+		{
+			name: "error - stored bad secret name",
+			content: `version: 1
+entries:
+  - {name: a, service: aws, stored: "secrets:Bad", rotated: 2026-01-01, rotate: x}
+`,
+			wantErr: inventory.ErrInvalidStored,
+		},
+		{
+			name: "error - stored file outside home",
+			content: `version: 1
+entries:
+  - {name: a, service: aws, stored: "file:/etc/shadow", rotated: 2026-01-01, rotate: x}
+`,
+			wantErr: inventory.ErrInvalidStored,
+		},
+		{
+			name: "error - stored empty keyring",
+			content: `version: 1
+entries:
+  - {name: a, service: aws, stored: "keyring:", rotated: 2026-01-01, rotate: x}
+`,
+			wantErr: inventory.ErrInvalidStored,
+		},
+		{
 			name: "error - bad name",
 			content: `version: 1
 entries:

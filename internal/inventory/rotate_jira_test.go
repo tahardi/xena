@@ -40,10 +40,12 @@ func TestJiraToken_Create(t *testing.T) {
 	tests := []struct {
 		name    string
 		in      string
+		hidden  string
 		site    string
 		wantErr error
 	}{
 		{name: "happy path - reads and checks new token", in: "new-token\n"},
+		{name: "happy path - reads token without echo", hidden: "new-token"},
 		{name: "error - new token rejected", in: "wrong-token\n", wantErr: inventory.ErrNewRejected},
 		{name: "error - empty input", in: "", wantErr: inventory.ErrNewRejected},
 		{name: "error - site not https", in: "new-token\n", site: "http://example.com", wantErr: inventory.ErrInsecureSite},
@@ -54,6 +56,9 @@ func TestJiraToken_Create(t *testing.T) {
 			srv := jiraServer(t)
 			var out bytes.Buffer
 			tok := inventory.JiraToken{In: bufio.NewReader(strings.NewReader(tt.in)), Out: &out, HTTP: srv.Client()}
+			if tt.hidden != "" {
+				tok.ReadHidden = func() ([]byte, error) { return []byte(tt.hidden), nil }
+			}
 			site := srv.URL
 			if tt.site != "" {
 				site = tt.site

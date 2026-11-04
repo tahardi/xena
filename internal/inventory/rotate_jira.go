@@ -22,9 +22,10 @@ var (
 )
 
 type JiraToken struct {
-	In   *bufio.Reader
-	Out  io.Writer
-	HTTP *http.Client
+	In         *bufio.Reader
+	Out        io.Writer
+	HTTP       *http.Client
+	ReadHidden func() ([]byte, error)
 }
 
 func (j JiraToken) Create(ctx context.Context, old []byte) ([]byte, error) {
@@ -38,8 +39,8 @@ func (j JiraToken) Create(ctx context.Context, old []byte) ([]byte, error) {
 		return nil, fmt.Errorf("prompting for new jira token: %w", err)
 	}
 
-	line, err := j.In.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
+	line, err := j.readToken()
+	if err != nil {
 		return nil, fmt.Errorf("reading new jira token: %w", err)
 	}
 
@@ -79,6 +80,26 @@ func (j JiraToken) Rejected(ctx context.Context, old []byte) (bool, error) {
 	}
 
 	return status == http.StatusUnauthorized, nil
+}
+
+func (j JiraToken) readToken() (string, error) {
+	if j.ReadHidden != nil {
+		token, err := j.ReadHidden()
+		if err != nil {
+			return "", err
+		}
+
+		_, err = fmt.Fprintln(j.Out)
+
+		return string(token), err
+	}
+
+	line, err := j.In.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+
+	return line, nil
 }
 
 func (j JiraToken) myself(ctx context.Context, secret []byte) (int, error) {

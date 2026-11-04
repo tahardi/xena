@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"time"
 
@@ -19,8 +18,10 @@ var (
 	ErrMissingField  = errors.New("missing token field")
 	ErrInvalidName   = errors.New("invalid token name")
 	ErrNotListed     = errors.New("token not listed in inventory")
+	ErrInvalidStored = errors.New("invalid token stored location")
 
-	validName = regexp.MustCompile(`^[a-z0-9-]+$`)
+	validName   = regexp.MustCompile(`^[a-z0-9-]+$`)
+	validStored = regexp.MustCompile(`^(secrets:[a-z0-9-]+|file:~/\S+|keyring:\S+|vm|yubikey)$`)
 )
 
 const (
@@ -128,7 +129,7 @@ func SetRotated(path, name string, day time.Time) error {
 		return fmt.Errorf("encoding %s: %w", path, err)
 	}
 
-	return writeAtomic(path, out.Bytes())
+	return config.WriteAtomic(path, out.Bytes(), fileMode)
 }
 
 func (t Token) validate() error {
@@ -150,6 +151,10 @@ func (t Token) validate() error {
 
 	if !validName.MatchString(t.Name) {
 		return fmt.Errorf("checking token %q: %w", t.Name, ErrInvalidName)
+	}
+
+	if !validStored.MatchString(t.Stored) {
+		return fmt.Errorf("checking token %s stored %q: %w", t.Name, t.Stored, ErrInvalidStored)
 	}
 
 	return nil
@@ -211,32 +216,4 @@ func removeKey(m *yaml.Node, key string) {
 			return
 		}
 	}
-}
-
-func writeAtomic(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return fmt.Errorf("creating temp file for %s: %w", path, err)
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-
-	if err := tmp.Chmod(fileMode); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("setting mode of %s: %w", tmp.Name(), err)
-	}
-
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("writing %s: %w", tmp.Name(), err)
-	}
-
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("closing %s: %w", tmp.Name(), err)
-	}
-
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		return fmt.Errorf("renaming %s: %w", tmp.Name(), err)
-	}
-
-	return nil
 }

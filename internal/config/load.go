@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -88,35 +87,11 @@ func migrateFile(
 	}
 
 	backup := fmt.Sprintf("%s.v%d.bak", path, from)
-	if err := writeAtomic(backup, original, info.Mode().Perm()); err != nil {
+	if err := WriteAtomic(backup, original, info.Mode().Perm()); err != nil {
 		return nil, err
 	}
-	if err := writeAtomic(path, data, info.Mode().Perm()); err != nil {
+	if err := WriteAtomic(path, data, info.Mode().Perm()); err != nil {
 		return nil, err
 	}
 	return data, nil
-}
-
-func writeAtomic(path string, data []byte, mode os.FileMode) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return fmt.Errorf("creating temp file for %s: %w", path, err)
-	}
-	defer os.Remove(tmp.Name())
-
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return fmt.Errorf("writing %s: %w", tmp.Name(), err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("closing %s: %w", tmp.Name(), err)
-	}
-
-	if err := os.Chmod(tmp.Name(), mode); err != nil {
-		return fmt.Errorf("setting mode of %s: %w", tmp.Name(), err)
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		return fmt.Errorf("renaming %s: %w", tmp.Name(), err)
-	}
-	return nil
 }
