@@ -111,7 +111,7 @@ stop_vm
 disable_units
 remove_files
 remove_hook
-as_root nft delete table inet xena || warn "deleting nftables table inet xena failed"
+as_root nft destroy table inet xena || warn "deleting nftables table inet xena failed"
 as_root systemctl daemon-reload || warn "reloading systemd failed"
 systemctl --user daemon-reload || warn "reloading user systemd failed"
 

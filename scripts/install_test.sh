@@ -423,16 +423,18 @@ test_uninstall_keeps_state() {
 	run_install v0.1.0 >/dev/null
 	mkdir -p "$root/var/lib/xena-proxy"
 	touch "$root/var/lib/xena-proxy/keep.txt"
+	local out
 
-	run_uninstall >/dev/null
+	out=$(run_uninstall 2>&1)
 
+	[[ "$out" == *"uninstalled xena" ]] || fail "output '$out' does not end with 'uninstalled xena'"
 	assert_absent "$root/usr/local/bin/xena-watch"
 	assert_absent "$root/etc/systemd/system/xena-proxy.service"
 	assert_absent "$root/etc/systemd/user/xena-report.timer"
 	assert_absent "$root/usr/local/share/xena"
 	assert_absent "$root/etc/polkit-1/rules.d/50-xena.rules"
 	assert_file "$root/var/lib/xena-proxy/keep.txt"
-	assert_log "nft delete table inet xena"
+	assert_log "nft destroy table inet xena"
 	assert_no_log_match '^userdel'
 }
 
@@ -442,7 +444,10 @@ test_uninstall_stops_running_vm() {
 	FAKE_VM_STATE=running run_uninstall >/dev/null
 
 	assert_log "xena vm stop"
-	[[ $(grep -n '^xena vm stop' "$FAKE_LOG" | cut -d: -f1) -lt $(grep -n '^nft delete' "$FAKE_LOG" | cut -d: -f1) ]] ||
+	local stop_line destroy_line
+	stop_line=$(grep -n '^xena vm stop' "$FAKE_LOG" | cut -d: -f1)
+	destroy_line=$(grep -n '^nft destroy' "$FAKE_LOG" | cut -d: -f1)
+	[[ $stop_line -lt $destroy_line ]] ||
 		fail "vm stopped after the nftables table was deleted"
 }
 
@@ -457,7 +462,7 @@ test_uninstall_refuses_when_vm_stop_fails() {
 	[[ "$err" == *"refusing uninstall: could not stop vm xena-dev, run xena vm stop first"* ]] ||
 		fail "stderr '$err' does not contain the vm refusal"
 	assert_file "$root/usr/local/bin/xena-watch"
-	assert_no_log_match '^nft delete'
+	assert_no_log_match '^nft destroy'
 }
 
 test_uninstall_skips_stopped_vm() {
