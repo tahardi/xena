@@ -207,6 +207,17 @@ install_files() {
 	done
 }
 
+install_apparmor() {
+	local profile=/etc/apparmor.d/usr.local.bin.xena-tokend
+
+	if [[ ! -d "$build_dir/deploy/apparmor" ]]; then
+		return
+	fi
+
+	install_file 0644 "$build_dir/deploy/apparmor/usr.local.bin.xena-tokend" "$profile"
+	as_root apparmor_parser -r "$destdir$profile"
+}
+
 create_users() {
 	if [[ -f "$destdir/etc/sysusers.d/xena.conf" ]]; then
 		as_root systemd-sysusers "$destdir/etc/sysusers.d/xena.conf"
@@ -264,6 +275,7 @@ install_tag() {
 
 	echo "installing xena $tag system files (sudo may ask for your password)"
 	install_files
+	install_apparmor
 	create_users
 	create_dirs
 	check_not_cut

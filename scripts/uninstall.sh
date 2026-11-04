@@ -85,6 +85,15 @@ remove_files() {
 	as_root rm -rf "${files[@]}" "$destdir/usr/local/share/xena"
 }
 
+remove_apparmor() {
+	local profile="$destdir/etc/apparmor.d/usr.local.bin.xena-tokend"
+
+	if [[ -f "$profile" ]]; then
+		as_root apparmor_parser -R "$profile" || true
+		as_root rm -f "$profile"
+	fi
+}
+
 remove_hook() {
 	local hook="$destdir/etc/libvirt/hooks/qemu"
 
@@ -116,6 +125,7 @@ purge_state() {
 stop_vm
 disable_units
 remove_files
+remove_apparmor
 remove_hook
 as_root nft destroy table inet xena || warn "deleting nftables table inet xena failed"
 as_root systemctl daemon-reload || warn "reloading systemd failed"

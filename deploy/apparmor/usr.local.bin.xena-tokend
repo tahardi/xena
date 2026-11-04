@@ -1,0 +1,41 @@
+abi <abi/4.0>,
+
+include <tunables/global>
+
+profile xena-tokend /usr/local/bin/xena-tokend {
+  include <abstractions/base>
+  include <abstractions/nameservice-strict>
+  include <abstractions/ssl_certs>
+  include <abstractions/dbus-session-strict>
+
+  network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
+  network unix stream,
+
+  dbus send
+       bus=session
+       path=/org/freedesktop/Notifications
+       interface=org.freedesktop.Notifications
+       member={GetCapabilities,GetServerInformation,Notify}
+       peer=(name=org.freedesktop.Notifications),
+
+  /usr/local/bin/xena-tokend mr,
+  /usr/bin/age rix,
+  owner @{HOME}/.cargo/bin/age-plugin-yubikey rix,
+  /usr/bin/ssh rix,
+  /usr/bin/notify-send rix,
+
+  owner @{HOME}/.config/xena/** r,
+  owner @{HOME}/.local/share/xena/secrets/ r,
+  owner @{HOME}/.local/share/xena/secrets/*.age r,
+  /usr/local/share/xena/config/** r,
+  /etc/ssh/ssh_known_hosts r,
+  /sys/kernel/mm/transparent_hugepage/hpage_pmd_size r,
+  @{PROC}/@{pid}/cgroup r,
+  @{PROC}/@{pid}/mountinfo r,
+  @{sys}/fs/cgroup/{,**/}cpu.max r,
+  /dev/null rw,
+  /run/pcscd/pcscd.comm rw,
+}
