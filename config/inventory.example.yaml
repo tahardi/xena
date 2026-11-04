@@ -1,0 +1,115 @@
+version: 1
+entries:
+  - name: github-app-key
+    service: github
+    owner: Xena GitHub App
+    scope: contents, pull requests, and issues on the installed repos
+    stored: secrets:github-app-key
+    rotated: 2026-10-01
+    rotation_days: 180
+    can_spend: false
+    rotate: "In the GitHub App settings, generate a new private key, store it with xena secrets put github-app-key, check xena github token works, then delete the old key in the App settings."
+  - name: github-installation-token
+    service: github
+    owner: Xena GitHub App
+    scope: one-hour installation token for the VM
+    stored: vm
+    rotated: 2026-10-01
+    rotation_days: 0
+    can_spend: false
+    rotate: "Expires on its own after one hour; the token daemon mints a new one."
+  - name: jira-bot-token
+    service: atlassian
+    owner: Example Bot (Atlassian bot user)
+    scope: Jira user on the software projects; no admin
+    stored: secrets:jira-bot-token
+    rotated: 2026-10-01
+    expires: 2026-12-30
+    rotation_days: 90
+    can_spend: false
+    rotate: "Run xena rotate jira-bot-token and follow its prompts: create a new token for the bot at https://id.atlassian.com/manage-profile/security/api-tokens with a 90-day expiry, paste it, then revoke the old one on the same page."
+  - name: aws-grant
+    service: aws
+    owner: xena-granter IAM user
+    scope: sts:AssumeRole on the sandbox dev role only
+    stored: secrets:aws-grant
+    rotated: 2026-10-01
+    rotation_days: 90
+    can_spend: true
+    spend_cap: "$20 monthly budget on the sandbox account"
+    rotate: "Run xena rotate aws-grant."
+  - name: gcp-grant
+    service: gcp
+    owner: xena-granter service account
+    scope: token creator on the sandbox dev service account only
+    stored: secrets:gcp-grant
+    rotated: 2026-10-01
+    rotation_days: 90
+    can_spend: true
+    spend_cap: "$20 monthly budget on the sandbox project"
+    rotate: "Run xena rotate gcp-grant."
+  - name: vm-disk-key
+    service: libvirt
+    owner: desktop
+    scope: LUKS key for the VM disk
+    stored: secrets:vm-disk-key
+    rotated: 2026-10-01
+    rotation_days: 0
+    can_spend: false
+    rotate: "Rotates when the VM is rebuilt."
+  - name: touch-check
+    service: yubikey
+    owner: desktop
+    scope: test secret that proves a touch decrypts
+    stored: secrets:touch-check
+    rotated: 2026-10-01
+    rotation_days: 0
+    can_spend: false
+    rotate: "Nothing to rotate; replace it with xena secrets put touch-check if lost."
+  - name: automation-ssh-key
+    service: ssh
+    owner: desktop
+    scope: forced-command SSH from the desktop into the VM
+    stored: file:~/.local/share/xena/automation-ssh-key
+    rotated: 2026-10-01
+    rotation_days: 365
+    can_spend: false
+    rotate: "Generate a new key, install its public half in the VM's authorized_keys, check xena health, then remove the old public key."
+  - name: ssh-interactive
+    service: ssh
+    owner: Taylor
+    scope: interactive SSH into the VM
+    stored: yubikey
+    rotated: 2026-10-01
+    rotation_days: 0
+    can_spend: false
+    rotate: "Resident key on the YubiKey; replace only if the key is lost."
+  - name: vm-claude-login
+    service: anthropic
+    owner: VM dev user
+    scope: Claude Code login inside the VM
+    stored: vm
+    rotated: 2026-10-01
+    rotation_days: 0
+    can_spend: true
+    spend_cap: "subscription plan, no metered billing"
+    rotate: "Log out and back in to Claude Code inside the VM."
+  - name: gh-desktop
+    service: github
+    owner: Taylor
+    scope: gh CLI login on the desktop
+    stored: keyring:gh
+    rotated: 2026-10-01
+    rotation_days: 90
+    can_spend: false
+    rotate: "Run gh auth refresh on the desktop."
+  - name: aws-sandbox-account
+    service: aws
+    owner: Taylor
+    scope: root user of the sandbox account
+    stored: yubikey
+    rotated: 2026-10-01
+    rotation_days: 0
+    can_spend: true
+    spend_cap: "$20 monthly budget with alerts"
+    rotate: "Root password and passkey; change only if compromised."

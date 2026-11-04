@@ -44,6 +44,15 @@ func run(ctx context.Context, args []string, _ *slog.Logger) error {
 		}
 
 		return runSecrets(ctx, store, args[1:], os.Stdin, os.Stdout)
+	case "inventory":
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("finding home directory: %w", err)
+		}
+
+		return runInventory(ctx, args[1:], home, os.Stdout)
+	case "rotate":
+		return runRotate(ctx, args[1:], os.Stdin, os.Stdout)
 	default:
 		return fmt.Errorf("%w: %s", errUnknownCommand, args[0])
 	}
