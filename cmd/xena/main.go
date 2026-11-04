@@ -20,6 +20,7 @@ var (
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	slog.SetDefault(logger)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	err := run(ctx, os.Args[1:], logger)
 	stop()
@@ -29,7 +30,7 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, args []string, _ *slog.Logger) error {
+func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	if len(args) == 0 {
 		return errNoCommand
 	}
@@ -53,6 +54,10 @@ func run(ctx context.Context, args []string, _ *slog.Logger) error {
 		return runInventory(ctx, args[1:], home, os.Stdout)
 	case "rotate":
 		return runRotate(ctx, args[1:], os.Stdin, os.Stdout)
+	case "health":
+		return runHealth(ctx, os.Stdout, defaultChecks(logger))
+	case "status":
+		return runStatus(ctx, args[1:], os.Stdout, defaultChecks(logger))
 	default:
 		return fmt.Errorf("%w: %s", errUnknownCommand, args[0])
 	}
