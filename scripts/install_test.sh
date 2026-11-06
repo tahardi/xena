@@ -413,6 +413,18 @@ test_install_defaults_to_latest_tag_after_fetch() {
 	assert_log_match '^go build .*-X main\.version=v0\.1\.1 '
 }
 
+test_install_defaults_to_highest_tag() {
+	push_commit one
+	push_tag v0.10.0
+	push_commit two
+	push_tag v0.9.0
+	push_commit three
+
+	run_install >/dev/null
+
+	assert_log_match '^go build .*-X main\.version=v0\.10\.0 '
+}
+
 test_install_removes_stale_units() {
 	run_install v0.1.0 >/dev/null
 	git -C "$clone" rm -q deploy/systemd/xena-report.timer deploy/systemd/xena-cut.service
@@ -970,6 +982,7 @@ tests=(
 	test_install_refuses_missing_tag
 	test_install_refuses_no_tags
 	test_install_defaults_to_latest_tag_after_fetch
+	test_install_defaults_to_highest_tag
 	test_install_removes_stale_units
 	test_install_backs_up_foreign_hook
 	test_install_prints_progress
