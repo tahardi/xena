@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"os"
@@ -95,7 +96,7 @@ func defaultAuditDeps(_ context.Context) (auditDeps, error) {
 		return auditDeps{}, err
 	}
 
-	vm, err := config.LoadVM(filepath.Join(config.ConfigDir(), "vm.yaml"))
+	bridge, err := auditBridgeListener()
 	if err != nil {
 		return auditDeps{}, err
 	}
@@ -111,11 +112,26 @@ func defaultAuditDeps(_ context.Context) (auditDeps, error) {
 		User:          current.Username,
 		ProxyStateDir: config.ProxyStateDir(),
 	}
-	bridge := net.JoinHostPort(vm.Network.BridgeAddress, strconv.Itoa(vm.ProxyPort))
 	return auditDeps{
 		Checks:  audit.DesktopChecks(cfg, audit.OSCommander{}, paths, bridge),
 		Dir:     filepath.Join(config.StateDir(), "audit"),
 		Out:     os.Stdout,
 		Timeout: cfg.CheckTimeout,
 	}, nil
+}
+
+func auditBridgeListener() (string, error) {
+	vm, err := config.LoadVM(filepath.Join(config.RepoConfigDir(), "vm.yaml"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+
+	if err != nil {
+		return "", err
+	}
+
+	if vm.Network.BridgeAddress == "" {
+		return "", nil
+	}
+	return net.JoinHostPort(vm.Network.BridgeAddress, strconv.Itoa(vm.ProxyPort)), nil
 }

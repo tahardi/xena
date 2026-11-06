@@ -137,18 +137,13 @@ func TestDefaultAuditDeps(t *testing.T) {
 	t.Run("happy path - check timeout from audit config", func(t *testing.T) {
 		// given
 		dir := t.TempDir()
+		repoDir := t.TempDir()
 		t.Setenv("XENA_CONFIG_DIR", dir)
+		t.Setenv("XENA_REPO_CONFIG_DIR", repoDir)
 
 		vmYAML := "version: 1\nclaude_code_version: \"2.0.0\"\n"
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "vm.yaml"), []byte(vmYAML), 0o600))
-
-		auditYAML := "version: 1\n" +
-			"vault: " + t.TempDir() + "\n" +
-			"claude_code_version: \"2.0.0\"\n" +
-			"min_ubuntu_version: \"26.04\"\n" +
-			"gh_scopes: [repo]\n" +
-			"check_timeout: 30s\n"
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "audit.yaml"), []byte(auditYAML), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(repoDir, "vm.yaml"), []byte(vmYAML), 0o600))
+		writeAuditConfig(t, dir)
 
 		// when
 		deps, err := defaultAuditDeps(t.Context())
@@ -157,4 +152,48 @@ func TestDefaultAuditDeps(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 30*time.Second, deps.Timeout)
 	})
+
+	t.Run("happy path - no vm config installed", func(t *testing.T) {
+		// given
+		dir := t.TempDir()
+		t.Setenv("XENA_CONFIG_DIR", dir)
+		t.Setenv("XENA_REPO_CONFIG_DIR", t.TempDir())
+		writeAuditConfig(t, dir)
+
+		// when
+		deps, err := defaultAuditDeps(t.Context())
+
+		// then
+		require.NoError(t, err)
+		require.NotEmpty(t, deps.Checks)
+	})
+
+	t.Run("error - malformed vm config", func(t *testing.T) {
+		// given
+		dir := t.TempDir()
+		repoDir := t.TempDir()
+		t.Setenv("XENA_CONFIG_DIR", dir)
+		t.Setenv("XENA_REPO_CONFIG_DIR", repoDir)
+
+		require.NoError(t, os.WriteFile(filepath.Join(repoDir, "vm.yaml"), []byte("version: [\n"), 0o600))
+		writeAuditConfig(t, dir)
+
+		// when
+		_, err := defaultAuditDeps(t.Context())
+
+		// then
+		require.ErrorContains(t, err, "loading vm config")
+	})
+}
+
+func writeAuditConfig(t *testing.T, dir string) {
+	t.Helper()
+
+	auditYAML := "version: 1\n" +
+		"vault: " + t.TempDir() + "\n" +
+		"claude_code_version: \"2.0.0\"\n" +
+		"min_ubuntu_version: \"26.04\"\n" +
+		"gh_scopes: [repo]\n" +
+		"check_timeout: 30s\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "audit.yaml"), []byte(auditYAML), 0o600))
 }
