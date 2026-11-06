@@ -18,7 +18,7 @@ func DesktopChecks(cfg Config, cmd Commander, p Paths, bridgeListener string) []
 		NewUFW(p.Root),
 		NewAutoUpdates(cmd),
 		NewListeners(cmd, append([]string{bridgeListener}, cfg.ExtraListeners...)),
-		NewWayland(cmd, p.Root, p.User),
+		NewWayland(cmd, p.Root, p.User, cfg.MinUbuntuVersion),
 		NewClaudeSettings(p.Home),
 		NewClaudeVersion(cmd, p.Home, cfg.ClaudeCodeVersion),
 		NewGHAuth(cmd, p.Home, cfg.GHScopes),

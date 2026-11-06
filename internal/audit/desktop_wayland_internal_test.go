@@ -38,6 +38,24 @@ func TestWayland_Run(t *testing.T) {
 			want: []string{logs.SeverityHigh},
 		},
 		{
+			name:    "happy path - newer ubuntu",
+			version: `VERSION_ID="26.10"`,
+			cmd: fakeCommander{
+				"loginctl list-sessions --json=short":     {out: sessions},
+				"loginctl show-session 2 -p Type --value": {out: "wayland\n"},
+			},
+			want: []string{},
+		},
+		{
+			name:    "happy path - version missing",
+			version: `NAME="Ubuntu"`,
+			cmd: fakeCommander{
+				"loginctl list-sessions --json=short":     {out: sessions},
+				"loginctl show-session 2 -p Type --value": {out: "wayland\n"},
+			},
+			want: []string{logs.SeverityMedium},
+		},
+		{
 			name:    "happy path - older ubuntu",
 			version: `VERSION_ID="24.04"`,
 			cmd: fakeCommander{
@@ -73,7 +91,7 @@ func TestWayland_Run(t *testing.T) {
 			// given
 			root := t.TempDir()
 			writeFiles(t, root, map[string]string{"etc/os-release": "NAME=\"Ubuntu\"\n" + tt.version + "\n"})
-			check := NewWayland(tt.cmd, root, "taylor")
+			check := NewWayland(tt.cmd, root, "taylor", "26.04")
 
 			// when
 			got, err := check.Run(t.Context())

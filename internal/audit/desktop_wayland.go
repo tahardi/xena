@@ -11,16 +11,15 @@ import (
 	"github.com/tahardi/xena/internal/logs"
 )
 
-const wantedUbuntu = "26.04"
-
 type Wayland struct {
-	cmd  Commander
-	root string
-	user string
+	cmd        Commander
+	root       string
+	user       string
+	minVersion string
 }
 
-func NewWayland(cmd Commander, root, user string) *Wayland {
-	return &Wayland{cmd: cmd, root: root, user: user}
+func NewWayland(cmd Commander, root, user, minVersion string) *Wayland {
+	return &Wayland{cmd: cmd, root: root, user: user, minVersion: minVersion}
 }
 
 type loginSession struct {
@@ -38,12 +37,18 @@ func (w *Wayland) Run(ctx context.Context) ([]Finding, error) {
 		return nil, fmt.Errorf("reading os-release: %w", err)
 	}
 
+	minimum, err := parseUbuntuVersion(w.minVersion)
+	if err != nil {
+		return nil, fmt.Errorf("reading min_ubuntu_version: %w", err)
+	}
+
 	var findings []Finding
-	if version := keyValues(string(release))["VERSION_ID"]; version != wantedUbuntu {
+	version := keyValues(string(release))["VERSION_ID"]
+	if installed, err := parseUbuntuVersion(version); err != nil || !installed.atLeast(minimum) {
 		findings = append(findings, Finding{
 			Severity: logs.SeverityMedium,
-			Message:  fmt.Sprintf("Ubuntu version is %q, but the spec expects %s", version, wantedUbuntu),
-			Fix:      "Move the desktop to Ubuntu " + wantedUbuntu + ", or update the spec and this check by PR.",
+			Message:  fmt.Sprintf("Ubuntu version is %q, older than the minimum %s in audit.yaml", version, w.minVersion),
+			Fix:      "Upgrade the desktop to Ubuntu " + w.minVersion + " or newer.",
 		})
 	}
 
