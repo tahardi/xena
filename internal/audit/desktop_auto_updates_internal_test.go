@@ -9,42 +9,51 @@ import (
 )
 
 func TestAutoUpdates_Run(t *testing.T) {
-	const path = "etc/apt/apt.conf.d/20auto-upgrades"
+	const key = "apt-config dump APT::Periodic"
 
 	tests := []struct {
-		name  string
-		files map[string]string
-		want  []string
+		name    string
+		dump    fakeResult
+		want    []string
+		errText string
 	}{
 		{
 			name: "happy path - both on",
-			files: map[string]string{
-				path: "APT::Periodic::Update-Package-Lists \"1\";\nAPT::Periodic::Unattended-Upgrade \"1\";\n",
-			},
+			dump: fakeResult{out: "APT::Periodic \"\";\n" +
+				"APT::Periodic::Update-Package-Lists \"1\";\n" +
+				"APT::Periodic::Unattended-Upgrade \"1\";\n"},
 			want: []string{},
 		},
 		{
-			name: "happy path - unattended upgrade off",
-			files: map[string]string{
-				path: "APT::Periodic::Update-Package-Lists \"1\";\nAPT::Periodic::Unattended-Upgrade \"0\";\n",
-			},
+			name: "happy path - later file turns unattended upgrade off",
+			dump: fakeResult{out: "APT::Periodic::Update-Package-Lists \"1\";\n" +
+				"APT::Periodic::Unattended-Upgrade \"0\";\n"},
 			want: []string{logs.SeverityMedium},
 		},
 		{
-			name: "happy path - missing file",
-			want: []string{logs.SeverityMedium},
+			name: "happy path - nothing configured",
+			dump: fakeResult{out: "APT::Periodic \"\";\n"},
+			want: []string{logs.SeverityMedium, logs.SeverityMedium},
+		},
+		{
+			name:    "error - apt-config fails",
+			dump:    fakeResult{err: errBroken},
+			errText: "reading apt periodic settings",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
-			root := t.TempDir()
-			writeFiles(t, root, tt.files)
+			check := NewAutoUpdates(fakeCommander{key: tt.dump})
 
 			// when
-			got, err := NewAutoUpdates(root).Run(t.Context())
+			got, err := check.Run(t.Context())
 
 			// then
+			if tt.errText != "" {
+				require.ErrorContains(t, err, tt.errText)
+				return
+			}
 			require.NoError(t, err)
 			require.Equal(t, tt.want, severities(got))
 		})

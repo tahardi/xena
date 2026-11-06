@@ -16,7 +16,7 @@ func DesktopChecks(cfg Config, cmd Commander, p Paths, bridgeListener string) []
 		NewDocker(p.Root),
 		NewGroups(p.Root, p.User),
 		NewUFW(p.Root),
-		NewAutoUpdates(p.Root),
+		NewAutoUpdates(cmd),
 		NewListeners(cmd, append([]string{bridgeListener}, cfg.ExtraListeners...)),
 		NewWayland(cmd, p.Root, p.User),
 		NewClaudeSettings(p.Home),
