@@ -18,8 +18,7 @@ profile xena-tokend /usr/local/bin/xena-tokend {
        bus=session
        path=/org/freedesktop/Notifications
        interface=org.freedesktop.Notifications
-       member={GetCapabilities,GetServerInformation,Notify}
-       peer=(name=org.freedesktop.Notifications),
+       member={GetCapabilities,GetServerInformation,Notify},
 
   /usr/local/bin/xena-tokend mr,
   /usr/bin/age rix,
@@ -38,5 +37,6 @@ profile xena-tokend /usr/local/bin/xena-tokend {
   @{PROC}/@{pid}/mountinfo r,
   @{sys}/fs/cgroup/{,**/}cpu.max r,
   /dev/null rw,
+  owner /dev/pts/[0-9]* rw,
   /run/pcscd/pcscd.comm rw,
 }

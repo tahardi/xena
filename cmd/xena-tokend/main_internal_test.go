@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -10,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/tahardi/xena/internal/github"
 )
 
 func TestRun(t *testing.T) {
@@ -50,4 +54,67 @@ func TestRun(t *testing.T) {
 			assert.True(t, strings.HasPrefix(err.Error(), tt.wantErrPrefix), err.Error())
 		})
 	}
+}
+
+func TestUnlock(t *testing.T) {
+	t.Run("error - prints touch prompt before decrypting", func(t *testing.T) {
+		// given
+		t.Setenv("PATH", t.TempDir())
+
+		var buf bytes.Buffer
+
+		// when
+		_, err := unlock(context.Background(), github.AppConfig{}, &buf)
+
+		// then
+		require.Error(t, err)
+		assert.True(t, strings.HasPrefix(err.Error(), "building secrets store"), err.Error())
+		assert.Equal(t, "touch your YubiKey to unlock the GitHub token service\n", buf.String())
+	})
+
+	t.Run("error - prints touch prompt before notify-send", func(t *testing.T) {
+		// given
+		binDir := t.TempDir()
+		marker := filepath.Join(binDir, "notified")
+		script := fmt.Sprintf("#!/bin/sh\n: > %q\n", marker)
+		require.NoError(t, os.WriteFile(filepath.Join(binDir, "notify-send"), []byte(script), 0o700))
+		t.Setenv("PATH", binDir)
+
+		var statErr error
+		out := writerFunc(func(p []byte) (int, error) {
+			_, statErr = os.Stat(marker)
+
+			return len(p), nil
+		})
+
+		// when
+		_, err := unlock(context.Background(), github.AppConfig{}, out)
+
+		// then
+		require.Error(t, err)
+		require.ErrorIs(t, statErr, os.ErrNotExist)
+		require.FileExists(t, marker)
+	})
+
+	t.Run("error - continues when the prompt write fails", func(t *testing.T) {
+		// given
+		t.Setenv("PATH", t.TempDir())
+
+		out := writerFunc(func([]byte) (int, error) {
+			return 0, os.ErrClosed
+		})
+
+		// when
+		_, err := unlock(context.Background(), github.AppConfig{}, out)
+
+		// then
+		require.Error(t, err)
+		assert.True(t, strings.HasPrefix(err.Error(), "building secrets store"), err.Error())
+	})
+}
+
+type writerFunc func(p []byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) {
+	return f(p)
 }

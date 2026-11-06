@@ -40,7 +40,7 @@ func TestTokendProfile(t *testing.T) {
 			},
 		},
 		{
-			name: "happy path - writes only to dev null and the pcscd socket",
+			name: "happy path - writes only to dev null, its own terminal, and the pcscd socket",
 			check: func(t *testing.T, lines []string) {
 				t.Helper()
 
@@ -51,7 +51,11 @@ func TestTokendProfile(t *testing.T) {
 					}
 				}
 
-				require.Equal(t, []string{"/dev/null rw,", "/run/pcscd/pcscd.comm rw,"}, writes)
+				require.Equal(t, []string{
+					"/dev/null rw,",
+					"owner /dev/pts/[0-9]* rw,",
+					"/run/pcscd/pcscd.comm rw,",
+				}, writes)
 			},
 		},
 		{
@@ -141,11 +145,37 @@ func TestTokendProfile(t *testing.T) {
 					"bus=session",
 					"path=/org/freedesktop/Notifications",
 					"interface=org.freedesktop.Notifications",
-					"member={GetCapabilities,GetServerInformation,Notify}",
-					"peer=(name=org.freedesktop.Notifications),",
+					"member={GetCapabilities,GetServerInformation,Notify},",
 				} {
 					require.Contains(t, lines, want)
 				}
+
+				for _, line := range lines {
+					require.NotContains(t, line, "peer=(name=")
+				}
+			},
+		},
+		{
+			name: "happy path - has one dbus rule and it only sends",
+			check: func(t *testing.T, lines []string) {
+				t.Helper()
+
+				var rules []string
+				for _, line := range lines {
+					if strings.HasPrefix(line, "dbus") {
+						rules = append(rules, line)
+					}
+				}
+
+				require.Equal(t, []string{"dbus send"}, rules)
+			},
+		},
+		{
+			name: "happy path - leaves out the consoles abstraction",
+			check: func(t *testing.T, lines []string) {
+				t.Helper()
+
+				require.NotContains(t, lines, "include <abstractions/consoles>")
 			},
 		},
 		{

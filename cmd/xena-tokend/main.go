@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -63,7 +64,7 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 
 	loop := &tokend.Loop{
 		Unlock: func(ctx context.Context) (tokend.Minter, error) {
-			app, err := unlock(ctx, cfg)
+			app, err := unlock(ctx, cfg, os.Stderr)
 			if err != nil {
 				return nil, err
 			}
@@ -78,7 +79,7 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 }
 
 func runDry(ctx context.Context, cfg github.AppConfig) error {
-	app, err := unlock(ctx, cfg)
+	app, err := unlock(ctx, cfg, os.Stderr)
 	if err != nil {
 		return err
 	}
@@ -102,7 +103,9 @@ func runDry(ctx context.Context, cfg github.AppConfig) error {
 	return err
 }
 
-func unlock(ctx context.Context, cfg github.AppConfig) (github.App, error) {
+func unlock(ctx context.Context, cfg github.AppConfig, out io.Writer) (github.App, error) {
+	_, _ = fmt.Fprintln(out, "touch your YubiKey to unlock the GitHub token service")
+
 	_ = exec.CommandContext(ctx, "notify-send", "Xena", "Touch your YubiKey to unlock the GitHub token service").Run()
 
 	store, err := secrets.NewDefaultStore()
