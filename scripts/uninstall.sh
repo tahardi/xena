@@ -86,12 +86,14 @@ remove_files() {
 }
 
 remove_apparmor() {
-	local profile="$destdir/etc/apparmor.d/usr.local.bin.xena-tokend"
+	local profile
 
-	if [[ -f "$profile" ]]; then
-		as_root apparmor_parser -R "$profile" || true
+	for profile in "$destdir"/etc/apparmor.d/usr.local.bin.xena*; do
+		[[ -f "$profile" ]] || continue
+		as_root apparmor_parser -R "$profile" ||
+			warn "unloading apparmor profile $(basename "$profile") failed"
 		as_root rm -f "$profile"
-	fi
+	done
 }
 
 remove_hook() {

@@ -208,14 +208,17 @@ install_files() {
 }
 
 install_apparmor() {
-	local profile=/etc/apparmor.d/usr.local.bin.xena-tokend
+	local file profile
 
-	if [[ ! -d "$build_dir/deploy/apparmor" ]]; then
-		return
-	fi
+	for file in "$build_dir"/deploy/apparmor/*; do
+		if [[ ! -f "$file" ]]; then
+			continue
+		fi
 
-	install_file 0644 "$build_dir/deploy/apparmor/usr.local.bin.xena-tokend" "$profile"
-	as_root apparmor_parser -r "$destdir$profile"
+		profile=/etc/apparmor.d/$(basename "$file")
+		install_file 0644 "$file" "$profile"
+		as_root apparmor_parser -r "$destdir$profile"
+	done
 }
 
 create_users() {

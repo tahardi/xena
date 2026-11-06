@@ -109,6 +109,7 @@ setup() {
 	commit_file deploy/sysusers/xena.conf "u xena-proxy -"
 	commit_file deploy/libvirt/hooks/qemu "#!/bin/sh"
 	commit_file deploy/apparmor/usr.local.bin.xena-tokend "profile xena-tokend {}"
+	commit_file deploy/apparmor/usr.local.bin.xena-vault "profile xena-vault {}"
 	commit_file deploy/systemd/xena-proxy.service $'[Service]\nExecStart=/bin/true\n\n[Install]\nWantedBy=multi-user.target'
 	commit_file deploy/systemd/xena-cut.service $'[Service]\nType=oneshot\nExecStart=/bin/true'
 	commit_file deploy/systemd/xena-nftables.service $'[Service]\nExecStart=/bin/true\n\n[Install]\nWantedBy=multi-user.target'
@@ -241,16 +242,19 @@ test_install_idempotent() {
 }
 
 test_install_loads_apparmor() {
-	local profile="$root/etc/apparmor.d/usr.local.bin.xena-tokend" load_line systemctl_line
+	local profile name load_line systemctl_line
 
 	run_install v0.1.0 >/dev/null
 
-	assert_file "$profile"
-	assert_mode 644 "$profile"
-	assert_log "apparmor_parser -r $profile"
-	load_line=$(grep -nxF "apparmor_parser -r $profile" "$FAKE_LOG" | cut -d: -f1)
 	systemctl_line=$(grep -n '^systemctl' "$FAKE_LOG" | head -1 | cut -d: -f1)
-	[[ $load_line -lt $systemctl_line ]] || fail "profile loaded after the first systemctl call"
+	for name in usr.local.bin.xena-tokend usr.local.bin.xena-vault; do
+		profile="$root/etc/apparmor.d/$name"
+		assert_file "$profile"
+		assert_mode 644 "$profile"
+		assert_log "apparmor_parser -r $profile"
+		load_line=$(grep -nxF "apparmor_parser -r $profile" "$FAKE_LOG" | cut -d: -f1)
+		[[ $load_line -lt $systemctl_line ]] || fail "$name loaded after the first systemctl call"
+	done
 }
 
 test_install_builds_from_tag() {
@@ -535,24 +539,30 @@ test_install_stops_when_apparmor_fails() {
 }
 
 test_uninstall_removes_apparmor_when_unload_fails() {
-	local profile="$root/etc/apparmor.d/usr.local.bin.xena-tokend"
+	local profile="$root/etc/apparmor.d/usr.local.bin.xena-tokend" out err="$work/err"
 
 	run_install v0.1.0 >/dev/null
 
-	FAKE_FAIL=apparmor_parser run_uninstall >/dev/null 2>&1 || fail "uninstall failed"
+	out=$(FAKE_FAIL=apparmor_parser run_uninstall 2>"$err") || fail "uninstall failed"
 
 	assert_absent "$profile"
+	[[ "$out" == *"uninstalled xena with 2 warnings"* ]] || fail "stdout '$out' does not count 2 warnings"
+	grep -qF "warning: unloading apparmor profile usr.local.bin.xena-tokend failed" "$err" ||
+		fail "missing apparmor warning"
 }
 
 test_uninstall_unloads_apparmor() {
-	local profile="$root/etc/apparmor.d/usr.local.bin.xena-tokend"
+	local profile name
 
 	run_install v0.1.0 >/dev/null
 
 	run_uninstall >/dev/null
 
-	assert_absent "$profile"
-	assert_log "apparmor_parser -R $profile"
+	for name in usr.local.bin.xena-tokend usr.local.bin.xena-vault; do
+		profile="$root/etc/apparmor.d/$name"
+		assert_absent "$profile"
+		assert_log "apparmor_parser -R $profile"
+	done
 	run_uninstall >/dev/null
 }
 

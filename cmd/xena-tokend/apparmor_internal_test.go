@@ -55,6 +55,28 @@ func TestTokendProfile(t *testing.T) {
 			},
 		},
 		{
+			name: "happy path - reads only the xena files the daemon uses",
+			check: func(t *testing.T, lines []string) {
+				t.Helper()
+
+				var xenaRules []string
+				for _, rule := range fileRules(lines) {
+					if strings.Contains(rule, "/xena/") {
+						xenaRules = append(xenaRules, rule)
+					}
+				}
+
+				require.Equal(t, []string{
+					"owner @{HOME}/.config/xena/github-app.yaml r,",
+					"owner @{HOME}/.config/xena/age-identities.txt r,",
+					"owner @{HOME}/.config/xena/automation_ed25519{,.pub,-cert.pub} r,",
+					"owner @{HOME}/.config/xena/known_hosts r,",
+					"owner @{HOME}/.local/share/xena/secrets/github-app-key.age r,",
+					"/usr/local/share/xena/config/vm.yaml r,",
+				}, xenaRules)
+			},
+		},
+		{
 			name: "happy path - runs no child outside the profile",
 			check: func(t *testing.T, lines []string) {
 				t.Helper()
