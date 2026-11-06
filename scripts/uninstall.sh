@@ -42,7 +42,7 @@ warn() {
 stop_vm() {
 	local state
 
-	state=$(virsh -c qemu:///system domstate "$vm_name" 2>/dev/null) || return 0
+	state=$(virsh -r -c qemu:///system domstate "$vm_name" 2>/dev/null) || return 0
 
 	if [[ "$state" == "shut off" ]]; then
 		return 0
@@ -73,7 +73,7 @@ remove_files() {
 		"$destdir"/etc/systemd/system/xena*
 		"$destdir"/etc/systemd/user/xena*
 		"$destdir"/etc/nftables.d/xena.nft
-		"$destdir"/etc/polkit-1/rules.d/50-xena.rules
+		"$destdir"/usr/share/polkit-1/rules.d/50-xena.rules
 		"$destdir"/etc/sysusers.d/xena.conf
 		"$destdir"/etc/tmpfiles.d/xena-guard.conf
 		"$destdir"/etc/systemd/journald.conf.d/xena.conf

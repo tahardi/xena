@@ -19,6 +19,10 @@ Desktop programs reach the VM through `internal/vmexec`, which runs `ssh` with t
 
 `xena-agent` (`cmd/xena-agent`) runs inside the VM. The VM's SSH server starts it for every login with the automation key, so that key can only run the commands the agent allows. It never runs on the desktop.
 
+## Desktop hardening
+
+Review `deploy/desktop/harden.sh`, then run `sudo deploy/desktop/harden.sh` for the system steps, `deploy/desktop/harden.sh --user` for gh, Claude settings, and the Claude version, and `deploy/desktop/harden.sh --check` to see each item's state. Reboot after the first system run.
+
 ## Development
 
-Requires Go 1.27 and shellcheck. `make pre-pr` runs tidy, fix, lint, unit tests, govulncheck, gitleaks, and shellcheck, the same checks CI runs. See `docs/rulesets.md` for the branch rules on `main`.
+Requires Go 1.27, shellcheck, jq, and python3-yaml. `make pre-pr` runs tidy, fix, lint, unit tests, govulncheck, gitleaks, and shellcheck, the same checks CI runs. See `docs/rulesets.md` for the branch rules on `main`.

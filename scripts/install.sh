@@ -180,11 +180,15 @@ install_files() {
 	done
 
 	for file in "$src"/config/*.yaml; do
+		if [[ $(basename "$file") == vm.yaml ]] && ! grep -q '^network:' "$file"; then
+			continue
+		fi
+
 		install_file 0644 "$file" "/usr/local/share/xena/config/$(basename "$file")"
 	done
 
 	install_file 0644 "$src/deploy/nftables/xena.nft" /etc/nftables.d/xena.nft
-	install_file 0644 "$src/deploy/polkit/50-xena.rules" /etc/polkit-1/rules.d/50-xena.rules
+	install_file 0644 "$src/deploy/polkit/50-xena.rules" /usr/share/polkit-1/rules.d/50-xena.rules
 	install_file 0644 "$src/deploy/sysusers/xena.conf" /etc/sysusers.d/xena.conf
 	install_file 0644 "$src/deploy/journald/xena.conf" /etc/systemd/journald.conf.d/xena.conf
 	install_hook "$src/deploy/libvirt/hooks/qemu"
