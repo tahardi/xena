@@ -24,7 +24,7 @@ write_fakes() {
 	mkdir -p "$work/fakebin"
 
 	local name
-	for name in systemctl systemd-sysusers systemd-tmpfiles usermod userdel groupdel chown nft; do
+	for name in systemctl systemd-sysusers systemd-tmpfiles usermod userdel groupdel chown nft apparmor_parser; do
 		write_fake "$name" </dev/null
 	done
 
@@ -108,6 +108,8 @@ setup() {
 	commit_file deploy/polkit/50-xena.rules "polkit.addRule(function () {});"
 	commit_file deploy/sysusers/xena.conf "u xena-proxy -"
 	commit_file deploy/libvirt/hooks/qemu "#!/bin/sh"
+	commit_file deploy/apparmor/usr.local.bin.xena-tokend "profile xena-tokend {}"
+	commit_file deploy/apparmor/usr.local.bin.xena-vault "profile xena-vault {}"
 	commit_file deploy/journald/xena.conf $'[Journal]\nMaxRetentionSec=90day'
 	commit_file deploy/systemd/xena-proxy.service $'[Service]\nExecStart=/bin/true\n\n[Install]\nWantedBy=multi-user.target'
 	commit_file deploy/systemd/xena-cut.service $'[Service]\nType=oneshot\nExecStart=/bin/true'
@@ -235,9 +237,28 @@ test_install_idempotent() {
 	local first
 	first=$(find "$root" -printf '%p %m %s\n' | sort)
 
+	: >"$FAKE_LOG"
+
 	run_install v0.1.0 >/dev/null
 
 	[[ "$(find "$root" -printf '%p %m %s\n' | sort)" == "$first" ]] || fail "second install changed the files"
+	assert_log "apparmor_parser -r $root/etc/apparmor.d/usr.local.bin.xena-tokend"
+}
+
+test_install_loads_apparmor() {
+	local profile name load_line systemctl_line
+
+	run_install v0.1.0 >/dev/null
+
+	systemctl_line=$(grep -n '^systemctl' "$FAKE_LOG" | head -1 | cut -d: -f1)
+	for name in usr.local.bin.xena-tokend usr.local.bin.xena-vault; do
+		profile="$root/etc/apparmor.d/$name"
+		assert_file "$profile"
+		assert_mode 644 "$profile"
+		assert_log "apparmor_parser -r $profile"
+		load_line=$(grep -nxF "apparmor_parser -r $profile" "$FAKE_LOG" | cut -d: -f1)
+		[[ $load_line -lt $systemctl_line ]] || fail "$name loaded after the first systemctl call"
+	done
 }
 
 test_install_builds_from_tag() {
@@ -504,6 +525,54 @@ test_uninstall_warns_on_failures() {
 	grep -qF "warning: removing group xena-prompt failed" "$err" || fail "missing groupdel warning"
 }
 
+test_install_skips_missing_apparmor() {
+	git -C "$clone" rm -q -r deploy/apparmor
+	git -C "$clone" commit -q -m drop
+	git -C "$clone" push -q origin main
+	signed_tag "$work/key" v0.2.0
+
+	run_install v0.2.0 >/dev/null
+
+	assert_absent "$root/etc/apparmor.d"
+	assert_no_log_match '^apparmor_parser'
+}
+
+test_install_stops_when_apparmor_fails() {
+	if FAKE_FAIL=apparmor_parser run_install v0.1.0 >/dev/null 2>&1; then
+		fail "install succeeded, want failure"
+	fi
+
+	assert_no_log_match '^systemctl'
+}
+
+test_uninstall_removes_apparmor_when_unload_fails() {
+	local profile="$root/etc/apparmor.d/usr.local.bin.xena-tokend" out err="$work/err"
+
+	run_install v0.1.0 >/dev/null
+
+	out=$(FAKE_FAIL=apparmor_parser run_uninstall 2>"$err") || fail "uninstall failed"
+
+	assert_absent "$profile"
+	[[ "$out" == *"uninstalled xena with 2 warnings"* ]] || fail "stdout '$out' does not count 2 warnings"
+	grep -qF "warning: unloading apparmor profile usr.local.bin.xena-tokend failed" "$err" ||
+		fail "missing apparmor warning"
+}
+
+test_uninstall_unloads_apparmor() {
+	local profile name
+
+	run_install v0.1.0 >/dev/null
+
+	run_uninstall >/dev/null
+
+	for name in usr.local.bin.xena-tokend usr.local.bin.xena-vault; do
+		profile="$root/etc/apparmor.d/$name"
+		assert_absent "$profile"
+		assert_log "apparmor_parser -R $profile"
+	done
+	run_uninstall >/dev/null
+}
+
 test_uninstall_idempotent() {
 	run_install v0.1.0 >/dev/null
 	run_uninstall >/dev/null
@@ -583,6 +652,9 @@ run_test() {
 tests=(
 	test_install_happy_path
 	test_install_idempotent
+	test_install_loads_apparmor
+	test_install_skips_missing_apparmor
+	test_install_stops_when_apparmor_fails
 	test_install_builds_from_tag
 	test_install_refuses_unsigned_tag
 	test_install_refuses_foreign_signer
@@ -611,6 +683,8 @@ tests=(
 	test_uninstall_refuses_when_vm_stop_fails
 	test_uninstall_skips_stopped_vm
 	test_uninstall_warns_on_failures
+	test_uninstall_unloads_apparmor
+	test_uninstall_removes_apparmor_when_unload_fails
 	test_uninstall_idempotent
 	test_uninstall_removes_drop_ins
 	test_uninstall_keeps_other_binaries
