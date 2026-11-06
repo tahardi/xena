@@ -55,6 +55,7 @@ type Runner struct {
 	dir     string
 	now     func() time.Time
 	timeout time.Duration
+	logger  *slog.Logger
 }
 
 func NewRunner(
@@ -63,8 +64,9 @@ func NewRunner(
 	dir string,
 	now func() time.Time,
 	timeout time.Duration,
+	logger *slog.Logger,
 ) *Runner {
-	return &Runner{checks: checks, manual: manual, dir: dir, now: now, timeout: timeout}
+	return &Runner{checks: checks, manual: manual, dir: dir, now: now, timeout: timeout, logger: logger}
 }
 
 func (r *Runner) Run(ctx context.Context) (Report, error) {
@@ -139,10 +141,12 @@ func (r *Runner) write(report Report) error {
 func (r *Runner) runCheck(ctx context.Context, check Check, report *Report) []Finding {
 	findings, err := r.runWithTimeout(ctx, check)
 	if errors.Is(err, context.DeadlineExceeded) {
+		message := fmt.Sprintf("check timed out after %s", r.timeout)
+		r.logger.ErrorContext(ctx, "audit check failed", "check", check.Name(), "error", message)
 		return []Finding{{
 			Check:    check.Name(),
 			Severity: logs.SeverityHigh,
-			Message:  fmt.Sprintf("check timed out after %s", r.timeout),
+			Message:  message,
 			Fix:      timeoutFix,
 		}}
 	}
@@ -153,6 +157,7 @@ func (r *Runner) runCheck(ctx context.Context, check Check, report *Report) []Fi
 	}
 
 	if err != nil {
+		r.logger.ErrorContext(ctx, "audit check failed", "check", check.Name(), "error", err.Error())
 		findings = append(findings, Finding{
 			Severity: logs.SeverityHigh,
 			Message:  fmt.Sprintf("check failed: %v", err),

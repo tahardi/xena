@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -90,7 +93,7 @@ func TestRunAuditWith(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
 			var out bytes.Buffer
-			deps := auditDeps{Checks: tt.checks, Manual: manual, Dir: t.TempDir(), Out: &out}
+			deps := auditDeps{Checks: tt.checks, Manual: manual, Dir: t.TempDir(), Out: &out, Timeout: time.Minute}
 
 			// when
 			err := runAuditWith(t.Context(), tt.args, slog.New(slog.DiscardHandler), deps)
@@ -129,5 +132,29 @@ func TestDefaultAuditDeps(t *testing.T) {
 
 		// then
 		require.ErrorContains(t, err, "loading audit config")
+	})
+
+	t.Run("happy path - check timeout from audit config", func(t *testing.T) {
+		// given
+		dir := t.TempDir()
+		t.Setenv("XENA_CONFIG_DIR", dir)
+
+		vmYAML := "version: 1\nclaude_code_version: \"2.0.0\"\n"
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "vm.yaml"), []byte(vmYAML), 0o600))
+
+		auditYAML := "version: 1\n" +
+			"vault: " + t.TempDir() + "\n" +
+			"claude_code_version: \"2.0.0\"\n" +
+			"min_ubuntu_version: \"26.04\"\n" +
+			"gh_scopes: [repo]\n" +
+			"check_timeout: 30s\n"
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "audit.yaml"), []byte(auditYAML), 0o600))
+
+		// when
+		deps, err := defaultAuditDeps(t.Context())
+
+		// then
+		require.NoError(t, err)
+		require.Equal(t, 30*time.Second, deps.Timeout)
 	})
 }

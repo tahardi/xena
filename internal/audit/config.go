@@ -4,21 +4,26 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/tahardi/xena/internal/config"
 )
 
-const ConfigVersion = 1
+const (
+	ConfigVersion       = 1
+	DefaultCheckTimeout = 2 * time.Minute
+)
 
 var ErrInvalidConfig = errors.New("invalid audit config")
 
 type Config struct {
-	Version           int      `yaml:"version"`
-	Vault             string   `yaml:"vault"`
-	ClaudeCodeVersion string   `yaml:"claude_code_version"`
-	MinUbuntuVersion  string   `yaml:"min_ubuntu_version"`
-	GHScopes          []string `yaml:"gh_scopes"`
-	ExtraListeners    []string `yaml:"extra_listeners"`
+	Version           int           `yaml:"version"`
+	Vault             string        `yaml:"vault"`
+	ClaudeCodeVersion string        `yaml:"claude_code_version"`
+	MinUbuntuVersion  string        `yaml:"min_ubuntu_version"`
+	GHScopes          []string      `yaml:"gh_scopes"`
+	ExtraListeners    []string      `yaml:"extra_listeners"`
+	CheckTimeout      time.Duration `yaml:"check_timeout"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -29,6 +34,10 @@ func LoadConfig(path string) (Config, error) {
 
 	if err := cfg.validate(); err != nil {
 		return Config{}, fmt.Errorf("loading audit config %s: %w", path, err)
+	}
+
+	if cfg.CheckTimeout == 0 {
+		cfg.CheckTimeout = DefaultCheckTimeout
 	}
 	return cfg, nil
 }
@@ -60,6 +69,10 @@ func (c Config) validate() error {
 
 	if len(c.GHScopes) == 0 {
 		return fmt.Errorf("gh_scopes is not set; list the scopes your gh token may have: %w", ErrInvalidConfig)
+	}
+
+	if c.CheckTimeout < 0 {
+		return fmt.Errorf("check_timeout %q must be more than zero: %w", c.CheckTimeout, ErrInvalidConfig)
 	}
 	return nil
 }

@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,6 +45,7 @@ func (c hangingCheck) Run(context.Context) ([]Finding, error) {
 }
 
 func TestRunner_Run(t *testing.T) {
+	discard := slog.New(slog.DiscardHandler)
 	started := time.Date(2026, 10, 28, 4, 0, 0, 0, time.UTC)
 	finished := started.Add(time.Minute)
 	manual := []string{"Claude extra usage is off (claude.ai, Settings, Usage)"}
@@ -141,7 +144,7 @@ func TestRunner_Run(t *testing.T) {
 				require.NoError(t, os.Chmod(dir, 0o500))
 			}
 			times := []time.Time{started, finished}
-			runner := NewRunner(tt.checks, manual, dir, clock(times), time.Minute)
+			runner := NewRunner(tt.checks, manual, dir, clock(times), time.Minute, discard)
 
 			// when
 			report, err := runner.Run(t.Context())
@@ -185,13 +188,13 @@ func TestRunner_Run(t *testing.T) {
 		dir := t.TempDir()
 		times := []time.Time{started, finished}
 		checks := []Check{fakeCheck{name: "desktop-docker", findings: []Finding{finding}}}
-		runner := NewRunner(checks, manual, dir, clock(times), time.Minute)
+		runner := NewRunner(checks, manual, dir, clock(times), time.Minute, discard)
 
 		// when
 		_, err := runner.Run(t.Context())
 		require.ErrorIs(t, err, ErrDrift)
 
-		_, err = NewRunner(checks, manual, dir, clock([]time.Time{started, finished}), time.Minute).Run(t.Context())
+		_, err = NewRunner(checks, manual, dir, clock([]time.Time{started, finished}), time.Minute, discard).Run(t.Context())
 
 		// then
 		require.ErrorIs(t, err, ErrDrift)
@@ -221,7 +224,7 @@ func TestRunner_Run(t *testing.T) {
 		dir := t.TempDir()
 		require.NoError(t, os.Mkdir(filepath.Join(dir, "audit-2026-10-28.jsonl"), 0o700))
 		checks := []Check{fakeCheck{name: "a"}}
-		runner := NewRunner(checks, manual, dir, clock([]time.Time{started, finished}), time.Minute)
+		runner := NewRunner(checks, manual, dir, clock([]time.Time{started, finished}), time.Minute, discard)
 
 		// when
 		_, err := runner.Run(t.Context())
@@ -236,7 +239,14 @@ func TestRunner_Run(t *testing.T) {
 		t.Cleanup(func() { close(release) })
 
 		checks := []Check{hangingCheck{release: release}, fakeCheck{name: "after"}}
-		runner := NewRunner(checks, manual, t.TempDir(), clock([]time.Time{started, finished}), time.Millisecond)
+		runner := NewRunner(
+			checks,
+			manual,
+			t.TempDir(),
+			clock([]time.Time{started, finished}),
+			time.Millisecond,
+			discard,
+		)
 
 		// when
 		report, err := runner.Run(t.Context())
@@ -249,5 +259,51 @@ func TestRunner_Run(t *testing.T) {
 			Message:  "check timed out after 1ms",
 			Fix:      "Find the command or file the check waits on, then run xena audit again.",
 		}}, report.Findings)
+	})
+
+	t.Run("error - check failures are logged", func(t *testing.T) {
+		// given
+		release := make(chan struct{})
+		t.Cleanup(func() { close(release) })
+
+		var out strings.Builder
+		logger := slog.New(slog.NewJSONHandler(&out, nil))
+		checks := []Check{
+			fakeCheck{name: "desktop-ufw", err: errBroken},
+			hangingCheck{release: release},
+			fakeCheck{name: "desktop-docker", findings: []Finding{finding}},
+			fakeCheck{name: "vm", err: ErrSkipped},
+		}
+		runner := NewRunner(
+			checks,
+			manual,
+			t.TempDir(),
+			clock([]time.Time{started, finished}),
+			time.Millisecond,
+			logger,
+		)
+
+		// when
+		_, err := runner.Run(t.Context())
+
+		// then
+		require.ErrorIs(t, err, ErrDrift)
+
+		lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+		require.Len(t, lines, 2)
+
+		got := make([]map[string]any, 0, len(lines))
+		for _, line := range lines {
+			var entry map[string]any
+			require.NoError(t, json.Unmarshal([]byte(line), &entry))
+			got = append(got, entry)
+		}
+		require.Equal(t, "ERROR", got[0]["level"])
+		require.Equal(t, "audit check failed", got[0]["msg"])
+		require.Equal(t, "desktop-ufw", got[0]["check"])
+		require.Equal(t, "broken", got[0]["error"])
+		require.Equal(t, "audit check failed", got[1]["msg"])
+		require.Equal(t, "desktop-hang", got[1]["check"])
+		require.Equal(t, "check timed out after 1ms", got[1]["error"])
 	})
 }

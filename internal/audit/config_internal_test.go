@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -37,7 +38,31 @@ func TestLoadConfig(t *testing.T) {
 				MinUbuntuVersion:  "26.04",
 				GHScopes:          []string{"repo", "read:org"},
 				ExtraListeners:    []string{"192.0.2.10:22"},
+				CheckTimeout:      2 * time.Minute,
 			},
+		},
+		{
+			name: "happy path - check timeout set",
+			file: validConfig + "check_timeout: 30s\n",
+			want: Config{
+				Version:           1,
+				ClaudeCodeVersion: "2.0.0",
+				MinUbuntuVersion:  "26.04",
+				GHScopes:          []string{"repo", "read:org"},
+				ExtraListeners:    []string{"192.0.2.10:22"},
+				CheckTimeout:      30 * time.Second,
+			},
+		},
+		{
+			name:    "error - check timeout not positive",
+			file:    validConfig + "check_timeout: -1s\n",
+			wantErr: ErrInvalidConfig,
+			errText: `check_timeout "-1s" must be more than zero`,
+		},
+		{
+			name:    "error - check timeout malformed",
+			file:    validConfig + "check_timeout: soon\n",
+			errText: "loading audit config",
 		},
 		{
 			name:    "error - missing file",

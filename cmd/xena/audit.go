@@ -20,13 +20,12 @@ import (
 	"github.com/tahardi/xena/internal/config"
 )
 
-const auditCheckTimeout = 2 * time.Minute
-
 type auditDeps struct {
-	Checks []audit.Check
-	Manual []string
-	Dir    string
-	Out    io.Writer
+	Checks  []audit.Check
+	Manual  []string
+	Dir     string
+	Out     io.Writer
+	Timeout time.Duration
 }
 
 func runAudit(ctx context.Context, args []string, logger *slog.Logger) error {
@@ -45,7 +44,8 @@ func runAuditWith(ctx context.Context, args []string, logger *slog.Logger, deps 
 		return fmt.Errorf("parsing audit flags: %w", err)
 	}
 
-	report, err := audit.NewRunner(deps.Checks, deps.Manual, deps.Dir, time.Now, auditCheckTimeout).Run(ctx)
+	runner := audit.NewRunner(deps.Checks, deps.Manual, deps.Dir, time.Now, deps.Timeout, logger)
+	report, err := runner.Run(ctx)
 	if err != nil && !errors.Is(err, audit.ErrDrift) {
 		return err
 	}
@@ -113,8 +113,9 @@ func defaultAuditDeps(_ context.Context) (auditDeps, error) {
 	}
 	bridge := net.JoinHostPort(vm.Network.BridgeAddress, strconv.Itoa(vm.ProxyPort))
 	return auditDeps{
-		Checks: audit.DesktopChecks(cfg, audit.OSCommander{}, paths, bridge),
-		Dir:    filepath.Join(config.StateDir(), "audit"),
-		Out:    os.Stdout,
+		Checks:  audit.DesktopChecks(cfg, audit.OSCommander{}, paths, bridge),
+		Dir:     filepath.Join(config.StateDir(), "audit"),
+		Out:     os.Stdout,
+		Timeout: cfg.CheckTimeout,
 	}, nil
 }
