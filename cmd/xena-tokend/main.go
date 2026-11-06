@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -25,9 +26,12 @@ const (
 	githubAPI   = "https://api.github.com"
 	httpTimeout = 30 * time.Second
 	appKeyName  = "github-app-key"
+	terminal    = "/dev/tty"
 )
 
 func main() {
+	useTerminal(terminal)
+
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -53,7 +57,7 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	}
 
 	if *dryRun {
-		return runDry(ctx, cfg)
+		return runDry(ctx, cfg, logger)
 	}
 
 	runner, err := vmexec.Default()
@@ -63,7 +67,7 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 
 	loop := &tokend.Loop{
 		Unlock: func(ctx context.Context) (tokend.Minter, error) {
-			app, err := unlock(ctx, cfg)
+			app, err := unlock(ctx, cfg, os.Stdout, logger)
 			if err != nil {
 				return nil, err
 			}
@@ -77,8 +81,8 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	return loop.Run(ctx)
 }
 
-func runDry(ctx context.Context, cfg github.AppConfig) error {
-	app, err := unlock(ctx, cfg)
+func runDry(ctx context.Context, cfg github.AppConfig, logger *slog.Logger) error {
+	app, err := unlock(ctx, cfg, os.Stdout, logger)
 	if err != nil {
 		return err
 	}
@@ -102,8 +106,22 @@ func runDry(ctx context.Context, cfg github.AppConfig) error {
 	return err
 }
 
-func unlock(ctx context.Context, cfg github.AppConfig) (github.App, error) {
-	_ = exec.CommandContext(ctx, "notify-send", "Xena", "Touch your YubiKey to unlock the GitHub token service").Run()
+func useTerminal(path string) {
+	tty, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		return
+	}
+
+	os.Stdout, os.Stderr = tty, tty
+}
+
+func unlock(ctx context.Context, cfg github.AppConfig, out io.Writer, logger *slog.Logger) (github.App, error) {
+	_, _ = fmt.Fprintln(out, "touch your YubiKey to unlock the GitHub token service")
+
+	notify := exec.CommandContext(ctx, "notify-send", "Xena", "Touch your YubiKey to unlock the GitHub token service")
+	if err := notify.Run(); err != nil {
+		logger.Warn("sending desktop notification", "error", err)
+	}
 
 	store, err := secrets.NewDefaultStore()
 	if err != nil {
