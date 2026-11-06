@@ -108,6 +108,7 @@ setup() {
 	commit_file deploy/polkit/50-xena.rules "polkit.addRule(function () {});"
 	commit_file deploy/sysusers/xena.conf "u xena-proxy -"
 	commit_file deploy/libvirt/hooks/qemu "#!/bin/sh"
+	commit_file deploy/journald/xena.conf $'[Journal]\nMaxRetentionSec=90day'
 	commit_file deploy/systemd/xena-proxy.service $'[Service]\nExecStart=/bin/true\n\n[Install]\nWantedBy=multi-user.target'
 	commit_file deploy/systemd/xena-cut.service $'[Service]\nType=oneshot\nExecStart=/bin/true'
 	commit_file deploy/systemd/xena-nftables.service $'[Service]\nExecStart=/bin/true\n\n[Install]\nWantedBy=multi-user.target'
@@ -200,6 +201,8 @@ test_install_happy_path() {
 	assert_file "$root/etc/polkit-1/rules.d/50-xena.rules"
 	assert_file "$root/etc/nftables.d/xena.nft"
 	assert_file "$root/etc/sysusers.d/xena.conf"
+	assert_file "$root/etc/systemd/journald.conf.d/xena.conf"
+	assert_mode 644 "$root/etc/systemd/journald.conf.d/xena.conf"
 	assert_file "$root/etc/libvirt/hooks/qemu"
 	assert_mode 755 "$root/etc/libvirt/hooks/qemu"
 	assert_dir "$root/var/lib/xena-vm"
@@ -221,6 +224,7 @@ test_install_happy_path() {
 	assert_log "systemctl restart xena-nftables.service xena-proxy.service"
 	assert_log "systemctl --user enable xena-report.timer"
 	assert_log "systemctl --user restart xena-report.timer"
+	assert_log "systemctl restart systemd-journald"
 	assert_log_match '^go build .*-X main\.version=v0\.1\.0 '
 	assert_no_log_match 'enable.*xena-cut\.service'
 	assert_no_log_match '^usermod'
@@ -445,8 +449,11 @@ test_uninstall_keeps_state() {
 	assert_absent "$root/etc/systemd/user/xena-report.timer"
 	assert_absent "$root/usr/local/share/xena"
 	assert_absent "$root/etc/polkit-1/rules.d/50-xena.rules"
+	assert_absent "$root/etc/systemd/journald.conf.d/xena.conf"
 	assert_file "$root/var/lib/xena-proxy/keep.txt"
 	assert_log "nft destroy table inet xena"
+	[[ $(grep -c '^systemctl restart systemd-journald$' "$FAKE_LOG") -eq 2 ]] ||
+		fail "uninstall did not restart systemd-journald"
 	assert_no_log_match '^userdel'
 }
 
