@@ -17,10 +17,12 @@ setup() {
 	root=$(mktemp -d -p "$work")
 	fake=$root/.fake
 	mkdir -p "$fake/bin" "$fake/installed" "$fake/enabled" "$root/etc" "$root/home/taylor/.claude"
-	mkdir -p "$root/etc/apt/sources.list.d" "$root/dotclaude/settings"
+	mkdir -p "$root/etc/apt/sources.list.d" "$root/etc/apt/keyrings" "$root/etc/libvirt" "$root/dotclaude/settings"
 
 	printf 'docker:x:999:taylor\nlibvirt:x:998:other,taylor\nsudo:x:27:taylor\n' >"$root/etc/group"
 	printf 'flush ruleset\n' >"$root/etc/nftables.conf"
+	printf '#unix_sock_group = "libvirt"\nauth_unix_rw = "none"\n' >"$root/etc/libvirt/libvirtd.conf"
+	touch "$root/etc/apt/keyrings/docker.asc"
 	touch "$root/etc/apt/sources.list.d/docker.list" "$root/etc/apt/sources.list.d/docker.sources"
 	touch "$fake/installed/docker-ce" "$fake/installed/containerd.io"
 	touch "$fake/enabled/ufw"
@@ -43,7 +45,8 @@ STUB
 	stub dpkg-query '[[ -e "$FAKE/installed/${@: -1}" ]] && printf "install ok installed"'
 	stub gpasswd 'sed -i -E "/^$3:/{s/([:,])$2(,|$)/\1/;s/,$//}" "$XENA_ROOT/etc/group"'
 	stub systemctl 'case $1 in is-enabled) [[ -e "$FAKE/enabled/$2" ]] && echo enabled || { echo disabled; exit 1; } ;;
-		enable) touch "$FAKE/enabled/${@: -1}" ;; disable) rm -f "$FAKE/enabled/${@: -1}" ;; esac'
+		enable) touch "$FAKE/enabled/${@: -1}" ;; disable) rm -f "$FAKE/enabled/${@: -1}" ;;
+		stop) [[ -f "$XENA_ROOT/usr/share/polkit-1/rules.d/50-xena.rules" ]] || touch "$FAKE/rule-late" ;; esac'
 	stub nft ':'
 	stub gh 'case $2 in status) [[ -e "$FAKE/gh-ok" ]] ;; login) touch "$FAKE/gh-ok" ;; esac'
 	stub claude 'case $1 in --version) echo "$(cat "$FAKE/claude-version") (Claude Code)" ;;
@@ -106,9 +109,19 @@ test_system_applies_every_step() {
 	grep -q 'policy drop' "$root/etc/nftables.conf" || { fail "${FUNCNAME[0]}" "no drop policy"; return; }
 	grep -q 'APT::Periodic::Unattended-Upgrade "1";' "$root/etc/apt/apt.conf.d/20auto-upgrades" ||
 		{ fail "${FUNCNAME[0]}" "no auto-upgrades"; return; }
-	[[ -f "$root/etc/polkit-1/rules.d/50-xena.rules" ]] || { fail "${FUNCNAME[0]}" "no polkit rules"; return; }
-	[[ $(stat -c %a "$root/etc/polkit-1/rules.d/50-xena.rules") == 644 ]] ||
+	[[ ! -e "$root/etc/apt/keyrings/docker.asc" ]] || { fail "${FUNCNAME[0]}" "docker key kept"; return; }
+	[[ -f "$root/usr/share/polkit-1/rules.d/50-xena.rules" ]] || { fail "${FUNCNAME[0]}" "no polkit rules"; return; }
+	[[ $(stat -c %a "$root/usr/share/polkit-1/rules.d/50-xena.rules") == 644 ]] ||
 		{ fail "${FUNCNAME[0]}" "wrong polkit mode"; return; }
+	grep -qx 'auth_unix_rw = "polkit"' "$root/etc/libvirt/libvirtd.conf" ||
+		{ fail "${FUNCNAME[0]}" "libvirt auth not polkit"; return; }
+	grep -qx 'SocketMode=0666' "$root/etc/systemd/system/libvirtd.socket.d/xena.conf" ||
+		{ fail "${FUNCNAME[0]}" "no socket drop-in"; return; }
+	grep -qx 'systemctl daemon-reload' <<<"$c" || { fail "${FUNCNAME[0]}" "no daemon-reload"; return; }
+	grep -qx 'systemctl stop libvirtd.service' <<<"$c" || { fail "${FUNCNAME[0]}" "libvirtd not stopped"; return; }
+	grep -qx 'systemctl restart libvirtd.socket' <<<"$c" || { fail "${FUNCNAME[0]}" "socket not restarted"; return; }
+	grep -qx 'systemctl start libvirtd.service' <<<"$c" || { fail "${FUNCNAME[0]}" "libvirtd not started"; return; }
+	[[ ! -e "$fake/rule-late" ]] || { fail "${FUNCNAME[0]}" "libvirt restarted before the polkit rule"; return; }
 	pass "${FUNCNAME[0]}"
 }
 
@@ -118,7 +131,7 @@ test_system_is_idempotent() {
 	harden >/dev/null
 	rm -f "$fake/calls"
 	harden >/dev/null
-	if grep -qE '^(apt-get|gpasswd|nft|systemctl (enable|disable)) ' <<<"$(calls)"; then
+	if grep -qE '^(apt-get|gpasswd|nft|systemctl (enable|disable|stop|restart|start)) ' <<<"$(calls)"; then
 		fail "${FUNCNAME[0]}" "second run changed state: $(calls)"
 		return
 	fi
@@ -137,8 +150,11 @@ test_system_keeps_xena_table() {
 		return
 	fi
 
-	grep -qx 'include "/etc/nftables.d/\*.nft"' "$root/etc/nftables.conf" ||
-		{ fail "${FUNCNAME[0]}" "no include"; return; }
+	if grep -q 'include' "$root/etc/nftables.conf"; then
+		fail "${FUNCNAME[0]}" "nftables.conf loads other files"
+		return
+	fi
+
 	[[ "$(cat "$root/etc/nftables.d/xena.nft")" == 'table inet xena {}' ]] ||
 		{ fail "${FUNCNAME[0]}" "xena.nft changed"; return; }
 	pass "${FUNCNAME[0]}"
@@ -203,7 +219,8 @@ test_check_fails_before_apply() {
 		return
 	fi
 
-	for item in docker-packages docker-sources docker-group libvirt-group nftables-conf ufw-disabled claude-version; do
+	for item in docker-packages docker-sources docker-group libvirt-group nftables-conf ufw-disabled \
+		libvirt-auth libvirt-socket claude-version; do
 		grep -qx "fail: $item" <<<"$out" || { fail "${FUNCNAME[0]}" "missing fail: $item"; return; }
 	done
 
@@ -369,11 +386,13 @@ test_check_fails_plaintext_gh_token() {
 
 test_rejects_unknown_flag() {
 	setup
+	rm "$root/vm.yaml"
 
-	local code=0
+	local code=0 out
 
-	harden --bad >/dev/null 2>&1 || code=$?
+	out=$(harden --bad 2>&1) || code=$?
 	[[ $code -eq 2 ]] || { fail "${FUNCNAME[0]}" "exit $code"; return; }
+	grep -q '^usage: ' <<<"$out" || { fail "${FUNCNAME[0]}" "no usage: $out"; return; }
 	pass "${FUNCNAME[0]}"
 }
 
@@ -381,12 +400,47 @@ test_stops_without_vm_config() {
 	setup
 	rm "$root/vm.yaml"
 
-	if harden >/dev/null 2>&1; then
+	local out
+
+	if out=$(harden 2>&1); then
 		fail "${FUNCNAME[0]}" "ran without vm.yaml"
 		return
 	fi
 
+	grep -q 'reading claude_code_version' <<<"$out" || { fail "${FUNCNAME[0]}" "wrong error: $out"; return; }
+	if grep -q 'Traceback' <<<"$out"; then
+		fail "${FUNCNAME[0]}" "printed a traceback"
+		return
+	fi
+
 	[[ -z "$(calls)" ]] || { fail "${FUNCNAME[0]}" "changed state: $(calls)"; return; }
+	pass "${FUNCNAME[0]}"
+}
+
+test_system_refuses_plain_root() {
+	setup
+	stub id 'if [[ $1 == -un ]]; then echo root; else echo 0; fi'
+
+	local out
+
+	if out=$(env -u SUDO_USER XENA_ROOT= PATH="$fake/bin:$PATH" FAKE="$fake" "$script" 2>&1); then
+		fail "${FUNCNAME[0]}" "ran as root with no SUDO_USER"
+		return
+	fi
+
+	grep -q 'running system steps: run with sudo from your own account' <<<"$out" ||
+		{ fail "${FUNCNAME[0]}" "wrong error: $out"; return; }
+	pass "${FUNCNAME[0]}"
+}
+
+test_system_prints_progress() {
+	setup
+
+	local out
+
+	out=$(harden)
+	grep -qx 'removing docker packages' <<<"$out" || { fail "${FUNCNAME[0]}" "no progress: $out"; return; }
+	grep -qx 'system steps done' <<<"$out" || { fail "${FUNCNAME[0]}" "no summary: $out"; return; }
 	pass "${FUNCNAME[0]}"
 }
 
@@ -408,4 +462,6 @@ test_check_fails_unlinked_settings
 test_check_fails_plaintext_gh_token
 test_rejects_unknown_flag
 test_stops_without_vm_config
+test_system_refuses_plain_root
+test_system_prints_progress
 exit "$((failures > 0))"

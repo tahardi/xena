@@ -1,16 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+case "${1:-}" in
+	"" | --user | --check) ;;
+	*)
+		echo "usage: harden.sh [--user|--check]" >&2
+		exit 2
+		;;
+esac
+
 root=${XENA_ROOT:-}
 user=${XENA_USER:-${SUDO_USER:-$(id -un)}}
 home=${XENA_HOME:-$HOME}
 dotclaude=${DOTCLAUDE_DIR:-$home/Documents/code/dotclaude}
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 vm_config=${XENA_VM_CONFIG:-$here/../../config/vm.yaml}
-claude_version=$(
-	python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["claude_code_version"])' "$vm_config"
-)
+if ! claude_version=$(
+	python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["claude_code_version"])' \
+		"$vm_config" 2>/dev/null
+); then
+	echo "reading claude_code_version from $vm_config: check the file exists and python3-yaml is installed" >&2
+	exit 1
+fi
+
 polkit_rules=$here/../polkit/50-xena.rules
+polkit_dest=usr/share/polkit-1/rules.d/50-xena.rules
+libvirt_conf=etc/libvirt/libvirtd.conf
+libvirt_socket=etc/systemd/system/libvirtd.socket.d/xena.conf
 docker_packages=(
 	containerd.io
 	docker-buildx-plugin
@@ -26,6 +42,8 @@ docker_packages=(
 docker_sources=(
 	etc/apt/sources.list.d/docker.list
 	etc/apt/sources.list.d/docker.sources
+	etc/apt/keyrings/docker.asc
+	etc/apt/keyrings/docker.gpg
 )
 settings_rule='.sandbox.enabled == true
 	and .sandbox.allowUnsandboxedCommands == false
@@ -65,8 +83,6 @@ table inet host_filter {
 		ip6 saddr fe80::/10 udp dport 546 accept
 	}
 }
-
-include "/etc/nftables.d/*.nft"
 CONF
 }
 
@@ -74,6 +90,13 @@ auto_upgrades_conf() {
 	cat <<'CONF'
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
+CONF
+}
+
+libvirt_socket_conf() {
+	cat <<'CONF'
+[Socket]
+SocketMode=0666
 CONF
 }
 
@@ -141,6 +164,10 @@ no_docker_sources() {
 	done
 }
 
+libvirt_uses_polkit() {
+	grep -qx 'auth_unix_rw = "polkit"' "$root/$libvirt_conf"
+}
+
 gh_plaintext() {
 	grep -qs 'oauth_token:' "$home/.config/gh/hosts.yml"
 }
@@ -168,7 +195,12 @@ system_steps() {
 		exit 1
 	fi
 
-	local purge=() p g
+	if [[ -z "$root" && "$user" == root ]]; then
+		echo "running system steps: run with sudo from your own account" >&2
+		exit 1
+	fi
+
+	local purge=() p g restart_libvirt=0
 
 	for p in "${docker_packages[@]}"; do
 		if installed "$p"; then
@@ -177,47 +209,77 @@ system_steps() {
 	done
 
 	if [[ ${#purge[@]} -gt 0 ]]; then
+		echo "removing docker packages"
 		apt-get purge -y "${purge[@]}"
 	fi
 
-	for p in "${docker_sources[@]}"; do
-		rm -f "$root/$p"
-	done
+	if ! no_docker_sources; then
+		echo "removing docker sources"
+		for p in "${docker_sources[@]}"; do
+			rm -f "$root/$p"
+		done
+	fi
 
 	for g in docker libvirt; do
 		if in_group "$g"; then
+			echo "removing $user from $g"
 			gpasswd -d "$user" "$g"
 		fi
 	done
 
-	mkdir -p "$root/etc/nftables.d"
 	if ! same "$root/etc/nftables.conf" < <(nftables_conf); then
 		nft -c -f <(nftables_conf)
 	fi
 
 	write_file "$root/etc/nftables.conf" 0755 < <(nftables_conf)
 	if [[ $changed -eq 1 ]]; then
+		echo "loading firewall rules"
 		nft -f "$root/etc/nftables.conf"
 	fi
 
 	if ! enabled nftables; then
+		echo "enabling nftables"
 		systemctl enable nftables
 	fi
 
 	if enabled ufw; then
+		echo "disabling ufw"
 		systemctl disable --now ufw
 	fi
 
 	if ! installed unattended-upgrades; then
+		echo "installing unattended-upgrades"
 		apt-get install -y unattended-upgrades
 	fi
 
 	write_file "$root/etc/apt/apt.conf.d/20auto-upgrades" 0644 < <(auto_upgrades_conf)
 	if ! enabled unattended-upgrades; then
+		echo "enabling unattended-upgrades"
 		systemctl enable --now unattended-upgrades
 	fi
 
-	write_file "$root/etc/polkit-1/rules.d/50-xena.rules" 0644 <"$polkit_rules"
+	write_file "$root/$polkit_dest" 0644 <"$polkit_rules"
+
+	if ! libvirt_uses_polkit; then
+		echo "switching libvirt to polkit"
+		sed -i -E 's/^#?[[:space:]]*auth_unix_rw[[:space:]]*=.*/auth_unix_rw = "polkit"/' "$root/$libvirt_conf"
+		restart_libvirt=1
+	fi
+
+	write_file "$root/$libvirt_socket" 0644 < <(libvirt_socket_conf)
+	if [[ $changed -eq 1 ]]; then
+		restart_libvirt=1
+	fi
+
+	if [[ $restart_libvirt -eq 1 ]]; then
+		echo "restarting libvirt"
+		systemctl daemon-reload
+		systemctl stop libvirtd.service
+		systemctl restart libvirtd.socket
+		systemctl start libvirtd.service
+	fi
+
+	echo "system steps done"
 }
 
 user_steps() {
@@ -232,20 +294,26 @@ user_steps() {
 	fi
 
 	if gh_plaintext; then
+		echo "removing plaintext gh login"
 		gh auth logout --hostname github.com
 	fi
 
 	if ! gh auth status --hostname github.com >/dev/null 2>&1; then
+		echo "logging in to gh"
 		gh auth login --hostname github.com --git-protocol https --web
 	fi
 
 	if ! settings_linked; then
+		echo "linking Claude settings"
 		"$dotclaude/install.sh" desktop
 	fi
 
 	if ! claude_pinned; then
+		echo "installing Claude Code $claude_version"
 		claude install --force "$claude_version"
 	fi
+
+	echo "user steps done"
 }
 
 result() {
@@ -277,7 +345,9 @@ check_steps() {
 	result unattended-upgrades-installed installed unattended-upgrades
 	result unattended-upgrades-conf same "$root/etc/apt/apt.conf.d/20auto-upgrades" < <(auto_upgrades_conf)
 	result unattended-upgrades-enabled enabled unattended-upgrades
-	result polkit-rules same "$root/etc/polkit-1/rules.d/50-xena.rules" <"$polkit_rules"
+	result polkit-rules same "$root/$polkit_dest" <"$polkit_rules"
+	result libvirt-auth libvirt_uses_polkit
+	result libvirt-socket same "$root/$libvirt_socket" < <(libvirt_socket_conf)
 	result gh-keyring gh_in_keyring
 	result claude-settings settings_safe
 	result claude-version claude_pinned
@@ -288,8 +358,4 @@ case "${1:-}" in
 	"") system_steps ;;
 	--user) user_steps ;;
 	--check) check_steps ;;
-	*)
-		echo "usage: harden.sh [--user|--check]" >&2
-		exit 2
-		;;
 esac

@@ -25,4 +25,4 @@ Review `deploy/desktop/harden.sh`, then run `sudo deploy/desktop/harden.sh` for 
 
 ## Development
 
-Requires Go 1.27 and shellcheck. `make pre-pr` runs tidy, fix, lint, unit tests, govulncheck, gitleaks, and shellcheck, the same checks CI runs. See `docs/rulesets.md` for the branch rules on `main`.
+Requires Go 1.27, shellcheck, jq, and python3-yaml. `make pre-pr` runs tidy, fix, lint, unit tests, govulncheck, gitleaks, and shellcheck, the same checks CI runs. See `docs/rulesets.md` for the branch rules on `main`.

@@ -265,7 +265,7 @@ test_install_happy_path() {
 	assert_file "$root/usr/local/share/xena/config/watch.yaml"
 	assert_file "$root/etc/systemd/system/xena-proxy.service"
 	assert_file "$root/etc/systemd/user/xena-report.timer"
-	assert_file "$root/etc/polkit-1/rules.d/50-xena.rules"
+	assert_file "$root/usr/share/polkit-1/rules.d/50-xena.rules"
 	assert_file "$root/etc/nftables.d/xena.nft"
 	assert_file "$root/etc/sysusers.d/xena.conf"
 	assert_file "$root/etc/systemd/journald.conf.d/xena.conf"
@@ -566,7 +566,7 @@ test_uninstall_keeps_state() {
 	assert_absent "$root/etc/systemd/system/xena-proxy.service"
 	assert_absent "$root/etc/systemd/user/xena-report.timer"
 	assert_absent "$root/usr/local/share/xena"
-	assert_absent "$root/etc/polkit-1/rules.d/50-xena.rules"
+	assert_absent "$root/usr/share/polkit-1/rules.d/50-xena.rules"
 	assert_absent "$root/etc/systemd/journald.conf.d/xena.conf"
 	assert_file "$root/var/lib/xena-proxy/keep.txt"
 	assert_log "nft destroy table inet xena"
@@ -580,6 +580,7 @@ test_uninstall_stops_running_vm() {
 
 	FAKE_VM_STATE=running run_uninstall >/dev/null
 
+	assert_log_match '^virsh -r '
 	assert_log "xena vm stop"
 	local stop_line destroy_line
 	stop_line=$(grep -n '^xena vm stop' "$FAKE_LOG" | cut -d: -f1)
