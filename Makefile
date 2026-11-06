@@ -71,6 +71,18 @@ test-scripts:
 install:
 	./scripts/install.sh install $(VERSION)
 
+.PHONY: release-major
+release-major:
+	./scripts/release.sh major
+
+.PHONY: release-minor
+release-minor:
+	./scripts/release.sh minor
+
+.PHONY: release-patch
+release-patch:
+	./scripts/release.sh patch
+
 .PHONY: rollback
 rollback:
 	$(if $(filter command line,$(origin VERSION)),,$(error rollback needs VERSION=vX.Y.Z))

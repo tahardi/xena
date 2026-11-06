@@ -4,6 +4,7 @@ set -euo pipefail
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 install_sh="$script_dir/install.sh"
 uninstall_sh="$script_dir/uninstall.sh"
+release_sh="$script_dir/release.sh"
 failures=0
 
 write_fake() {
@@ -100,6 +101,7 @@ setup() {
 	git init -q -b main "$clone"
 	git -C "$clone" config user.email test@example.com
 	git -C "$clone" config user.name Test
+	git -C "$clone" config user.signingkey "$work/key"
 	git -C "$clone" remote add origin "$work/origin.git"
 
 	commit_file go.mod "module example.com/xena"
@@ -140,6 +142,47 @@ run_uninstall() {
 		SUDO="" \
 		PATH="$work/fakebin:$PATH" \
 		"$uninstall_sh"
+}
+
+run_release() {
+	XENA_REPO_DIR="$clone" \
+		XENA_ALLOWED_SIGNERS="$signers" \
+		PATH="$work/fakebin:$PATH" \
+		TMPDIR="$work/tmp" \
+		"$release_sh" "$@"
+}
+
+push_commit() {
+	local name=$1
+
+	commit_file "$name" "$name"
+	git -C "$clone" commit -q -m "$name"
+	git -C "$clone" push -q origin main
+}
+
+push_tag() {
+	local tag=$1
+
+	signed_tag "$work/key" "$tag"
+	git -C "$clone" push -q origin "$tag"
+}
+
+setup_release() {
+	push_commit one
+	push_tag v0.1.1
+	push_commit two
+}
+
+push_side_tag() {
+	local tag=$1
+
+	git -C "$clone" checkout -q -b side
+	commit_file side "side"
+	git -C "$clone" commit -q -m side
+	push_tag "$tag"
+	git -C "$clone" checkout -q main
+	git -C "$clone" branch -q -D side
+	git -C "$clone" tag -d "$tag" >/dev/null
 }
 
 fail() {
@@ -190,6 +233,28 @@ assert_refused() {
 	assert_absent "$root/usr"
 	assert_absent "$root/etc"
 	assert_no_log_match '^(systemctl|systemd-sysusers|systemd-tmpfiles|chown)'
+}
+
+assert_origin_tag() {
+	local tag=$1
+
+	[[ -n "$(git -C "$work/origin.git" tag -l "$tag")" ]] || fail "origin missing tag $tag"
+}
+
+assert_release_refused() {
+	local want=$1 before err
+	shift
+
+	before=$(git -C "$work/origin.git" tag -l)
+
+	if err=$(run_release "$@" 2>&1 >/dev/null); then
+		fail "release succeeded, want refusal"
+	fi
+
+	[[ "$err" == *"$want"* ]] || fail "stderr '$err' does not contain '$want'"
+
+	[[ "$(git -C "$work/origin.git" tag -l)" == "$before" ]] || fail "origin tags changed"
+	[[ "$(git -C "$clone" tag -l)" == "$before" ]] || fail "clone tags differ from origin"
 }
 
 test_install_happy_path() {
@@ -346,6 +411,18 @@ test_install_defaults_to_latest_tag_after_fetch() {
 	run_install >/dev/null
 
 	assert_log_match '^go build .*-X main\.version=v0\.1\.1 '
+}
+
+test_install_defaults_to_highest_tag() {
+	push_commit one
+	push_tag v0.10.0
+	push_commit two
+	push_tag v0.9.0
+	push_commit three
+
+	run_install >/dev/null
+
+	assert_log_match '^go build .*-X main\.version=v0\.10\.0 '
 }
 
 test_install_removes_stale_units() {
@@ -626,6 +703,245 @@ test_uninstall_purge_skips_missing_accounts() {
 	assert_no_log_match '^groupdel'
 }
 
+test_release_patch_bumps_patch() {
+	setup_release
+
+	run_release patch >/dev/null
+
+	assert_origin_tag v0.1.2
+}
+
+test_release_minor_bumps_minor() {
+	setup_release
+
+	run_release minor >/dev/null
+
+	assert_origin_tag v0.2.0
+}
+
+test_release_major_bumps_major() {
+	setup_release
+
+	run_release major >/dev/null
+
+	assert_origin_tag v1.0.0
+}
+
+test_release_first_tag() {
+	git -C "$clone" push -q origin :refs/tags/v0.1.0
+	git -C "$clone" tag -d v0.1.0 >/dev/null
+
+	local part
+	for part in major minor patch; do
+		run_release "$part" >/dev/null
+
+		assert_origin_tag v0.1.0
+
+		git -C "$clone" push -q origin :refs/tags/v0.1.0
+		git -C "$clone" tag -d v0.1.0 >/dev/null
+	done
+}
+
+test_release_patch_passes_nine() {
+	push_commit one
+	push_tag v0.1.9
+	push_commit two
+
+	run_release patch >/dev/null
+
+	assert_origin_tag v0.1.10
+}
+
+test_release_uses_highest_tag() {
+	push_commit one
+	push_tag v0.10.0
+	push_commit two
+	push_tag v0.9.0
+	push_commit three
+
+	run_release patch >/dev/null
+
+	assert_origin_tag v0.10.1
+}
+
+test_release_uses_fresh_origin_main() {
+	setup_release
+	git clone -q "$work/origin.git" "$work/other"
+	git -C "$work/other" config user.email test@example.com
+	git -C "$work/other" config user.name Test
+	git -C "$work/other" commit -q --allow-empty -m other
+	git -C "$work/other" push -q origin main
+
+	run_release patch >/dev/null
+
+	local got want
+	got=$(git -C "$work/origin.git" rev-parse 'refs/tags/v0.1.2^{commit}')
+	want=$(git -C "$work/other" rev-parse HEAD)
+
+	[[ "$got" == "$want" ]] || fail "tag at $got, want fresh origin/main $want"
+}
+
+test_release_tags_origin_main() {
+	setup_release
+	git -C "$clone" checkout -q -b local-work
+	commit_file local "local"
+	git -C "$clone" commit -q -m local
+
+	local main_before
+	main_before=$(git -C "$work/origin.git" rev-parse main)
+
+	run_release patch >/dev/null
+
+	local got want head
+	got=$(git -C "$work/origin.git" rev-parse 'refs/tags/v0.1.2^{commit}')
+	want=$(git -C "$clone" rev-parse origin/main)
+	head=$(git -C "$clone" rev-parse HEAD)
+
+	[[ "$got" == "$want" ]] || fail "tag at $got, want origin/main $want"
+	[[ "$got" != "$head" ]] || fail "tag at HEAD"
+	[[ "$(git -C "$work/origin.git" rev-parse main)" == "$main_before" ]] || fail "origin main moved"
+	[[ -z "$(git -C "$work/origin.git" branch --list local-work)" ]] || fail "branch pushed to origin"
+}
+
+test_release_prints_next_step() {
+	setup_release
+
+	local out
+	out=$(run_release patch)
+
+	[[ "$out" == *"released v0.1.2"* ]] || fail "output '$out' does not name the tag"
+	[[ "$out" == *"make install"* ]] || fail "output '$out' does not mention make install"
+}
+
+test_release_refuses_bad_part() {
+	assert_release_refused "usage: release.sh major|minor|patch"
+	assert_release_refused "usage: release.sh major|minor|patch" sideways
+
+	local status=0
+	run_release sideways >/dev/null 2>&1 || status=$?
+
+	[[ $status -eq 2 ]] || fail "exit $status, want 2"
+}
+
+test_release_refuses_tagged_head() {
+	push_commit one
+	push_tag v0.1.1
+
+	assert_release_refused "refusing release: origin/main is already v0.1.1" patch
+}
+
+test_release_refuses_existing_tag() {
+	setup_release
+	push_side_tag v0.1.2
+
+	assert_release_refused "refusing release: tag v0.1.2 already exists" patch
+
+	[[ "$(git -C "$work/origin.git" rev-parse 'refs/tags/v0.1.2^{commit}')" != \
+		"$(git -C "$clone" rev-parse origin/main)" ]] || fail "origin tag moved to origin/main"
+}
+
+test_release_refuses_tag_only_on_origin() {
+	setup_release
+	push_side_tag v0.1.2
+
+	local real_git
+	real_git=$(command -v git)
+	write_fake git <<EOF
+if [[ "\$3" == "fetch" ]]; then
+	exit 0
+fi
+exec "$real_git" "\$@"
+EOF
+
+	local err
+	if err=$(run_release patch 2>&1 >/dev/null); then
+		fail "release succeeded, want refusal"
+	fi
+
+	[[ "$err" == *"refusing release: tag v0.1.2 already exists"* ]] || fail "stderr '$err' lacks the refusal"
+	[[ -z "$(git -C "$clone" tag -l v0.1.2)" ]] || fail "local tag left behind"
+}
+
+test_release_refuses_unparsable_tag() {
+	push_commit one
+	push_tag v1.0.0-rc.1
+	push_commit two
+
+	assert_release_refused "refusing release: cannot read version from v1.0.0-rc.1" patch
+}
+
+test_release_refuses_leading_zero_tag() {
+	push_commit one
+	push_tag v1.09.0
+	push_commit two
+
+	assert_release_refused "refusing release: cannot read version from v1.09.0" patch
+}
+
+test_release_refuses_without_signing_key() {
+	setup_release
+	git -C "$clone" config --unset user.signingkey
+
+	assert_release_refused "refusing release: no ssh signing key configured" patch
+}
+
+test_release_refuses_missing_signers_file() {
+	setup_release
+	signers="$work/missing_signers"
+
+	assert_release_refused "refusing release: allowed signers file not found" patch
+}
+
+test_release_refuses_foreign_signer() {
+	setup_release
+	git -C "$clone" config user.signingkey "$work/other_key"
+
+	assert_release_refused "refusing release: tag v0.1.2 signature not valid" patch
+}
+
+test_release_refuses_unsigned_latest_tag() {
+	push_commit one
+	git -C "$clone" tag -a v0.1.1 -m v0.1.1
+	git -C "$clone" push -q origin v0.1.1
+	push_commit two
+
+	assert_release_refused "refusing release: tag v0.1.1 signature not valid" patch
+}
+
+test_release_refuses_failed_fetch() {
+	setup_release
+	git -C "$clone" remote set-url origin "$work/missing.git"
+
+	assert_release_refused "refusing release: fetching origin failed" patch
+}
+
+test_release_refuses_failed_signing() {
+	setup_release
+	git -C "$clone" config user.signingkey "$work/missing_key"
+
+	assert_release_refused "refusing release: signing v0.1.2 failed" patch
+
+	local out
+	out=$(run_release patch 2>/dev/null) || true
+
+	[[ "$out" == *"signing v0.1.2, touch the YubiKey"* ]] || fail "output '$out' lacks the signing line"
+}
+
+test_release_refuses_failed_push() {
+	setup_release
+	printf '#!/bin/sh\nexit 1\n' >"$work/origin.git/hooks/pre-receive"
+	chmod +x "$work/origin.git/hooks/pre-receive"
+
+	assert_release_refused "refusing release: pushing v0.1.2 failed" patch
+}
+
+test_release_refuses_as_root() {
+	setup_release
+	write_fake id <<<'echo 0'
+
+	assert_release_refused "refusing release: run as your user, not root" patch
+}
+
 run_test() {
 	local name=$1
 
@@ -666,6 +982,7 @@ tests=(
 	test_install_refuses_missing_tag
 	test_install_refuses_no_tags
 	test_install_defaults_to_latest_tag_after_fetch
+	test_install_defaults_to_highest_tag
 	test_install_removes_stale_units
 	test_install_backs_up_foreign_hook
 	test_install_prints_progress
@@ -690,6 +1007,29 @@ tests=(
 	test_uninstall_keeps_other_binaries
 	test_uninstall_purge
 	test_uninstall_purge_skips_missing_accounts
+	test_release_patch_bumps_patch
+	test_release_minor_bumps_minor
+	test_release_major_bumps_major
+	test_release_first_tag
+	test_release_patch_passes_nine
+	test_release_uses_highest_tag
+	test_release_uses_fresh_origin_main
+	test_release_tags_origin_main
+	test_release_prints_next_step
+	test_release_refuses_bad_part
+	test_release_refuses_tagged_head
+	test_release_refuses_existing_tag
+	test_release_refuses_tag_only_on_origin
+	test_release_refuses_unparsable_tag
+	test_release_refuses_leading_zero_tag
+	test_release_refuses_without_signing_key
+	test_release_refuses_missing_signers_file
+	test_release_refuses_foreign_signer
+	test_release_refuses_unsigned_latest_tag
+	test_release_refuses_failed_fetch
+	test_release_refuses_failed_signing
+	test_release_refuses_failed_push
+	test_release_refuses_as_root
 )
 
 for t in "${tests[@]}"; do

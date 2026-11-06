@@ -81,8 +81,11 @@ resolve_tag() {
 	git -C "$repo_dir" fetch -q --tags origin main
 
 	if [[ -z "$tag" ]]; then
-		tag=$(git -C "$repo_dir" describe --tags --abbrev=0 --match 'v*' origin/main 2>/dev/null) ||
+		tag=$(git -C "$repo_dir" tag --merged origin/main --list 'v*' --sort=v:refname | tail -n 1)
+
+		if [[ -z "$tag" ]]; then
 			refuse "cannot locate tag for version latest"
+		fi
 	fi
 
 	if ! git -C "$repo_dir" rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
