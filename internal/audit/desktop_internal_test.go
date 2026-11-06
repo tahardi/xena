@@ -40,5 +40,5 @@ func TestDesktopChecks(t *testing.T) {
 	}, names)
 	require.Contains(t, checks, NewListeners(cmd, []string{"192.168.150.1:3128", "192.0.2.10:22"}))
 	require.Contains(t, checks, NewOverlay("/var/lib/xena-proxy/overlay.yaml"))
-	require.Contains(t, checks, NewClaudeVersion(cmd, "/home/example", "2.0.0"))
+	require.Contains(t, checks, NewClaudeVersion(cmd, "/", "/home/example", "2.0.0"))
 }

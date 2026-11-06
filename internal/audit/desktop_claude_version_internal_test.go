@@ -12,6 +12,7 @@ func TestClaudeVersion_Run(t *testing.T) {
 	tests := []struct {
 		name    string
 		change  func(map[string]any)
+		managed string
 		version fakeResult
 		want    []string
 		msg     string
@@ -29,6 +30,13 @@ func TestClaudeVersion_Run(t *testing.T) {
 			want:    []string{logs.SeverityMedium},
 		},
 		{
+			name:    "happy path - auto-updater off in managed settings",
+			change:  func(s map[string]any) { delete(s, "env") },
+			managed: `{"env": {"DISABLE_AUTOUPDATER": "1"}}`,
+			version: fakeResult{out: "2.0.0 (Claude Code)\n"},
+			want:    []string{},
+		},
+		{
 			name:    "happy path - version differs from pin",
 			version: fakeResult{out: "2.0.1 (Claude Code)\n"},
 			want:    []string{logs.SeverityMedium},
@@ -43,9 +51,14 @@ func TestClaudeVersion_Run(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
+			root := t.TempDir()
 			home := t.TempDir()
 			writeFiles(t, home, map[string]string{".claude/settings.json": claudeSettingsJSON(t, tt.change)})
-			check := NewClaudeVersion(fakeCommander{"claude --version": tt.version}, home, "2.0.0")
+			if tt.managed != "" {
+				writeFiles(t, root, map[string]string{"etc/claude-code/managed-settings.json": tt.managed})
+			}
+
+			check := NewClaudeVersion(fakeCommander{"claude --version": tt.version}, root, home, "2.0.0")
 
 			// when
 			got, err := check.Run(t.Context())

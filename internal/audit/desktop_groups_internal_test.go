@@ -31,6 +31,11 @@ func TestGroups_Run(t *testing.T) {
 			want:  []string{logs.SeverityHigh},
 		},
 		{
+			name:  "happy path - in lxd",
+			group: "lxd:x:997:taylor\n",
+			want:  []string{logs.SeverityHigh},
+		},
+		{
 			name:  "happy path - similar user name",
 			group: "docker:x:999:taylor2\n",
 			want:  []string{},

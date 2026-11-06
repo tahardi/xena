@@ -17,7 +17,14 @@ import (
 const frontmatterFence = "---"
 
 var (
-	codePlugins  = []string{"templater-obsidian", "execute-code", "obsidian-shellcommands", "customjs"}
+	codePlugins = []string{
+		"templater-obsidian",
+		"execute-code",
+		"obsidian-shellcommands",
+		"customjs",
+		"quickadd",
+		"js-engine",
+	}
 	remoteEmbed  = regexp.MustCompile(`(?i)!\[[^\]]*\]\(\s*https?://|<iframe|<img[^>]+src\s*=\s*["']?https?://`)
 	vmSourceLine = regexp.MustCompile(`(?m)^source:\s*["']?xena-vm["']?\s*$`)
 )

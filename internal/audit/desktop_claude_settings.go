@@ -16,16 +16,17 @@ import (
 const untrustedSource = "source: xena-vm"
 
 var (
-	unsafeDefaultModes = []string{"bypassPermissions", "acceptEdits", "dontAsk"}
+	unsafeDefaultModes = []string{"bypassPermissions", "acceptEdits", "dontAsk", "auto"}
 	blanketBashAllows  = []string{"Bash", "Bash(*)", "Bash(*:*)"}
 )
 
 type ClaudeSettings struct {
+	root string
 	home string
 }
 
-func NewClaudeSettings(home string) *ClaudeSettings {
-	return &ClaudeSettings{home: home}
+func NewClaudeSettings(root, home string) *ClaudeSettings {
+	return &ClaudeSettings{root: root, home: home}
 }
 
 func (*ClaudeSettings) Name() string {
@@ -34,12 +35,12 @@ func (*ClaudeSettings) Name() string {
 
 func (c *ClaudeSettings) Run(context.Context) ([]Finding, error) {
 	var findings []Finding
-	settings, err := loadClaudeSettings(c.home)
+	settings, err := loadClaudeSettings(c.root, c.home)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		findings = append(findings, claudeSettingsFinding(
 			logs.SeverityHigh,
-			"~/.claude/settings.json is missing",
+			"no Claude Code settings found in ~/.claude or /etc/claude-code",
 			"Install the dotclaude desktop settings.",
 		))
 	case err != nil:

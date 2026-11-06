@@ -2,9 +2,11 @@ package audit
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"maps"
 	"path/filepath"
+	"slices"
 )
 
 // Claude Code's settings files use camelCase keys.
@@ -23,21 +25,39 @@ type claudeSettingsFile struct {
 	Env map[string]string `json:"env"`
 }
 
-func loadClaudeSettings(home string) (claudeSettingsFile, error) {
-	var settings claudeSettingsFile
-	if err := readJSON(filepath.Join(home, ".claude", "settings.json"), &settings); err != nil {
-		return claudeSettingsFile{}, err
+func loadClaudeSettings(root, home string) (claudeSettingsFile, error) {
+	dropIns, err := filepath.Glob(filepath.Join(root, "etc", "claude-code", "managed-settings.d", "*.json"))
+	if err != nil {
+		return claudeSettingsFile{}, fmt.Errorf("listing managed settings: %w", err)
+	}
+	slices.Sort(dropIns)
+
+	paths := append([]string{
+		filepath.Join(home, ".claude", "settings.json"),
+		filepath.Join(home, ".claude", "settings.local.json"),
+		filepath.Join(root, "etc", "claude-code", "managed-settings.json"),
+	}, dropIns...)
+
+	var merged claudeSettingsFile
+	found := false
+	for _, path := range paths {
+		var layer claudeSettingsFile
+		err := readJSON(path, &layer)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return claudeSettingsFile{}, err
+		}
+
+		merged = merged.merge(layer)
+		found = true
 	}
 
-	var local claudeSettingsFile
-	err := readJSON(filepath.Join(home, ".claude", "settings.local.json"), &local)
-	if errors.Is(err, fs.ErrNotExist) {
-		return settings, nil
+	if !found {
+		return claudeSettingsFile{}, fmt.Errorf("reading Claude Code settings: %w", fs.ErrNotExist)
 	}
-	if err != nil {
-		return claudeSettingsFile{}, err
-	}
-	return settings.merge(local), nil
+	return merged, nil
 }
 
 func (s claudeSettingsFile) merge(local claudeSettingsFile) claudeSettingsFile {

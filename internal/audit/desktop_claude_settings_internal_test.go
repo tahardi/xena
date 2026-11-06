@@ -50,6 +50,7 @@ func TestClaudeSettings_Run(t *testing.T) {
 		name     string
 		change   func(map[string]any)
 		local    string
+		managed  map[string]string
 		claudeMD string
 		noFile   bool
 		want     []string
@@ -141,6 +142,43 @@ func TestClaudeSettings_Run(t *testing.T) {
 			want:     []string{logs.SeverityHigh, logs.SeverityHigh},
 		},
 		{
+			name:     "happy path - auto default mode",
+			change:   setPermission("defaultMode", "auto"),
+			claudeMD: untrustedRule,
+			want:     []string{logs.SeverityHigh},
+		},
+		{
+			name: "happy path - managed settings override unsafe user setting",
+			change: func(s map[string]any) {
+				s["sandbox"] = map[string]any{"enabled": true, "allowUnsandboxedCommands": true}
+			},
+			managed:  map[string]string{"managed-settings.json": `{"sandbox": {"allowUnsandboxedCommands": false}}`},
+			claudeMD: untrustedRule,
+			want:     []string{},
+		},
+		{
+			name:     "happy path - managed drop-in sets unsafe mode",
+			managed:  map[string]string{"managed-settings.d/10-xena.json": `{"permissions": {"defaultMode": "auto"}}`},
+			claudeMD: untrustedRule,
+			want:     []string{logs.SeverityHigh},
+		},
+		{
+			name: "happy path - later drop-in wins",
+			managed: map[string]string{
+				"managed-settings.d/10-a.json": `{"permissions": {"defaultMode": "bypassPermissions"}}`,
+				"managed-settings.d/20-b.json": `{"permissions": {"defaultMode": "default"}}`,
+			},
+			claudeMD: untrustedRule,
+			want:     []string{},
+		},
+		{
+			name:     "happy path - only managed settings",
+			noFile:   true,
+			managed:  map[string]string{"managed-settings.json": claudeSettingsJSON(t, nil)},
+			claudeMD: untrustedRule,
+			want:     []string{},
+		},
+		{
 			name:     "happy path - missing settings.json",
 			noFile:   true,
 			claudeMD: untrustedRule,
@@ -150,7 +188,12 @@ func TestClaudeSettings_Run(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
+			root := t.TempDir()
 			home := t.TempDir()
+			for name, content := range tt.managed {
+				writeFiles(t, root, map[string]string{"etc/claude-code/" + name: content})
+			}
+
 			files := map[string]string{}
 			if tt.claudeMD != "" {
 				files[".claude/CLAUDE.md"] = tt.claudeMD
@@ -164,7 +207,7 @@ func TestClaudeSettings_Run(t *testing.T) {
 			writeFiles(t, home, files)
 
 			// when
-			got, err := NewClaudeSettings(home).Run(t.Context())
+			got, err := NewClaudeSettings(root, home).Run(t.Context())
 
 			// then
 			require.NoError(t, err)
@@ -182,9 +225,23 @@ func TestClaudeSettings_Run(t *testing.T) {
 		})
 
 		// when
-		_, err := NewClaudeSettings(home).Run(t.Context())
+		_, err := NewClaudeSettings(t.TempDir(), home).Run(t.Context())
 
 		// then
 		require.ErrorContains(t, err, "parsing settings.local.json")
+	})
+
+	t.Run("error - malformed managed settings", func(t *testing.T) {
+		// given
+		root := t.TempDir()
+		home := t.TempDir()
+		writeFiles(t, root, map[string]string{"etc/claude-code/managed-settings.json": "{"})
+		writeFiles(t, home, map[string]string{".claude/CLAUDE.md": untrustedRule})
+
+		// when
+		_, err := NewClaudeSettings(root, home).Run(t.Context())
+
+		// then
+		require.ErrorContains(t, err, "parsing managed-settings.json")
 	})
 }

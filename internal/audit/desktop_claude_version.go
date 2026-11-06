@@ -12,12 +12,13 @@ import (
 
 type ClaudeVersion struct {
 	cmd    Commander
+	root   string
 	home   string
 	pinned string
 }
 
-func NewClaudeVersion(cmd Commander, home, pinned string) *ClaudeVersion {
-	return &ClaudeVersion{cmd: cmd, home: home, pinned: pinned}
+func NewClaudeVersion(cmd Commander, root, home, pinned string) *ClaudeVersion {
+	return &ClaudeVersion{cmd: cmd, root: root, home: home, pinned: pinned}
 }
 
 func (*ClaudeVersion) Name() string {
@@ -25,7 +26,7 @@ func (*ClaudeVersion) Name() string {
 }
 
 func (c *ClaudeVersion) Run(ctx context.Context) ([]Finding, error) {
-	settings, err := loadClaudeSettings(c.home)
+	settings, err := loadClaudeSettings(c.root, c.home)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}

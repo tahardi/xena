@@ -61,6 +61,16 @@ func TestObsidian_Run(t *testing.T) {
 			want:  []string{logs.SeverityHigh},
 		},
 		{
+			name:  "happy path - quickadd",
+			files: map[string]string{".obsidian/community-plugins.json": `["quickadd"]`},
+			want:  []string{logs.SeverityHigh},
+		},
+		{
+			name:  "happy path - js engine",
+			files: map[string]string{".obsidian/community-plugins.json": `["js-engine"]`},
+			want:  []string{logs.SeverityHigh},
+		},
+		{
 			name:  "happy path - remote image in gateway note",
 			files: map[string]string{"Inbox/a.md": gatewayNote + "![x](https://example.com/a.png)\n"},
 			want:  []string{logs.SeverityMedium},

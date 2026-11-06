@@ -13,7 +13,7 @@ import (
 
 const groupFields = 4
 
-var riskyGroups = []string{"docker", "libvirt"}
+var riskyGroups = []string{"docker", "libvirt", "lxd"}
 
 type Groups struct {
 	root string
