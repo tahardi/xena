@@ -76,6 +76,7 @@ remove_files() {
 		"$destdir"/etc/polkit-1/rules.d/50-xena.rules
 		"$destdir"/etc/sysusers.d/xena.conf
 		"$destdir"/etc/tmpfiles.d/xena-guard.conf
+		"$destdir"/etc/systemd/journald.conf.d/xena.conf
 	)
 
 	for name in "${binaries[@]}"; do
@@ -131,6 +132,7 @@ remove_apparmor
 remove_hook
 as_root nft destroy table inet xena || warn "deleting nftables table inet xena failed"
 as_root systemctl daemon-reload || warn "reloading systemd failed"
+as_root systemctl restart systemd-journald || warn "restarting systemd-journald failed"
 systemctl --user daemon-reload || warn "reloading user systemd failed"
 
 if [[ "$purge" == "1" ]]; then

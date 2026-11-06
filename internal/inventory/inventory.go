@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"os"
 	"regexp"
 	"time"
 
@@ -106,14 +105,9 @@ func (t Token) Due() (time.Time, bool) {
 }
 
 func SetRotated(path, name string, day time.Time) error {
-	data, err := os.ReadFile(path)
+	doc, err := config.LoadNode(path, currentVersion, nil)
 	if err != nil {
-		return fmt.Errorf("reading %s: %w", path, err)
-	}
-
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return fmt.Errorf("parsing %s: %w", path, err)
+		return err
 	}
 
 	entry := findEntry(&doc, name)

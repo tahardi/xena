@@ -10,6 +10,8 @@ Xena moves agentic coding into a disposable, encrypted VM behind a network wall 
 | `xena secrets put\|list\|verify\|delete` | Store and check secrets in the YubiKey-encrypted secrets store. |
 | `xena inventory check [--file-cards]` | Check the token inventory and file rotation cards. |
 | `xena rotate NAME` | Rotate one token and confirm the old value is rejected. |
+| `xena health` | Check every Xena service, timer, and the VM. |
+| `xena status [--json]` | Health, cut state, alerts, and last guard and audit for Maple. |
 
 ## Talking to the VM
 

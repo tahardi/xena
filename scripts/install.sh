@@ -183,6 +183,7 @@ install_files() {
 	install_file 0644 "$src/deploy/nftables/xena.nft" /etc/nftables.d/xena.nft
 	install_file 0644 "$src/deploy/polkit/50-xena.rules" /etc/polkit-1/rules.d/50-xena.rules
 	install_file 0644 "$src/deploy/sysusers/xena.conf" /etc/sysusers.d/xena.conf
+	install_file 0644 "$src/deploy/journald/xena.conf" /etc/systemd/journald.conf.d/xena.conf
 	install_hook "$src/deploy/libvirt/hooks/qemu"
 	remove_stale_units "$src/deploy/systemd"
 
@@ -250,6 +251,7 @@ create_dirs() {
 enable_units() {
 	as_root systemctl daemon-reload
 	systemctl --user daemon-reload
+	as_root systemctl restart systemd-journald
 
 	if [[ ${#installed_system_units[@]} -gt 0 ]]; then
 		as_root systemctl enable "${installed_system_units[@]}"
