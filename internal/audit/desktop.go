@@ -20,7 +20,7 @@ func DesktopChecks(cfg Config, cmd Commander, p Paths, bridgeListener string) []
 	return []Check{
 		NewDocker(p.Root),
 		NewGroups(p.Root, p.User),
-		NewUFW(p.Root),
+		NewFirewall(cmd, p.Root),
 		NewAutoUpdates(cmd),
 		NewListeners(cmd, allowed),
 		NewWayland(cmd, p.Root, p.User, cfg.MinUbuntuVersion),

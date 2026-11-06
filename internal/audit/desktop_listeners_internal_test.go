@@ -31,13 +31,13 @@ func TestListeners_Run(t *testing.T) {
 			name: "happy path - ssh on all addresses",
 			ss:   fakeResult{out: allowed + "tcp   LISTEN 0      128          0.0.0.0:22           0.0.0.0:*\n"},
 			want: []string{logs.SeverityHigh},
-			msg:  "listening on 0.0.0.0:22",
+			msg:  "listening on tcp 0.0.0.0:22",
 		},
 		{
 			name: "happy path - wildcard listener",
 			ss:   fakeResult{out: allowed + "udp   UNCONN 0      0                  *:5353               *:*\n"},
 			want: []string{logs.SeverityHigh},
-			msg:  "listening on *:5353",
+			msg:  "listening on udp *:5353",
 		},
 		{
 			name:  "happy path - configured extra",
@@ -49,13 +49,13 @@ func TestListeners_Run(t *testing.T) {
 			name: "happy path - ipv6 wildcard",
 			ss:   fakeResult{out: allowed + "tcp   LISTEN 0      128             [::]:22              [::]:*\n"},
 			want: []string{logs.SeverityHigh},
-			msg:  "listening on [::]:22",
+			msg:  "listening on tcp [::]:22",
 		},
 		{
 			name: "happy path - scoped ipv6 link-local",
 			ss:   fakeResult{out: allowed + "udp   UNCONN 0      0      [fe80::1]%eth0:546            [::]:*\n"},
 			want: []string{logs.SeverityHigh},
-			msg:  "listening on [fe80::1%eth0]:546",
+			msg:  "listening on udp [fe80::1%eth0]:546",
 		},
 		{
 			name:  "happy path - interface-bound listener allowed by its scoped address",
@@ -68,6 +68,31 @@ func TestListeners_Run(t *testing.T) {
 			ss:    fakeResult{out: allowed + "tcp   LISTEN 0      128          0.0.0.0:68           0.0.0.0:*\n"},
 			extra: []string{"0.0.0.0%xena0:68"},
 			want:  []string{logs.SeverityHigh},
+		},
+		{
+			name: "happy path - same socket listed twice reported once",
+			ss: fakeResult{out: allowed +
+				"udp   UNCONN 0      0      224.0.0.251:5353         0.0.0.0:*\n" +
+				"udp   UNCONN 0      0      224.0.0.251:5353         0.0.0.0:*\n" +
+				"tcp   LISTEN 0      128    224.0.0.251:5353         0.0.0.0:*\n"},
+			want: []string{logs.SeverityHigh, logs.SeverityHigh},
+			msg:  "listening on udp 224.0.0.251:5353",
+		},
+		{
+			name: "happy path - interface entry allows every port on that interface",
+			ss: fakeResult{out: allowed +
+				"tcp   LISTEN 0      4096   100.117.72.44%tailscale0:443          0.0.0.0:*\n" +
+				"tcp   LISTEN 0      4096   100.117.72.44%tailscale0:55879        0.0.0.0:*\n" +
+				"tcp   LISTEN 0      4096   [fd7a::1]%tailscale0:40024           [::]:*\n"},
+			extra: []string{"%tailscale0"},
+			want:  []string{},
+		},
+		{
+			name:  "happy path - interface entry does not allow unscoped listeners",
+			ss:    fakeResult{out: allowed + "udp   UNCONN 0      0      0.0.0.0:41641          0.0.0.0:*\n"},
+			extra: []string{"%tailscale0"},
+			want:  []string{logs.SeverityHigh},
+			msg:   "listening on udp 0.0.0.0:41641",
 		},
 		{
 			name: "happy path - empty output",

@@ -36,6 +36,7 @@ func (l *Listeners) Run(ctx context.Context) ([]Finding, error) {
 	}
 
 	var findings []Finding
+	seen := map[string]bool{}
 	for line := range strings.Lines(string(out)) {
 		fields := strings.Fields(line)
 		if len(fields) <= localAddressField {
@@ -51,17 +52,28 @@ func (l *Listeners) Run(ctx context.Context) ([]Finding, error) {
 		if iface != "" {
 			address = net.JoinHostPort(host+"%"+iface, port)
 		}
-		if isLoopback(host) || slices.Contains(l.allowed, address) {
+		if isLoopback(host) || slices.Contains(l.allowed, address) || l.interfaceAllowed(iface) {
 			continue
 		}
 
+		message := "listening on " + fields[0] + " " + address
+		if seen[message] {
+			continue
+		}
+		seen[message] = true
+
 		findings = append(findings, Finding{
 			Severity: logs.SeverityHigh,
-			Message:  "listening on " + address,
-			Fix:      "Stop the service or bind it to 127.0.0.1; if it must stay, add it to extra_listeners in audit.yaml.",
+			Message:  message,
+			Fix: "Stop the service or bind it to 127.0.0.1; if it must stay, add the address or its " +
+				"%interface to extra_listeners in audit.yaml.",
 		})
 	}
 	return findings, nil
+}
+
+func (l *Listeners) interfaceAllowed(iface string) bool {
+	return iface != "" && slices.Contains(l.allowed, "%"+iface)
 }
 
 func splitListener(local string) (string, string, string, error) {
