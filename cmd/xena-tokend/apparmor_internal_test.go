@@ -40,7 +40,7 @@ func TestTokendProfile(t *testing.T) {
 			},
 		},
 		{
-			name: "happy path - writes only to dev null, its own terminal, and the pcscd socket",
+			name: "happy path - writes only to dev null, its controlling terminal, and the pcscd socket",
 			check: func(t *testing.T, lines []string) {
 				t.Helper()
 
@@ -53,7 +53,7 @@ func TestTokendProfile(t *testing.T) {
 
 				require.Equal(t, []string{
 					"/dev/null rw,",
-					"owner /dev/pts/[0-9]* rw,",
+					"/dev/tty rw,",
 					"/run/pcscd/pcscd.comm rw,",
 				}, writes)
 			},
@@ -145,7 +145,8 @@ func TestTokendProfile(t *testing.T) {
 					"bus=session",
 					"path=/org/freedesktop/Notifications",
 					"interface=org.freedesktop.Notifications",
-					"member={GetCapabilities,GetServerInformation,Notify},",
+					"member={GetCapabilities,GetServerInformation,Notify}",
+					"peer=(label=unconfined),",
 				} {
 					require.Contains(t, lines, want)
 				}

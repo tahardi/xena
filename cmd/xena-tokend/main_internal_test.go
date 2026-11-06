@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -64,7 +65,7 @@ func TestUnlock(t *testing.T) {
 		var buf bytes.Buffer
 
 		// when
-		_, err := unlock(context.Background(), github.AppConfig{}, &buf)
+		_, err := unlock(context.Background(), github.AppConfig{}, &buf, slog.New(slog.DiscardHandler))
 
 		// then
 		require.Error(t, err)
@@ -88,12 +89,29 @@ func TestUnlock(t *testing.T) {
 		})
 
 		// when
-		_, err := unlock(context.Background(), github.AppConfig{}, out)
+		_, err := unlock(context.Background(), github.AppConfig{}, out, slog.New(slog.DiscardHandler))
 
 		// then
 		require.Error(t, err)
 		require.ErrorIs(t, statErr, os.ErrNotExist)
 		require.FileExists(t, marker)
+	})
+
+	t.Run("error - logs when notify-send fails", func(t *testing.T) {
+		// given
+		t.Setenv("PATH", t.TempDir())
+
+		var logs bytes.Buffer
+		logger := slog.New(slog.NewJSONHandler(&logs, nil))
+
+		// when
+		_, err := unlock(context.Background(), github.AppConfig{}, io.Discard, logger)
+
+		// then
+		require.Error(t, err)
+		assert.Contains(t, logs.String(), `"level":"WARN"`)
+		assert.Contains(t, logs.String(), `"msg":"sending desktop notification"`)
+		assert.Contains(t, logs.String(), `"error":`)
 	})
 
 	t.Run("error - continues when the prompt write fails", func(t *testing.T) {
@@ -105,12 +123,67 @@ func TestUnlock(t *testing.T) {
 		})
 
 		// when
-		_, err := unlock(context.Background(), github.AppConfig{}, out)
+		_, err := unlock(context.Background(), github.AppConfig{}, out, slog.New(slog.DiscardHandler))
 
 		// then
 		require.Error(t, err)
 		assert.True(t, strings.HasPrefix(err.Error(), "building secrets store"), err.Error())
 	})
+}
+
+func TestUseTerminal(t *testing.T) {
+	tests := []struct {
+		name       string
+		terminal   func(t *testing.T) string
+		wantSwitch bool
+	}{
+		{
+			name: "happy path - sends output to the terminal",
+			terminal: func(t *testing.T) string {
+				t.Helper()
+
+				path := filepath.Join(t.TempDir(), "tty")
+				require.NoError(t, os.WriteFile(path, nil, 0o600))
+
+				return path
+			},
+			wantSwitch: true,
+		},
+		{
+			name: "happy path - keeps output without a terminal",
+			terminal: func(t *testing.T) string {
+				t.Helper()
+
+				return filepath.Join(t.TempDir(), "missing")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// given
+			stdout, stderr := os.Stdout, os.Stderr
+			t.Cleanup(func() {
+				os.Stdout, os.Stderr = stdout, stderr
+			})
+
+			path := tt.terminal(t)
+
+			// when
+			useTerminal(path)
+
+			// then
+			if tt.wantSwitch {
+				assert.Equal(t, path, os.Stdout.Name())
+				assert.Equal(t, path, os.Stderr.Name())
+
+				return
+			}
+
+			assert.Same(t, stdout, os.Stdout)
+			assert.Same(t, stderr, os.Stderr)
+		})
+	}
 }
 
 type writerFunc func(p []byte) (int, error)
