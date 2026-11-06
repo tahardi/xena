@@ -1,0 +1,25 @@
+[Unit]
+Description=Xena GitHub App token service
+ConditionPathExists=/usr/local/share/xena/config/vm.yaml
+
+[Service]
+ExecStart=/usr/local/bin/xena-tokend
+Environment=PATH=%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+RestartSec=30
+UMask=0077
+NoNewPrivileges=yes
+KeyringMode=private
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=default.target

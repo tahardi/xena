@@ -9,6 +9,10 @@ Xena moves agentic coding into a disposable, encrypted VM behind a network wall 
 | `xena version` | Prints the installed version. |
 | `xena secrets put\|list\|verify\|delete` | Store and check secrets in the YubiKey-encrypted secrets store. |
 | `xena audit [--json]` | Checks the desktop against the spec and lists every drift with its fix. Exits non-zero on drift. Runs daily at 04:00. Settings live in `~/.config/xena/audit.yaml`; copy `config/audit.example.yaml` to start. |
+| `xena inventory check [--file-cards]` | Check the token inventory and file rotation cards. |
+| `xena rotate NAME` | Rotate one token and confirm the old value is rejected. |
+| `xena health` | Check every Xena service, timer, and the VM. |
+| `xena status [--json]` | Health, cut state, alerts, and last guard and audit for Maple. |
 
 ## Talking to the VM
 

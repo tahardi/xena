@@ -1,0 +1,4 @@
+version: 1
+app_id: 12345
+installation_id: 67890
+repos: [xena, dotclaude, maple]
