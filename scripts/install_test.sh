@@ -265,7 +265,7 @@ test_install_happy_path() {
 	assert_file "$root/usr/local/share/xena/config/watch.yaml"
 	assert_file "$root/etc/systemd/system/xena-proxy.service"
 	assert_file "$root/etc/systemd/user/xena-report.timer"
-	assert_file "$root/etc/polkit-1/rules.d/50-xena.rules"
+	assert_file "$root/usr/share/polkit-1/rules.d/50-xena.rules"
 	assert_file "$root/etc/nftables.d/xena.nft"
 	assert_file "$root/etc/sysusers.d/xena.conf"
 	assert_file "$root/etc/systemd/journald.conf.d/xena.conf"
@@ -487,6 +487,26 @@ test_install_refuses_unpushed_main_tag() {
 	assert_refused "refusing tag v0.5.0: not reachable from origin/main" v0.5.0
 }
 
+test_install_skips_incomplete_vm_config() {
+	commit_file config/vm.yaml "version: 1"
+	git -C "$clone" commit -q -m partial
+	git -C "$clone" push -q origin main
+	signed_tag "$work/key" v0.5.0
+
+	run_install v0.5.0 >/dev/null
+
+	assert_absent "$root/usr/local/share/xena/config/vm.yaml"
+
+	commit_file config/vm.yaml "network:"
+	git -C "$clone" commit -q -m complete
+	git -C "$clone" push -q origin main
+	signed_tag "$work/key" v0.6.0
+
+	run_install v0.6.0 >/dev/null
+
+	assert_file "$root/usr/local/share/xena/config/vm.yaml"
+}
+
 test_install_build_failure_cleans_up() {
 	if FAKE_GO_FAIL=1 run_install v0.1.0 >/dev/null 2>&1; then
 		fail "install succeeded, want failure"
@@ -546,7 +566,7 @@ test_uninstall_keeps_state() {
 	assert_absent "$root/etc/systemd/system/xena-proxy.service"
 	assert_absent "$root/etc/systemd/user/xena-report.timer"
 	assert_absent "$root/usr/local/share/xena"
-	assert_absent "$root/etc/polkit-1/rules.d/50-xena.rules"
+	assert_absent "$root/usr/share/polkit-1/rules.d/50-xena.rules"
 	assert_absent "$root/etc/systemd/journald.conf.d/xena.conf"
 	assert_file "$root/var/lib/xena-proxy/keep.txt"
 	assert_log "nft destroy table inet xena"
@@ -560,6 +580,7 @@ test_uninstall_stops_running_vm() {
 
 	FAKE_VM_STATE=running run_uninstall >/dev/null
 
+	assert_log_match '^virsh -r '
 	assert_log "xena vm stop"
 	local stop_line destroy_line
 	stop_line=$(grep -n '^xena vm stop' "$FAKE_LOG" | cut -d: -f1)
@@ -990,6 +1011,7 @@ tests=(
 	test_install_refuses_missing_signers_file
 	test_install_refuses_unpushed_main_tag
 	test_install_build_failure_cleans_up
+	test_install_skips_incomplete_vm_config
 	test_install_clears_go_environment
 	test_install_usage
 	test_rollback_needs_version
