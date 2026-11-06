@@ -20,7 +20,6 @@ var (
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	slog.SetDefault(logger)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	err := run(ctx, os.Args[1:], logger)
 	stop()
@@ -57,7 +56,7 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	case "health":
 		return runHealth(ctx, os.Stdout, defaultChecks(logger))
 	case "status":
-		return runStatus(ctx, args[1:], os.Stdout, defaultChecks(logger))
+		return runStatus(ctx, logger, args[1:], os.Stdout, defaultChecks(logger))
 	default:
 		return fmt.Errorf("%w: %s", errUnknownCommand, args[0])
 	}

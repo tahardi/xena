@@ -1,6 +1,7 @@
 package health
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"io/fs"
@@ -23,7 +24,6 @@ const (
 	checkTimeout = 5 * time.Second
 	backupMaxAge = 48 * time.Hour
 	imageMaxAge  = 30 * 24 * time.Hour
-	vmName       = "xena-dev"
 )
 
 type Command func(ctx context.Context, name string, args ...string) ([]byte, error)
@@ -35,15 +35,16 @@ type Result struct {
 }
 
 type Check struct {
-	Name string
-	Run  func(ctx context.Context) (string, error)
+	Name    string
+	Timeout time.Duration
+	Run     func(ctx context.Context) (string, error)
 }
 
 func ExecCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
 	return exec.CommandContext(ctx, name, args...).Output()
 }
 
-func Checks(run Command, vm vmexec.Runner, now func() time.Time) []Check {
+func Checks(run Command, vm vmexec.Runner, vmName string, now func() time.Time) []Check {
 	return []Check{
 		serviceCheck("xena-proxy", run, "xena-proxy.service"),
 		serviceCheck("xena-watch", run, "xena-watch.service"),
@@ -57,7 +58,7 @@ func Checks(run Command, vm vmexec.Runner, now func() time.Time) []Check {
 		timerCheck("xena-backup", run),
 		{Name: "backup", Run: func(ctx context.Context) (string, error) { return checkBackup(ctx, run, now()) }},
 		{Name: "tokens", Run: func(context.Context) (string, error) { return checkTokens(now()) }},
-		{Name: "vm", Run: func(ctx context.Context) (string, error) { return checkVM(ctx, run, vm) }},
+		{Name: "vm", Run: func(ctx context.Context) (string, error) { return checkVM(ctx, run, vm, vmName) }},
 		{Name: "vm-image", Run: func(context.Context) (string, error) { return checkImage(now()) }},
 	}
 }
@@ -65,8 +66,12 @@ func Checks(run Command, vm vmexec.Runner, now func() time.Time) []Check {
 func Run(ctx context.Context, checks []Check) []Result {
 	out := make([]Result, 0, len(checks))
 	for _, c := range checks {
-		checkCtx, cancel := context.WithTimeout(ctx, checkTimeout)
+		timeout := cmp.Or(c.Timeout, checkTimeout)
+		checkCtx, cancel := context.WithTimeout(ctx, timeout)
 		detail, err := c.Run(checkCtx)
+		if err != nil && errors.Is(checkCtx.Err(), context.DeadlineExceeded) {
+			detail = "timed out"
+		}
 		cancel()
 
 		out = append(out, Result{Name: c.Name, OK: err == nil, Detail: detail})
@@ -130,7 +135,7 @@ func checkBackup(ctx context.Context, run Command, now time.Time) (string, error
 		"--value",
 	)
 	if err != nil {
-		return "stale", ErrNotOK
+		return "unknown", ErrNotOK
 	}
 
 	secs, err := strconv.ParseInt(strings.TrimPrefix(strings.TrimSpace(string(out)), "@"), 10, 64)
@@ -138,7 +143,7 @@ func checkBackup(ctx context.Context, run Command, now time.Time) (string, error
 		return "stale", ErrNotOK
 	}
 
-	return time.Unix(secs, 0).UTC().Format(time.RFC3339), nil
+	return time.Unix(secs, 0).Local().Format(time.RFC3339), nil
 }
 
 func checkTokens(now time.Time) (string, error) {
@@ -165,7 +170,11 @@ func checkTokens(now time.Time) (string, error) {
 	return detail, nil
 }
 
-func checkVM(ctx context.Context, run Command, vm vmexec.Runner) (string, error) {
+func checkVM(ctx context.Context, run Command, vm vmexec.Runner, vmName string) (string, error) {
+	if vmName == "" {
+		return "no vm config", ErrNotOK
+	}
+
 	out, _ := run(ctx, "virsh", "-r", "--connect", "qemu:///system", "domstate", vmName)
 	state := strings.TrimSpace(string(out))
 	switch state {
@@ -199,5 +208,5 @@ func checkImage(now time.Time) (string, error) {
 		return "rebuild due", ErrNotOK
 	}
 
-	return "built " + info.ModTime().UTC().Format(time.DateOnly), nil
+	return "built " + info.ModTime().Local().Format(time.DateOnly), nil
 }

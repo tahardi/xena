@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,12 +14,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tahardi/xena/internal/config"
 	"github.com/tahardi/xena/internal/health"
 )
 
 const (
-	guardOK    = `{"last_run":"2026-10-24T02:00:00Z","passed":true,"cases":[]}`
-	auditClean = `{"last_run":"2026-10-24T03:00:00Z","drift":2,"findings":[]}`
+	guardOK    = `{"version":1,"last_run":"2026-10-24T02:00:00Z","passed":true,"cases":[]}`
+	auditClean = `{"version":1,"last_run":"2026-10-24T03:00:00Z","drift":2,"findings":[]}`
 )
 
 func TestBuildStatus(t *testing.T) {
@@ -45,6 +47,8 @@ func TestBuildStatus(t *testing.T) {
 		noHeartbeatDir bool
 		want           statusJSON
 		wantErr        string
+		wantErrIs      error
+		wantLog        string
 	}{
 		{
 			name:  "happy path - cut marker present",
@@ -127,8 +131,9 @@ func TestBuildStatus(t *testing.T) {
 			},
 		},
 		{
-			name:           "happy path - heartbeat failure is not fatal",
+			name:           "happy path - heartbeat failure is logged, not fatal",
 			noHeartbeatDir: true,
+			wantLog:        "touching heartbeat",
 			guard:          guardOK,
 			audit:          auditClean,
 			want: statusJSON{
@@ -150,6 +155,20 @@ func TestBuildStatus(t *testing.T) {
 			guard:   guardOK,
 			audit:   "{",
 			wantErr: "reading audit result",
+		},
+		{
+			name:      "error - guard file missing version",
+			guard:     `{"last_run":"2026-10-24T02:00:00Z","passed":true}`,
+			audit:     auditClean,
+			wantErr:   "reading guard result",
+			wantErrIs: config.ErrMissingVersion,
+		},
+		{
+			name:      "error - audit file unknown version",
+			guard:     guardOK,
+			audit:     `{"version":2,"last_run":"2026-10-24T03:00:00Z","drift":0}`,
+			wantErr:   "reading audit result",
+			wantErrIs: config.ErrUnknownVersion,
 		},
 		{
 			name:      "error - unreadable alert file",
@@ -201,10 +220,17 @@ func TestBuildStatus(t *testing.T) {
 				results = nil
 			}
 
+			var logs bytes.Buffer
+			logger := slog.New(slog.NewJSONHandler(&logs, nil))
+
 			// when
-			got, err := buildStatus(context.Background(), results, cutMarker, heartbeat, now)
+			got, err := buildStatus(context.Background(), logger, results, cutMarker, heartbeat, now)
 
 			// then
+			if tt.wantErrIs != nil {
+				require.ErrorIs(t, err, tt.wantErrIs)
+			}
+
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 				assert.NotContains(t, err.Error(), tt.wantErr+": "+tt.wantErr)
@@ -213,6 +239,7 @@ func TestBuildStatus(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
+			assert.Contains(t, logs.String(), tt.wantLog)
 
 			info, err := os.Stat(heartbeat)
 			if tt.noHeartbeatDir {
@@ -232,6 +259,8 @@ func TestRunStatus(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    []string
+		guard   string
+		audit   string
 		want    []string
 		wantErr string
 	}{
@@ -245,8 +274,17 @@ func TestRunStatus(t *testing.T) {
 			want: []string{
 				"vm     ok    shut off\n",
 				"cut: false\n",
-				"guard: last run \"\", passed false\n",
-				"audit: last run \"\", drift 0\n",
+				"guard: never run\n",
+				"audit: never run\n",
+			},
+		},
+		{
+			name:  "happy path - text with guard and audit results",
+			guard: guardOK,
+			audit: auditClean,
+			want: []string{
+				"guard: last run 2026-10-24T02:00:00Z, passed true\n",
+				"audit: last run 2026-10-24T03:00:00Z, drift 2\n",
 			},
 		},
 		{
@@ -259,14 +297,17 @@ func TestRunStatus(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
-			t.Setenv("XENA_STATE_DIR", t.TempDir())
+			stateDir := t.TempDir()
+			t.Setenv("XENA_STATE_DIR", stateDir)
 			t.Setenv("XENA_WATCH_STATE_DIR", t.TempDir())
 			t.Setenv("XENA_GATEWAY_LOG_DIR", t.TempDir())
 			t.Setenv("XENA_CUT_MARKER", filepath.Join(t.TempDir(), "cut"))
+			writeIfSet(t, filepath.Join(stateDir, "guard", "last.json"), tt.guard)
+			writeIfSet(t, filepath.Join(stateDir, "audit", "last.json"), tt.audit)
 			var out bytes.Buffer
 
 			// when
-			err := runStatus(context.Background(), tt.args, &out, checks)
+			err := runStatus(context.Background(), slog.New(slog.DiscardHandler), tt.args, &out, checks)
 
 			// then
 			if tt.wantErr != "" {

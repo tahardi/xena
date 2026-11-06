@@ -26,7 +26,7 @@ var (
 
 const (
 	backupShow = "systemctl --user show xena-backup.service --property=ExecMainExitTimestamp --timestamp=unix --value"
-	virshState = "virsh -r --connect qemu:///system domstate xena-dev"
+	virshState = "virsh -r --connect qemu:///system domstate xena-test"
 )
 
 const okInventory = `version: 1
@@ -108,6 +108,9 @@ func unixStamp(t time.Time) string {
 
 func TestRun(t *testing.T) {
 	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	local := time.Local
+	time.Local = time.FixedZone("test", 14*60*60)
+	t.Cleanup(func() { time.Local = local })
 
 	tests := []struct {
 		name        string
@@ -116,8 +119,10 @@ func TestRun(t *testing.T) {
 		noRunner    bool
 		inventory   string
 		noInventory bool
+		noVMName    bool
 		builtAge    time.Duration
 		noBuilt     bool
+		extra       []health.Check
 		want        map[string]health.Result
 		wantAllOK   bool
 	}{
@@ -127,7 +132,26 @@ func TestRun(t *testing.T) {
 			want: map[string]health.Result{
 				"vm":         {Name: "vm", OK: true, Detail: "shut off"},
 				"xena-proxy": {Name: "xena-proxy", OK: true, Detail: "active"},
+				"backup":     {Name: "backup", OK: true, Detail: "2026-10-25T01:00:00+14:00"},
+				"vm-image":   {Name: "vm-image", OK: true, Detail: "built 2026-10-24"},
 			},
+		},
+		{
+			name:     "error - no vm config",
+			noVMName: true,
+			want:     map[string]health.Result{"vm": {Name: "vm", Detail: "no vm config"}},
+		},
+		{
+			name: "error - check times out",
+			extra: []health.Check{{
+				Name:    "slow",
+				Timeout: 10 * time.Millisecond,
+				Run: func(ctx context.Context) (string, error) {
+					<-ctx.Done()
+					return "", ctx.Err()
+				},
+			}},
+			want: map[string]health.Result{"slow": {Name: "slow", Detail: "timed out"}},
 		},
 		{
 			name:    "error - inactive service",
@@ -215,7 +239,7 @@ func TestRun(t *testing.T) {
 		{
 			name:    "error - backup show fails",
 			outputs: map[string]fakeOutput{backupShow: {err: errExit}},
-			want:    map[string]health.Result{"backup": {Name: "backup", Detail: "stale"}},
+			want:    map[string]health.Result{"backup": {Name: "backup", Detail: "unknown"}},
 		},
 		{
 			name:    "error - backup show not a number",
@@ -272,7 +296,12 @@ func TestRun(t *testing.T) {
 			if tt.noRunner {
 				runner = nil
 			}
-			checks := health.Checks(fakeCommand(outputs), runner, func() time.Time { return now })
+			vmName := "xena-test"
+			if tt.noVMName {
+				vmName = ""
+			}
+			checks := health.Checks(fakeCommand(outputs), runner, vmName, func() time.Time { return now })
+			checks = append(checks, tt.extra...)
 
 			// when
 			got := health.Run(context.Background(), checks)
@@ -295,7 +324,7 @@ func TestRun(t *testing.T) {
 			}
 
 			if tt.wantAllOK {
-				assert.Len(t, got, len(health.Checks(nil, nil, nil)))
+				assert.Len(t, got, len(health.Checks(nil, nil, "", nil)))
 			}
 		})
 	}
@@ -321,7 +350,7 @@ func TestChecks(t *testing.T) {
 	}
 
 	// when
-	checks := health.Checks(nil, nil, nil)
+	checks := health.Checks(nil, nil, "", nil)
 
 	// then
 	got := make([]string, 0, len(checks))
