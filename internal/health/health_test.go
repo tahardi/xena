@@ -94,7 +94,7 @@ func okOutputs(now time.Time) map[string]fakeOutput {
 		outputs["systemctl --user is-active "+unit+".service"] = fakeOutput{out: "active\n"}
 	}
 
-	for _, unit := range []string{"xena-guard", "xena-memory-sync", "xena-report", "xena-backup"} {
+	for _, unit := range []string{"xena-guard", "xena-audit", "xena-memory-sync", "xena-report", "xena-backup"} {
 		outputs["systemctl --user is-active "+unit+".timer"] = fakeOutput{out: "active\n"}
 		outputs["systemctl --user is-failed "+unit+".service"] = fakeOutput{out: "inactive\n", err: errExit}
 	}
@@ -340,6 +340,7 @@ func TestChecks(t *testing.T) {
 		"xena-tokend",
 		"xena-vault",
 		"xena-guard.timer",
+		"xena-audit.timer",
 		"xena-memory-sync.timer",
 		"xena-report.timer",
 		"xena-backup.timer",

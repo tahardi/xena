@@ -53,6 +53,7 @@ func Checks(run Command, vm vmexec.Runner, vmName string, now func() time.Time) 
 		serviceCheck("xena-tokend", run, "--user", "xena-tokend.service"),
 		serviceCheck("xena-vault", run, "--user", "xena-vault.service"),
 		timerCheck("xena-guard", run),
+		timerCheck("xena-audit", run),
 		timerCheck("xena-memory-sync", run),
 		timerCheck("xena-report", run),
 		timerCheck("xena-backup", run),

@@ -44,6 +44,8 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 		}
 
 		return runSecrets(ctx, store, args[1:], os.Stdin, os.Stdout)
+	case "audit":
+		return runAudit(ctx, args[1:], logger)
 	case "inventory":
 		home, err := os.UserHomeDir()
 		if err != nil {
