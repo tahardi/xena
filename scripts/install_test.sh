@@ -740,6 +740,18 @@ test_release_patch_passes_nine() {
 	assert_origin_tag v0.1.10
 }
 
+test_release_uses_highest_tag() {
+	push_commit one
+	push_tag v0.10.0
+	push_commit two
+	push_tag v0.9.0
+	push_commit three
+
+	run_release patch >/dev/null
+
+	assert_origin_tag v0.10.1
+}
+
 test_release_uses_fresh_origin_main() {
 	setup_release
 	git clone -q "$work/origin.git" "$work/other"
@@ -848,10 +860,10 @@ test_release_refuses_unparsable_tag() {
 
 test_release_refuses_leading_zero_tag() {
 	push_commit one
-	push_tag v0.09.0
+	push_tag v1.09.0
 	push_commit two
 
-	assert_release_refused "refusing release: cannot read version from v0.09.0" patch
+	assert_release_refused "refusing release: cannot read version from v1.09.0" patch
 }
 
 test_release_refuses_without_signing_key() {
@@ -872,14 +884,35 @@ test_release_refuses_foreign_signer() {
 	setup_release
 	git -C "$clone" config user.signingkey "$work/other_key"
 
-	assert_release_refused "refusing release: signature not valid" patch
+	assert_release_refused "refusing release: tag v0.1.2 signature not valid" patch
 }
 
-test_release_stops_when_signing_fails() {
+test_release_refuses_unsigned_latest_tag() {
+	push_commit one
+	git -C "$clone" tag -a v0.1.1 -m v0.1.1
+	git -C "$clone" push -q origin v0.1.1
+	push_commit two
+
+	assert_release_refused "refusing release: tag v0.1.1 signature not valid" patch
+}
+
+test_release_refuses_failed_fetch() {
+	setup_release
+	git -C "$clone" remote set-url origin "$work/missing.git"
+
+	assert_release_refused "refusing release: fetching origin failed" patch
+}
+
+test_release_refuses_failed_signing() {
 	setup_release
 	git -C "$clone" config user.signingkey "$work/missing_key"
 
-	assert_release_refused "unable to sign the tag" patch
+	assert_release_refused "refusing release: signing v0.1.2 failed" patch
+
+	local out
+	out=$(run_release patch 2>/dev/null) || true
+
+	[[ "$out" == *"signing v0.1.2, touch the YubiKey"* ]] || fail "output '$out' lacks the signing line"
 }
 
 test_release_refuses_failed_push() {
@@ -966,6 +999,7 @@ tests=(
 	test_release_major_bumps_major
 	test_release_first_tag
 	test_release_patch_passes_nine
+	test_release_uses_highest_tag
 	test_release_uses_fresh_origin_main
 	test_release_tags_origin_main
 	test_release_prints_next_step
@@ -978,7 +1012,9 @@ tests=(
 	test_release_refuses_without_signing_key
 	test_release_refuses_missing_signers_file
 	test_release_refuses_foreign_signer
-	test_release_stops_when_signing_fails
+	test_release_refuses_unsigned_latest_tag
+	test_release_refuses_failed_fetch
+	test_release_refuses_failed_signing
 	test_release_refuses_failed_push
 	test_release_refuses_as_root
 )

@@ -10,6 +10,15 @@ refuse() {
 	exit 1
 }
 
+verify_tag() {
+	local tag=$1
+
+	git -C "$repo_dir" \
+		-c gpg.format=ssh \
+		-c gpg.ssh.allowedSignersFile="$signers" \
+		verify-tag "refs/tags/$tag" >/dev/null 2>&1
+}
+
 release() {
 	local part=$1 latest next major minor patch
 
@@ -25,15 +34,21 @@ release() {
 		refuse "refusing release: no ssh signing key configured"
 	fi
 
-	git -C "$repo_dir" fetch -q --tags origin main
+	if ! git -C "$repo_dir" fetch -q --tags origin main; then
+		refuse "refusing release: fetching origin failed"
+	fi
 
-	latest=$(git -C "$repo_dir" describe --tags --abbrev=0 --match 'v*' origin/main 2>/dev/null) || latest=""
+	latest=$(git -C "$repo_dir" tag --merged origin/main --list 'v*' --sort=v:refname | tail -n 1)
 
 	if [[ -z "$latest" ]]; then
 		next=v0.1.0
 	else
 		if [[ ! "$latest" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
 			refuse "refusing release: cannot read version from $latest"
+		fi
+
+		if ! verify_tag "$latest"; then
+			refuse "refusing release: tag $latest signature not valid"
 		fi
 
 		if [[ "$(git -C "$repo_dir" rev-parse "refs/tags/$latest^{commit}")" == \
@@ -55,14 +70,15 @@ release() {
 		refuse "refusing release: tag $next already exists"
 	fi
 
-	git -C "$repo_dir" -c gpg.format=ssh tag -s "$next" -m "$next" origin/main
+	echo "signing $next, touch the YubiKey when it blinks"
 
-	if ! git -C "$repo_dir" \
-		-c gpg.format=ssh \
-		-c gpg.ssh.allowedSignersFile="$signers" \
-		verify-tag "refs/tags/$next" >/dev/null 2>&1; then
+	if ! git -C "$repo_dir" -c gpg.format=ssh tag -s "$next" -m "$next" origin/main; then
+		refuse "refusing release: signing $next failed"
+	fi
+
+	if ! verify_tag "$next"; then
 		git -C "$repo_dir" tag -d "$next" >/dev/null
-		refuse "refusing release: signature not valid"
+		refuse "refusing release: tag $next signature not valid"
 	fi
 
 	if ! git -C "$repo_dir" push -q origin "refs/tags/$next"; then
