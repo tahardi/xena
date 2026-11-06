@@ -98,3 +98,9 @@ jobs:
 
       - name: Run script tests
         run: make test-scripts
+
+      - name: Install python3-yaml
+        run: sudo apt-get update && sudo apt-get install --yes python3-yaml
+
+      - name: Run Shell Tests
+        run: make test-shell

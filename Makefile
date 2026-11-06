@@ -22,6 +22,7 @@ pre-pr: \
 	vuln \
 	secrets \
 	shellcheck \
+	test-shell \
 	test-scripts
 
 .PHONY: tidy
@@ -62,6 +63,10 @@ secrets:
 .PHONY: shellcheck
 shellcheck:
 	@git ls-files -z '*.sh' | xargs -0 -r shellcheck
+
+.PHONY: test-shell
+test-shell:
+	@deploy/desktop/harden_test.sh
 
 .PHONY: test-scripts
 test-scripts:

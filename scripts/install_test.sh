@@ -487,6 +487,26 @@ test_install_refuses_unpushed_main_tag() {
 	assert_refused "refusing tag v0.5.0: not reachable from origin/main" v0.5.0
 }
 
+test_install_skips_incomplete_vm_config() {
+	commit_file config/vm.yaml "version: 1"
+	git -C "$clone" commit -q -m partial
+	git -C "$clone" push -q origin main
+	signed_tag "$work/key" v0.5.0
+
+	run_install v0.5.0 >/dev/null
+
+	assert_absent "$root/usr/local/share/xena/config/vm.yaml"
+
+	commit_file config/vm.yaml "network:"
+	git -C "$clone" commit -q -m complete
+	git -C "$clone" push -q origin main
+	signed_tag "$work/key" v0.6.0
+
+	run_install v0.6.0 >/dev/null
+
+	assert_file "$root/usr/local/share/xena/config/vm.yaml"
+}
+
 test_install_build_failure_cleans_up() {
 	if FAKE_GO_FAIL=1 run_install v0.1.0 >/dev/null 2>&1; then
 		fail "install succeeded, want failure"
@@ -990,6 +1010,7 @@ tests=(
 	test_install_refuses_missing_signers_file
 	test_install_refuses_unpushed_main_tag
 	test_install_build_failure_cleans_up
+	test_install_skips_incomplete_vm_config
 	test_install_clears_go_environment
 	test_install_usage
 	test_rollback_needs_version

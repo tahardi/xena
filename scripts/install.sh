@@ -180,6 +180,10 @@ install_files() {
 	done
 
 	for file in "$src"/config/*.yaml; do
+		if [[ $(basename "$file") == vm.yaml ]] && ! grep -q '^network:' "$file"; then
+			continue
+		fi
+
 		install_file 0644 "$file" "/usr/local/share/xena/config/$(basename "$file")"
 	done
 
