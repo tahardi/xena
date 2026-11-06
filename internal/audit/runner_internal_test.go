@@ -29,6 +29,19 @@ func (c fakeCheck) Run(context.Context) ([]Finding, error) {
 	return c.findings, c.err
 }
 
+type hangingCheck struct {
+	release chan struct{}
+}
+
+func (hangingCheck) Name() string {
+	return "desktop-hang"
+}
+
+func (c hangingCheck) Run(context.Context) ([]Finding, error) {
+	<-c.release
+	return nil, nil
+}
+
 func TestRunner_Run(t *testing.T) {
 	started := time.Date(2026, 10, 28, 4, 0, 0, 0, time.UTC)
 	finished := started.Add(time.Minute)
@@ -128,7 +141,7 @@ func TestRunner_Run(t *testing.T) {
 				require.NoError(t, os.Chmod(dir, 0o500))
 			}
 			times := []time.Time{started, finished}
-			runner := NewRunner(tt.checks, manual, dir, clock(times))
+			runner := NewRunner(tt.checks, manual, dir, clock(times), time.Minute)
 
 			// when
 			report, err := runner.Run(t.Context())
@@ -172,13 +185,13 @@ func TestRunner_Run(t *testing.T) {
 		dir := t.TempDir()
 		times := []time.Time{started, finished}
 		checks := []Check{fakeCheck{name: "desktop-docker", findings: []Finding{finding}}}
-		runner := NewRunner(checks, manual, dir, clock(times))
+		runner := NewRunner(checks, manual, dir, clock(times), time.Minute)
 
 		// when
 		_, err := runner.Run(t.Context())
 		require.ErrorIs(t, err, ErrDrift)
 
-		_, err = NewRunner(checks, manual, dir, clock([]time.Time{started, finished})).Run(t.Context())
+		_, err = NewRunner(checks, manual, dir, clock([]time.Time{started, finished}), time.Minute).Run(t.Context())
 
 		// then
 		require.ErrorIs(t, err, ErrDrift)
@@ -207,12 +220,34 @@ func TestRunner_Run(t *testing.T) {
 		// given
 		dir := t.TempDir()
 		require.NoError(t, os.Mkdir(filepath.Join(dir, "audit-2026-10-28.jsonl"), 0o700))
-		runner := NewRunner([]Check{fakeCheck{name: "a"}}, manual, dir, clock([]time.Time{started, finished}))
+		checks := []Check{fakeCheck{name: "a"}}
+		runner := NewRunner(checks, manual, dir, clock([]time.Time{started, finished}), time.Minute)
 
 		// when
 		_, err := runner.Run(t.Context())
 
 		// then
 		require.ErrorContains(t, err, "appending audit history")
+	})
+
+	t.Run("error - check timeout becomes finding", func(t *testing.T) {
+		// given
+		release := make(chan struct{})
+		t.Cleanup(func() { close(release) })
+
+		checks := []Check{hangingCheck{release: release}, fakeCheck{name: "after"}}
+		runner := NewRunner(checks, manual, t.TempDir(), clock([]time.Time{started, finished}), time.Millisecond)
+
+		// when
+		report, err := runner.Run(t.Context())
+
+		// then
+		require.ErrorIs(t, err, ErrDrift)
+		require.Equal(t, []Finding{{
+			Check:    "desktop-hang",
+			Severity: logs.SeverityHigh,
+			Message:  "check timed out after 1ms",
+			Fix:      "Find the command or file the check waits on, then run xena audit again.",
+		}}, report.Findings)
 	})
 }

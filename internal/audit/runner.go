@@ -20,6 +20,7 @@ const (
 	dirMode    = 0o700
 	reportMode = 0o600
 	checkFix   = "Fix whatever stops the check from running, then run xena audit again."
+	timeoutFix = "Find the command or file the check waits on, then run xena audit again."
 )
 
 var ErrDrift = errors.New("audit found drift")
@@ -49,14 +50,21 @@ func (r Report) LogValue() slog.Value {
 }
 
 type Runner struct {
-	checks []Check
-	manual []string
-	dir    string
-	now    func() time.Time
+	checks  []Check
+	manual  []string
+	dir     string
+	now     func() time.Time
+	timeout time.Duration
 }
 
-func NewRunner(checks []Check, manual []string, dir string, now func() time.Time) *Runner {
-	return &Runner{checks: checks, manual: manual, dir: dir, now: now}
+func NewRunner(
+	checks []Check,
+	manual []string,
+	dir string,
+	now func() time.Time,
+	timeout time.Duration,
+) *Runner {
+	return &Runner{checks: checks, manual: manual, dir: dir, now: now, timeout: timeout}
 }
 
 func (r *Runner) Run(ctx context.Context) (Report, error) {
@@ -69,7 +77,7 @@ func (r *Runner) Run(ctx context.Context) (Report, error) {
 	}
 
 	for _, check := range r.checks {
-		report.Findings = append(report.Findings, runCheck(ctx, check, &report)...)
+		report.Findings = append(report.Findings, r.runCheck(ctx, check, &report)...)
 	}
 
 	report.LastRun = r.now()
@@ -84,6 +92,28 @@ func (r *Runner) Run(ctx context.Context) (Report, error) {
 		return report, ErrDrift
 	}
 	return report, nil
+}
+
+func (r *Runner) runWithTimeout(ctx context.Context, check Check) ([]Finding, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	type result struct {
+		findings []Finding
+		err      error
+	}
+	done := make(chan result, 1)
+	go func() {
+		findings, err := check.Run(ctx)
+		done <- result{findings: findings, err: err}
+	}()
+
+	select {
+	case res := <-done:
+		return res.findings, res.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func (r *Runner) write(report Report) error {
@@ -106,8 +136,17 @@ func (r *Runner) write(report Report) error {
 	return nil
 }
 
-func runCheck(ctx context.Context, check Check, report *Report) []Finding {
-	findings, err := check.Run(ctx)
+func (r *Runner) runCheck(ctx context.Context, check Check, report *Report) []Finding {
+	findings, err := r.runWithTimeout(ctx, check)
+	if errors.Is(err, context.DeadlineExceeded) {
+		return []Finding{{
+			Check:    check.Name(),
+			Severity: logs.SeverityHigh,
+			Message:  fmt.Sprintf("check timed out after %s", r.timeout),
+			Fix:      timeoutFix,
+		}}
+	}
+
 	if errors.Is(err, ErrSkipped) {
 		report.Skipped = append(report.Skipped, check.Name())
 		err = nil

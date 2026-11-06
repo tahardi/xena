@@ -20,6 +20,8 @@ import (
 	"github.com/tahardi/xena/internal/config"
 )
 
+const auditCheckTimeout = 2 * time.Minute
+
 type auditDeps struct {
 	Checks []audit.Check
 	Manual []string
@@ -43,7 +45,7 @@ func runAuditWith(ctx context.Context, args []string, logger *slog.Logger, deps 
 		return fmt.Errorf("parsing audit flags: %w", err)
 	}
 
-	report, err := audit.NewRunner(deps.Checks, deps.Manual, deps.Dir, time.Now).Run(ctx)
+	report, err := audit.NewRunner(deps.Checks, deps.Manual, deps.Dir, time.Now, auditCheckTimeout).Run(ctx)
 	if err != nil && !errors.Is(err, audit.ErrDrift) {
 		return err
 	}
