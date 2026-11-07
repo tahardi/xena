@@ -14,6 +14,10 @@ import (
 )
 
 func TestCheck(t *testing.T) {
+	local := time.Local
+	time.Local = time.FixedZone("test", 10*60*60)
+	t.Cleanup(func() { time.Local = local })
+
 	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
 	ninety := 90
 	thirty := 30
@@ -69,8 +73,14 @@ func TestCheck(t *testing.T) {
 		},
 		{
 			name:   "happy path - near expiry at exactly 14 days",
-			tokens: token(func(tok *inventory.Token) { tok.Expires = now.AddDate(0, 0, 14) }),
+			tokens: token(func(tok *inventory.Token) { tok.Expires = day(t, "2026-11-07") }),
 			want:   []inventory.Finding{{Kind: inventory.KindNearExpiry, Token: "a", Detail: "due 2026-11-07"}},
+		},
+		{
+			name:   "happy path - window counts from the local date",
+			tokens: token(func(tok *inventory.Token) { tok.Expires = day(t, "2026-11-08") }),
+			now:    time.Date(2026, 10, 24, 20, 0, 0, 0, time.UTC),
+			want:   []inventory.Finding{{Kind: inventory.KindNearExpiry, Token: "a", Detail: "due 2026-11-08"}},
 		},
 		{
 			name:   "happy path - near expiry in 20 days with a 30-day window",
