@@ -82,12 +82,14 @@ func (s Store) Get(ctx context.Context, name string) ([]byte, error) {
 	// #nosec G204 -- s.Age is the age binary from NewDefaultStore and every argument is a path, never secret data.
 	cmd := exec.CommandContext(ctx, s.Age, "-d", "-i", s.IdentityFile, path)
 	cmd.Stdout = &out
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = os.Stdout
+
 	if s.KillGroup {
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 		cmd.WaitDelay = waitDelay
 	}
+
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("decrypting secret %s: %w", name, err)
 	}
@@ -159,7 +161,7 @@ func (s Store) writeTemp(tmp *os.File, value io.Reader) error {
 	cmd := exec.CommandContext(context.Background(), s.Age, "-e", "-R", s.RecipientsFile)
 	cmd.Stdin = value
 	cmd.Stdout = tmp
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = os.Stdout
 	if err := cmd.Run(); err != nil {
 		return err
 	}

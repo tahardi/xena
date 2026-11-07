@@ -3,6 +3,7 @@ package secrets_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -60,6 +61,27 @@ func TestStore_Put(t *testing.T) {
 		got, err := store.Get(context.Background(), "a")
 		require.NoError(t, err)
 		assert.Equal(t, "two", string(got))
+	})
+
+	t.Run("happy path - sends age messages to stdout", func(t *testing.T) {
+		// given
+		store := newStore(t)
+		store.Age = fakeAge(t, 0)
+		stdout := captureStdout(t)
+
+		// when
+		err := store.Put("a", strings.NewReader("made-up"))
+
+		// then
+		require.NoError(t, err)
+
+		printed, err := os.ReadFile(stdout.Name())
+		require.NoError(t, err)
+		assert.Contains(t, string(printed), "age: waiting")
+
+		encrypted, err := os.ReadFile(filepath.Join(store.Dir, "a.age"))
+		require.NoError(t, err)
+		assert.Equal(t, "secret", string(encrypted))
 	})
 
 	tests := []struct {
@@ -156,6 +178,46 @@ func TestStore_Get(t *testing.T) {
 		// then
 		require.NoError(t, err)
 		assert.Equal(t, []byte("made-up-value-2"), got)
+	})
+
+	t.Run("happy path - sends age messages to stdout", func(t *testing.T) {
+		// given
+		store := newStore(t)
+		store.Age = fakeAge(t, 0)
+		require.NoError(t, os.MkdirAll(store.Dir, 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(store.Dir, "a.age"), nil, 0o600))
+		stdout := captureStdout(t)
+
+		// when
+		got, err := store.Get(context.Background(), "a")
+
+		// then
+		require.NoError(t, err)
+		assert.Equal(t, "secret", string(got))
+
+		printed, err := os.ReadFile(stdout.Name())
+		require.NoError(t, err)
+		assert.Contains(t, string(printed), "age: waiting")
+	})
+
+	t.Run("error - age failure message reaches stdout", func(t *testing.T) {
+		// given
+		store := newStore(t)
+		store.Age = fakeAge(t, 1)
+		require.NoError(t, os.MkdirAll(store.Dir, 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(store.Dir, "a.age"), nil, 0o600))
+		stdout := captureStdout(t)
+
+		// when
+		got, err := store.Get(context.Background(), "a")
+
+		// then
+		require.Error(t, err)
+		assert.Nil(t, got)
+
+		printed, err := os.ReadFile(stdout.Name())
+		require.NoError(t, err)
+		assert.Contains(t, string(printed), "age: waiting")
 	})
 
 	t.Run("error - missing secret", func(t *testing.T) {
@@ -362,4 +424,30 @@ func newStore(t *testing.T) secrets.Store {
 		IdentityFile:   identity,
 		Age:            "age",
 	}
+}
+
+func fakeAge(t *testing.T, exitCode int) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "age")
+	script := fmt.Sprintf("#!/bin/sh\necho 'age: waiting' >&2\nprintf secret\nexit %d\n", exitCode)
+	require.NoError(t, os.WriteFile(path, []byte(script), 0o700))
+
+	return path
+}
+
+func captureStdout(t *testing.T) *os.File {
+	t.Helper()
+
+	file, err := os.CreateTemp(t.TempDir(), "stdout")
+	require.NoError(t, err)
+
+	original := os.Stdout
+	os.Stdout = file
+	t.Cleanup(func() {
+		os.Stdout = original
+		_ = file.Close()
+	})
+
+	return file
 }
