@@ -18,11 +18,8 @@ import (
 const (
 	testVMAddr = "192.168.150.10"
 
-	fakeNftOK    = "#!/bin/sh\nexit 0\n"
-	fakeNftFail  = "#!/bin/sh\nexit 1\n"
-	fakeNftFlush = "#!/bin/sh\n[ \"$1\" = add ]\n"
-	fakeNftCut   = "#!/bin/sh\necho '{\"nftables\":[{\"set\":{\"elem\":[\"192.168.150.10\"]}}]}'\n"
-	fakeNftEmpty = "#!/bin/sh\necho '{\"nftables\":[{\"set\":{\"name\":\"cut\"}}]}'\n"
+	fakeNftOK   = "#!/bin/sh\nexit 0\n"
+	fakeNftFail = "#!/bin/sh\nexit 1\n"
 )
 
 func TestRunFirewall(t *testing.T) {
@@ -30,11 +27,19 @@ func TestRunFirewall(t *testing.T) {
 		name       string
 		args       []string
 		vmConfig   string
+		marker     bool
 		wantIs     error
 		wantPrefix string
 	}{
-		{name: "error - no subcommand", wantIs: errUnknownCommand},
-		{name: "error - unknown subcommand", args: []string{"bogus"}, wantIs: errUnknownCommand},
+		{name: "error - no subcommand", wantIs: errFirewallUsage, wantPrefix: "usage: xena firewall cut|resume|reapply"},
+		{name: "error - unknown subcommand", args: []string{"bogus"}, wantIs: errFirewallUsage},
+		{name: "error - extra argument", args: []string{"cut", "now"}, wantIs: errFirewallUsage},
+		{
+			name:       "error - reapply with marker and no vm config",
+			args:       []string{"reapply"},
+			marker:     true,
+			wantPrefix: "loading vm config: ",
+		},
 		{name: "error - cut without vm config", args: []string{"cut"}, wantPrefix: "loading vm config: "},
 		{name: "error - resume without vm config", args: []string{"resume"}, wantPrefix: "loading vm config: "},
 		{
@@ -50,6 +55,13 @@ func TestRunFirewall(t *testing.T) {
 			// given
 			dir := t.TempDir()
 			t.Setenv("XENA_REPO_CONFIG_DIR", dir)
+
+			marker := filepath.Join(dir, "cut")
+			t.Setenv("XENA_CUT_MARKER", marker)
+
+			if tt.marker {
+				require.NoError(t, os.WriteFile(marker, nil, 0o644))
+			}
 
 			if tt.vmConfig != "" {
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "vm.yaml"), []byte(tt.vmConfig), 0o644))
@@ -68,6 +80,19 @@ func TestRunFirewall(t *testing.T) {
 			assert.True(t, strings.HasPrefix(err.Error(), tt.wantPrefix), err.Error())
 		})
 	}
+
+	t.Run("happy path - reapply without marker does nothing", func(t *testing.T) {
+		// given
+		dir := t.TempDir()
+		t.Setenv("XENA_REPO_CONFIG_DIR", dir)
+		t.Setenv("XENA_CUT_MARKER", filepath.Join(dir, "cut"))
+
+		// when
+		err := runFirewall(t.Context(), []string{"reapply"}, slog.New(slog.DiscardHandler))
+
+		// then
+		require.NoError(t, err)
+	})
 }
 
 func TestApplyFirewall(t *testing.T) {
@@ -91,32 +116,47 @@ func TestApplyFirewall(t *testing.T) {
 		{
 			name:    "happy path - resume removes marker",
 			verb:    "resume",
-			nft:     fakeNftCut,
+			nft:     fakeNftOK,
 			marker:  true,
 			wantLog: "vm network resumed",
 		},
 		{
 			name:    "happy path - resume without marker",
 			verb:    "resume",
-			nft:     fakeNftCut,
+			nft:     fakeNftOK,
 			wantLog: "vm network resumed",
 		},
 		{
-			name:    "happy path - resume with empty set removes stale marker",
+			name:    "happy path - resume removes stale marker",
 			verb:    "resume",
-			nft:     fakeNftEmpty,
+			nft:     fakeNftOK,
 			marker:  true,
 			wantLog: "vm network resumed",
 		},
 		{name: "error - failed cut writes no marker", verb: "cut", nft: fakeNftFail, wantPrefix: "cutting vm network: "},
-		{name: "error - failed flush writes no marker", verb: "cut", nft: fakeNftFlush, wantPrefix: "cutting vm network: "},
 		{
 			name:       "error - failed resume keeps marker",
 			verb:       "resume",
 			nft:        fakeNftFail,
 			marker:     true,
 			wantMarker: true,
-			wantPrefix: "listing cut set: ",
+			wantPrefix: "resuming vm network: ",
+		},
+		{
+			name:       "happy path - reapply cuts and keeps marker",
+			verb:       "reapply",
+			nft:        fakeNftOK,
+			marker:     true,
+			wantMarker: true,
+			wantLog:    "vm network cut reapplied",
+		},
+		{
+			name:       "error - failed reapply keeps marker",
+			verb:       "reapply",
+			nft:        fakeNftFail,
+			marker:     true,
+			wantMarker: true,
+			wantPrefix: "cutting vm network: ",
 		},
 		{
 			name:       "error - marker cannot be written",
@@ -125,11 +165,12 @@ func TestApplyFirewall(t *testing.T) {
 			markerDir:  true,
 			wantMarker: true,
 			wantPrefix: "writing cut marker: ",
+			wantLog:    "vm network cut but cut marker not written",
 		},
 		{
 			name:       "error - marker cannot be removed",
 			verb:       "resume",
-			nft:        fakeNftCut,
+			nft:        fakeNftOK,
 			markerDir:  true,
 			wantMarker: true,
 			wantPrefix: "removing cut marker: ",
@@ -168,7 +209,12 @@ func TestApplyFirewall(t *testing.T) {
 			if tt.wantPrefix != "" {
 				require.Error(t, err)
 				assert.True(t, strings.HasPrefix(err.Error(), tt.wantPrefix), err.Error())
-				assert.Empty(t, logs.String())
+
+				if tt.wantLog == "" {
+					assert.Empty(t, logs.String())
+				} else {
+					assert.Contains(t, logs.String(), tt.wantLog)
+				}
 			} else {
 				require.NoError(t, err)
 				assert.Contains(t, logs.String(), tt.wantLog)
@@ -182,7 +228,7 @@ func TestApplyFirewall(t *testing.T) {
 
 			require.NoError(t, statErr)
 
-			if tt.verb == "cut" && !info.IsDir() {
+			if tt.verb == firewallCut && !info.IsDir() {
 				data, readErr := os.ReadFile(marker)
 				require.NoError(t, readErr)
 

@@ -18,14 +18,6 @@ const (
 	vmAddr   = "192.168.150.10"
 	fromAddr = "192.0.2.5"
 
-	cutSetFixture = `{"nftables":[{"metainfo":{"json_schema_version":1}},` +
-		`{"set":{"family":"inet","name":"cut","table":"xena","type":"ipv4_addr","handle":2,` +
-		`"elem":["192.168.150.10"]}}]}`
-	otherCutSetFixture = `{"nftables":[{"metainfo":{"json_schema_version":1}},` +
-		`{"set":{"family":"inet","name":"cut","table":"xena","type":"ipv4_addr","handle":2,` +
-		`"elem":["192.168.150.11"]}}]}`
-	emptyCutSetFixture = `{"nftables":[{"metainfo":{"json_schema_version":1}},` +
-		`{"set":{"family":"inet","name":"cut","table":"xena","type":"ipv4_addr","handle":2}}]}`
 	exposedFixture = `{"nftables":[{"metainfo":{"json_schema_version":1}},` +
 		`{"map":{"family":"inet","name":"exposed","table":"xena","type":["ipv4_addr","inet_service"],` +
 		`"handle":3,"map":["ipv4_addr","inet_service"],"elem":[` +
@@ -49,12 +41,21 @@ const (
 var (
 	errNft = errors.New("nft failed")
 
-	listCutArgv     = []string{"--json", "list", "set", "inet", "xena", "cut"}
 	listExposedArgv = []string{"--json", "list", "map", "inet", "xena", "exposed"}
-	flushArgv       = []string{"flush", "map", "inet", "xena", "exposed"}
-	addCutArgv      = []string{"add", "element", "inet", "xena", "cut", "{ 192.168.150.10 }"}
-	deleteCutArgv   = []string{"delete", "element", "inet", "xena", "cut", "{ 192.168.150.10 }"}
-	deleteExposed   = []string{"delete", "element", "inet", "xena", "exposed", "{ 192.0.2.5 . 8081 }"}
+	flushArgv       = []string{
+		"flush", "map", "inet", "xena", "exposed", ";",
+		"flush", "set", "inet", "xena", "forwarded",
+	}
+	cutArgv = []string{
+		"add", "element", "inet", "xena", "cut", "{ 192.168.150.10 }", ";",
+		"flush", "map", "inet", "xena", "exposed", ";",
+		"flush", "set", "inet", "xena", "forwarded",
+	}
+	resumeArgv   = []string{"destroy", "element", "inet", "xena", "cut", "{ 192.168.150.10 }"}
+	unexposeArgv = []string{
+		"destroy", "element", "inet", "xena", "exposed", "{ 192.0.2.5 . 8081 }", ";",
+		"destroy", "element", "inet", "xena", "forwarded", "{ 192.0.2.5 . 8081 }",
+	}
 )
 
 type fakeStep struct {
@@ -90,10 +91,20 @@ func newFake(steps ...fakeStep) (*Firewall, *fakeNft) {
 	return f, fake
 }
 
+func exposeArgv(port, seconds string) []string {
+	return []string{
+		"add", "element", "inet", "xena", "exposed",
+		"{ 192.0.2.5 . " + port + " timeout " + seconds + "s : 192.168.150.10 . " + port + " }", ";",
+		"add", "element", "inet", "xena", "forwarded",
+		"{ 192.0.2.5 . " + port + " timeout " + seconds + "s }",
+	}
+}
+
 func assertCalls(t *testing.T, fake *fakeNft, want [][]string) {
 	t.Helper()
 
 	assert.Equal(t, want, fake.calls)
+
 	for _, name := range fake.names {
 		assert.Equal(t, nftPath, name)
 	}
@@ -109,26 +120,19 @@ func TestFirewall_Cut(t *testing.T) {
 		wantPrefix string
 	}{
 		{
-			name: "happy path - adds address then flushes forwards",
+			name: "happy path - adds address and flushes forwards in one call",
 			addr: vmAddr,
-			want: [][]string{addCutArgv, flushArgv},
+			want: [][]string{cutArgv},
 		},
 		{name: "error - not an address", addr: "not-an-ip", wantIs: ErrInvalidAddress},
 		{name: "error - ipv6 address", addr: "2001:db8::1", wantIs: ErrInvalidAddress},
 		{name: "error - ipv4 mapped ipv6 address", addr: "::ffff:192.168.150.10", wantIs: ErrInvalidAddress},
 		{
-			name:       "error - add fails",
+			name:       "error - nft fails",
 			addr:       vmAddr,
 			steps:      []fakeStep{{err: errNft}},
-			want:       [][]string{addCutArgv},
+			want:       [][]string{cutArgv},
 			wantIs:     errNft,
-			wantPrefix: "cutting vm network: ",
-		},
-		{
-			name:       "error - flush fails",
-			addr:       vmAddr,
-			steps:      []fakeStep{{}, {err: errNft}},
-			want:       [][]string{addCutArgv, flushArgv},
 			wantPrefix: "cutting vm network: ",
 		},
 	}
@@ -164,9 +168,11 @@ func TestFirewall_IsCut(t *testing.T) {
 			// given
 			marker := filepath.Join(t.TempDir(), "cut")
 			t.Setenv("XENA_CUT_MARKER", marker)
+
 			if tt.marker {
 				require.NoError(t, os.WriteFile(marker, []byte("2026-11-06T00:00:00Z\n"), 0o644))
 			}
+
 			f, fake := newFake()
 
 			// when
@@ -204,49 +210,16 @@ func TestFirewall_Resume(t *testing.T) {
 		wantPrefix string
 	}{
 		{
-			name:  "happy path - listed address is deleted",
-			addr:  vmAddr,
-			steps: []fakeStep{{out: cutSetFixture}},
-			want:  [][]string{listCutArgv, deleteCutArgv},
+			name: "happy path - destroys the address whether or not it is listed",
+			addr: vmAddr,
+			want: [][]string{resumeArgv},
 		},
 		{
-			name:  "happy path - empty set makes only the list call",
-			addr:  vmAddr,
-			steps: []fakeStep{{out: emptyCutSetFixture}},
-			want:  [][]string{listCutArgv},
-		},
-		{
-			name:  "happy path - other address makes only the list call",
-			addr:  vmAddr,
-			steps: []fakeStep{{out: otherCutSetFixture}},
-			want:  [][]string{listCutArgv},
-		},
-		{
-			name:       "error - list output is not json",
-			addr:       vmAddr,
-			steps:      []fakeStep{{out: "not json"}},
-			want:       [][]string{listCutArgv},
-			wantPrefix: "parsing nft output: ",
-		},
-		{
-			name:       "error - output has no set",
-			addr:       vmAddr,
-			steps:      []fakeStep{{out: noListFixture}},
-			want:       [][]string{listCutArgv},
-			wantPrefix: "parsing nft output: ",
-		},
-		{
-			name:       "error - list fails",
+			name:       "error - nft fails",
 			addr:       vmAddr,
 			steps:      []fakeStep{{err: errNft}},
-			want:       [][]string{listCutArgv},
-			wantPrefix: "listing cut set: ",
-		},
-		{
-			name:       "error - delete fails",
-			addr:       vmAddr,
-			steps:      []fakeStep{{out: cutSetFixture}, {err: errNft}},
-			want:       [][]string{listCutArgv, deleteCutArgv},
+			want:       [][]string{resumeArgv},
+			wantIs:     errNft,
 			wantPrefix: "resuming vm network: ",
 		},
 		{name: "error - invalid address", addr: "not-an-ip", wantIs: ErrInvalidAddress},
@@ -267,11 +240,6 @@ func TestFirewall_Resume(t *testing.T) {
 }
 
 func TestFirewall_Expose(t *testing.T) {
-	addArgv := []string{
-		"add", "element", "inet", "xena", "exposed",
-		"{ 192.0.2.5 . 8081 timeout 14400s : 192.168.150.10 . 8081 }",
-	}
-
 	tests := []struct {
 		name       string
 		port       int
@@ -284,12 +252,12 @@ func TestFirewall_Expose(t *testing.T) {
 		wantPrefix string
 	}{
 		{
-			name: "happy path - adds forward with timeout",
+			name: "happy path - adds forward and open entry with timeout",
 			port: 8081,
 			from: fromAddr,
 			vm:   vmAddr,
 			ttl:  4 * time.Hour,
-			want: [][]string{addArgv},
+			want: [][]string{exposeArgv("8081", "14400")},
 		},
 		{
 			name: "happy path - one second is the shortest ttl",
@@ -297,10 +265,7 @@ func TestFirewall_Expose(t *testing.T) {
 			from: fromAddr,
 			vm:   vmAddr,
 			ttl:  time.Second,
-			want: [][]string{{
-				"add", "element", "inet", "xena", "exposed",
-				"{ 192.0.2.5 . 8081 timeout 1s : 192.168.150.10 . 8081 }",
-			}},
+			want: [][]string{exposeArgv("8081", "1")},
 		},
 		{
 			name: "happy path - partial seconds round down",
@@ -308,10 +273,7 @@ func TestFirewall_Expose(t *testing.T) {
 			from: fromAddr,
 			vm:   vmAddr,
 			ttl:  1500 * time.Millisecond,
-			want: [][]string{{
-				"add", "element", "inet", "xena", "exposed",
-				"{ 192.0.2.5 . 8081 timeout 1s : 192.168.150.10 . 8081 }",
-			}},
+			want: [][]string{exposeArgv("8081", "1")},
 		},
 		{
 			name: "happy path - lowest port",
@@ -319,10 +281,7 @@ func TestFirewall_Expose(t *testing.T) {
 			from: fromAddr,
 			vm:   vmAddr,
 			ttl:  time.Second,
-			want: [][]string{{
-				"add", "element", "inet", "xena", "exposed",
-				"{ 192.0.2.5 . 1 timeout 1s : 192.168.150.10 . 1 }",
-			}},
+			want: [][]string{exposeArgv("1", "1")},
 		},
 		{
 			name: "happy path - highest port",
@@ -330,10 +289,7 @@ func TestFirewall_Expose(t *testing.T) {
 			from: fromAddr,
 			vm:   vmAddr,
 			ttl:  time.Second,
-			want: [][]string{{
-				"add", "element", "inet", "xena", "exposed",
-				"{ 192.0.2.5 . 65535 timeout 1s : 192.168.150.10 . 65535 }",
-			}},
+			want: [][]string{exposeArgv("65535", "1")},
 		},
 		{name: "error - port 0", port: 0, from: fromAddr, vm: vmAddr, ttl: time.Hour, wantIs: ErrInvalidPort},
 		{name: "error - port 65536", port: 65536, from: fromAddr, vm: vmAddr, ttl: time.Hour, wantIs: ErrInvalidPort},
@@ -370,7 +326,8 @@ func TestFirewall_Expose(t *testing.T) {
 			vm:         vmAddr,
 			ttl:        4 * time.Hour,
 			steps:      []fakeStep{{err: errNft}},
-			want:       [][]string{addArgv},
+			want:       [][]string{exposeArgv("8081", "14400")},
+			wantIs:     errNft,
 			wantPrefix: "exposing port 8081: ",
 		},
 	}
@@ -399,32 +356,35 @@ func TestFirewall_Unexpose(t *testing.T) {
 		wantPrefix string
 	}{
 		{
-			name:  "happy path - deletes only the matching port",
+			name:  "happy path - destroys only the matching port",
 			port:  8081,
 			steps: []fakeStep{{out: exposedFixture}},
-			want:  [][]string{listExposedArgv, deleteExposed},
+			want:  [][]string{listExposedArgv, unexposeArgv},
 		},
 		{
 			name:  "happy path - element with timeout",
 			port:  8081,
 			steps: []fakeStep{{out: exposedTimeoutFixture}},
-			want:  [][]string{listExposedArgv, deleteExposed},
+			want:  [][]string{listExposedArgv, unexposeArgv},
+		},
+		{
+			name:  "happy path - destroys every source on the port in one call",
+			port:  8081,
+			steps: []fakeStep{{out: twoSourcesFixture}},
+			want: [][]string{
+				listExposedArgv,
+				append(
+					append([]string{}, unexposeArgv...),
+					";", "destroy", "element", "inet", "xena", "exposed", "{ 192.0.2.6 . 8081 }",
+					";", "destroy", "element", "inet", "xena", "forwarded", "{ 192.0.2.6 . 8081 }",
+				),
+			},
 		},
 		{
 			name:  "happy path - closed port makes only the list call",
 			port:  3000,
 			steps: []fakeStep{{out: exposedFixture}},
 			want:  [][]string{listExposedArgv},
-		},
-		{
-			name:  "happy path - deletes every source on the port",
-			port:  8081,
-			steps: []fakeStep{{out: twoSourcesFixture}},
-			want: [][]string{
-				listExposedArgv,
-				deleteExposed,
-				{"delete", "element", "inet", "xena", "exposed", "{ 192.0.2.6 . 8081 }"},
-			},
 		},
 		{
 			name:  "happy path - empty map makes only the list call",
@@ -459,6 +419,7 @@ func TestFirewall_Unexpose(t *testing.T) {
 			port:       8081,
 			steps:      []fakeStep{{err: errNft}},
 			want:       [][]string{listExposedArgv},
+			wantIs:     errNft,
 			wantPrefix: "unexposing port 8081: ",
 		},
 		{
@@ -476,10 +437,11 @@ func TestFirewall_Unexpose(t *testing.T) {
 			wantPrefix: "parsing nft output: ",
 		},
 		{
-			name:       "error - delete fails",
+			name:       "error - destroy fails",
 			port:       8081,
 			steps:      []fakeStep{{out: exposedFixture}, {err: errNft}},
-			want:       [][]string{listExposedArgv, deleteExposed},
+			want:       [][]string{listExposedArgv, unexposeArgv},
+			wantIs:     errNft,
 			wantPrefix: "unexposing port 8081: ",
 		},
 	}
@@ -502,10 +464,16 @@ func TestFirewall_UnexposeAll(t *testing.T) {
 	tests := []struct {
 		name       string
 		steps      []fakeStep
+		wantIs     error
 		wantPrefix string
 	}{
-		{name: "happy path - flushes the map"},
-		{name: "error - nft fails", steps: []fakeStep{{err: errNft}}, wantPrefix: "unexposing all ports: "},
+		{name: "happy path - flushes forwards and open entries in one call"},
+		{
+			name:       "error - nft fails",
+			steps:      []fakeStep{{err: errNft}},
+			wantIs:     errNft,
+			wantPrefix: "unexposing all ports: ",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -517,7 +485,39 @@ func TestFirewall_UnexposeAll(t *testing.T) {
 
 			// then
 			assertCalls(t, fake, [][]string{flushArgv})
-			assertError(t, err, nil, tt.wantPrefix)
+			assertError(t, err, tt.wantIs, tt.wantPrefix)
+		})
+	}
+}
+
+func TestRunCommand(t *testing.T) {
+	tests := []struct {
+		name    string
+		script  string
+		want    string
+		wantErr string
+	}{
+		{name: "happy path - returns stdout only", script: "echo out; echo noise >&2", want: "out\n"},
+		{name: "error - keeps stderr reason", script: "echo 'no such table' >&2; exit 1", wantErr: "no such table"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// given
+			ctx := t.Context()
+
+			// when
+			got, err := runCommand(ctx, "sh", "-c", tt.script)
+
+			// then
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, string(got))
 		})
 	}
 }

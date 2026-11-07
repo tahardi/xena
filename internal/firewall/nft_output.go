@@ -9,7 +9,7 @@ import (
 const keyFields = 2
 
 var (
-	errMissingList    = errors.New("missing set or map")
+	errMissingList    = errors.New("missing map")
 	errUnknownElement = errors.New("unknown map element")
 )
 
@@ -25,16 +25,11 @@ type nftMapKey struct {
 	} `json:"elem"`
 }
 
-type nftSet struct {
-	Elem []string `json:"elem"`
-}
-
 type nftMap struct {
 	Elem [][2]nftMapKey `json:"elem"`
 }
 
 type nftItem struct {
-	Set *nftSet `json:"set"`
 	Map *nftMap `json:"map"`
 }
 
@@ -54,21 +49,6 @@ func parseOutput(out []byte) (nftOutput, error) {
 	}
 
 	return parsed, nil
-}
-
-func parseCutSet(out []byte) ([]string, error) {
-	parsed, err := parseOutput(out)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, item := range parsed.Nftables {
-		if item.Set != nil {
-			return item.Set.Elem, nil
-		}
-	}
-
-	return nil, fmt.Errorf("parsing nft output: %w", errMissingList)
 }
 
 func parseExposed(out []byte) ([]exposedKey, error) {

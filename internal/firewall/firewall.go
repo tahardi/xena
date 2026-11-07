@@ -7,13 +7,18 @@ import (
 	"net/netip"
 	"os"
 	"os/exec"
-	"slices"
+	"strings"
 	"time"
 
 	"github.com/tahardi/xena/internal/config"
 )
 
 const maxPort = 65535
+
+var flushArgs = []string{
+	"flush", "map", "inet", "xena", "exposed", ";",
+	"flush", "set", "inet", "xena", "forwarded",
+}
 
 var (
 	ErrInvalidAddress = errors.New("invalid address")
@@ -37,12 +42,11 @@ func (f *Firewall) Cut(ctx context.Context, vmAddr string) error {
 		return err
 	}
 
-	element := fmt.Sprintf("{ %s }", vmAddr)
-	if _, err := f.run(ctx, f.nft, "add", "element", "inet", "xena", "cut", element); err != nil {
-		return fmt.Errorf("cutting vm network: %w", err)
-	}
-
-	if err := f.flushExposed(ctx); err != nil {
+	args := append(
+		[]string{"add", "element", "inet", "xena", "cut", fmt.Sprintf("{ %s }", vmAddr), ";"},
+		flushArgs...,
+	)
+	if _, err := f.run(ctx, f.nft, args...); err != nil {
 		return fmt.Errorf("cutting vm network: %w", err)
 	}
 
@@ -54,22 +58,8 @@ func (f *Firewall) Resume(ctx context.Context, vmAddr string) error {
 		return err
 	}
 
-	out, err := f.run(ctx, f.nft, "--json", "list", "set", "inet", "xena", "cut")
-	if err != nil {
-		return fmt.Errorf("listing cut set: %w", err)
-	}
-
-	listed, err := parseCutSet(out)
-	if err != nil {
-		return err
-	}
-
-	if !slices.Contains(listed, vmAddr) {
-		return nil
-	}
-
 	element := fmt.Sprintf("{ %s }", vmAddr)
-	if _, err := f.run(ctx, f.nft, "delete", "element", "inet", "xena", "cut", element); err != nil {
+	if _, err := f.run(ctx, f.nft, "destroy", "element", "inet", "xena", "cut", element); err != nil {
 		return fmt.Errorf("resuming vm network: %w", err)
 	}
 
@@ -111,8 +101,13 @@ func (f *Firewall) Expose(ctx context.Context, port int, from, vmAddr string, tt
 	}
 
 	seconds := int64(ttl / time.Second)
-	element := fmt.Sprintf("{ %s . %d timeout %ds : %s . %d }", from, port, seconds, vmAddr, port)
-	if _, err := f.run(ctx, f.nft, "add", "element", "inet", "xena", "exposed", element); err != nil {
+	args := []string{
+		"add", "element", "inet", "xena", "exposed",
+		fmt.Sprintf("{ %s . %d timeout %ds : %s . %d }", from, port, seconds, vmAddr, port), ";",
+		"add", "element", "inet", "xena", "forwarded",
+		fmt.Sprintf("{ %s . %d timeout %ds }", from, port, seconds),
+	}
+	if _, err := f.run(ctx, f.nft, args...); err != nil {
 		return fmt.Errorf("exposing port %d: %w", port, err)
 	}
 
@@ -134,36 +129,51 @@ func (f *Firewall) Unexpose(ctx context.Context, port int) error {
 		return err
 	}
 
+	var args []string
 	for _, key := range keys {
 		if key.port != port {
 			continue
 		}
 
 		element := fmt.Sprintf("{ %s . %d }", key.from, key.port)
-		if _, err := f.run(ctx, f.nft, "delete", "element", "inet", "xena", "exposed", element); err != nil {
-			return fmt.Errorf("unexposing port %d: %w", port, err)
+		if args != nil {
+			args = append(args, ";")
 		}
+
+		args = append(
+			args,
+			"destroy", "element", "inet", "xena", "exposed", element, ";",
+			"destroy", "element", "inet", "xena", "forwarded", element,
+		)
+	}
+
+	if args == nil {
+		return nil
+	}
+
+	if _, err := f.run(ctx, f.nft, args...); err != nil {
+		return fmt.Errorf("unexposing port %d: %w", port, err)
 	}
 
 	return nil
 }
 
 func (f *Firewall) UnexposeAll(ctx context.Context) error {
-	if err := f.flushExposed(ctx); err != nil {
+	if _, err := f.run(ctx, f.nft, flushArgs...); err != nil {
 		return fmt.Errorf("unexposing all ports: %w", err)
 	}
 
 	return nil
 }
 
-func (f *Firewall) flushExposed(ctx context.Context) error {
-	_, err := f.run(ctx, f.nft, "flush", "map", "inet", "xena", "exposed")
-
-	return err
-}
-
 func runCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
-	return exec.CommandContext(ctx, name, args...).Output()
+	out, err := exec.CommandContext(ctx, name, args...).Output()
+
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
+		return out, fmt.Errorf("running %s: %w: %s", name, err, strings.TrimSpace(string(exitErr.Stderr)))
+	}
+
+	return out, err
 }
 
 func checkAddress(addr string) error {

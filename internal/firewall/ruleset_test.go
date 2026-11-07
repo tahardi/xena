@@ -10,6 +10,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var hardening = []string{
+	"PrivateDevices=yes\n",
+	"ProtectKernelTunables=yes\n",
+	"ProtectKernelModules=yes\n",
+	"ProtectKernelLogs=yes\n",
+	"ProtectControlGroups=yes\n",
+	"RestrictNamespaces=yes\n",
+	"MemoryDenyWriteExecute=yes\n",
+	"SystemCallArchitectures=native\n",
+	"SystemCallFilter=@system-service\n",
+}
+
 type libvirtNetwork struct {
 	Name   string `xml:"name"`
 	Bridge struct {
@@ -87,7 +99,15 @@ func TestRuleset(t *testing.T) {
 		{name: "happy path - cut applies to forward", want: `iifname "xena0" ip saddr @cut drop`},
 		{name: "happy path - dnat reads exposed", want: "map @exposed"},
 		{name: "happy path - proxy takes only new connections", want: "tcp dport 3128 ct state new accept"},
-		{name: "happy path - dnat replies stay established", want: "ct status dnat ct state established accept"},
+		{name: "happy path - forwarded set", want: "set forwarded"},
+		{name: "happy path - dnat needs an open entry", want: `oifname "xena0" ct status dnat ip saddr . tcp dport @forwarded accept`},
+		{
+			name: "happy path - dnat replies need an open entry",
+			want: "ct status dnat ct state established ip daddr . tcp sport @forwarded accept",
+		},
+		{name: "happy path - only ipv4 replies accepted", want: "meta nfproto ipv4 ct state established,related accept"},
+		{name: "happy path - drop logs are rate limited", want: `limit rate 10/second burst 50 packets log prefix "xena-drop: "`},
+		{name: "happy path - forward drops after log", want: "\t\tiifname \"xena0\" drop\n"},
 		{name: "happy path - other traffic to the bridge drops", want: `oifname "xena0" drop`},
 	}
 	for _, tt := range tests {
@@ -112,7 +132,7 @@ func TestRuleset(t *testing.T) {
 		{
 			name:   "happy path - cut comes before established replies",
 			first:  "ip saddr @cut drop",
-			second: "ct state established,related accept",
+			second: "meta nfproto ipv4 ct state established,related accept",
 		},
 		{
 			name:   "happy path - cut comes before proxy accept",
@@ -127,12 +147,12 @@ func TestRuleset(t *testing.T) {
 		{
 			name:   "happy path - forward cut comes before dnat accept",
 			first:  `iifname "xena0" ip saddr @cut drop`,
-			second: `iifname "xena0" ct status dnat ct state established accept`,
+			second: `iifname "xena0" ct status dnat ct state established`,
 		},
 		{
 			name:   "happy path - forward noise drops before forward log",
 			first:  `iifname "xena0" meta pkttype { broadcast, multicast } drop`,
-			second: `iifname "xena0" log prefix "xena-drop: "`,
+			second: `iifname "xena0" limit rate`,
 		},
 	}
 	for _, tt := range orders {
@@ -153,11 +173,28 @@ func TestRuleset(t *testing.T) {
 	}
 
 	units := []struct {
-		name string
-		path string
+		name    string
+		path    string
+		want    []string
+		notWant []string
 	}{
-		{name: "happy path - cut unit never starts by itself", path: "../../deploy/systemd/xena-cut.service"},
-		{name: "happy path - resume unit never starts by itself", path: "../../deploy/systemd/xena-resume.service"},
+		{
+			name:    "happy path - cut unit is hardened and never starts by itself",
+			path:    "../../deploy/systemd/xena-cut.service",
+			want:    hardening,
+			notWant: []string{"[Install]"},
+		},
+		{
+			name:    "happy path - resume unit is hardened and never starts by itself",
+			path:    "../../deploy/systemd/xena-resume.service",
+			want:    hardening,
+			notWant: []string{"[Install]"},
+		},
+		{
+			name: "happy path - table load restores a cut",
+			path: "../../deploy/systemd/xena-nftables.service",
+			want: []string{"ExecStartPost=/usr/local/bin/xena firewall reapply\n"},
+		},
 	}
 	for _, tt := range units {
 		t.Run(tt.name, func(t *testing.T) {
@@ -169,7 +206,13 @@ func TestRuleset(t *testing.T) {
 			got := string(data)
 
 			// then
-			assert.NotContains(t, got, "[Install]")
+			for _, want := range tt.want {
+				assert.Contains(t, got, want)
+			}
+
+			for _, notWant := range tt.notWant {
+				assert.NotContains(t, got, notWant)
+			}
 		})
 	}
 }

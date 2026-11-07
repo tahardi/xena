@@ -14,19 +14,25 @@ import (
 )
 
 const (
-	nftPath        = "/usr/sbin/nft"
-	markerMode     = 0o644
-	firewallCut    = "cut"
-	firewallResume = "resume"
+	nftPath         = "/usr/sbin/nft"
+	markerMode      = 0o644
+	firewallCut     = "cut"
+	firewallResume  = "resume"
+	firewallReapply = "reapply"
 )
 
+var errFirewallUsage = errors.New("usage: xena firewall cut|resume|reapply")
+
 func runFirewall(ctx context.Context, args []string, logger *slog.Logger) error {
-	if len(args) == 0 {
-		return fmt.Errorf("%w: firewall", errUnknownCommand)
+	if len(args) != 1 || (args[0] != firewallCut && args[0] != firewallResume && args[0] != firewallReapply) {
+		return errFirewallUsage
 	}
 
-	if args[0] != firewallCut && args[0] != firewallResume {
-		return fmt.Errorf("%w: firewall %s", errUnknownCommand, args[0])
+	if args[0] == firewallReapply {
+		cut, err := markerExists()
+		if err != nil || !cut {
+			return err
+		}
 	}
 
 	vm, err := config.LoadVM(filepath.Join(config.RepoConfigDir(), "vm.yaml"))
@@ -44,11 +50,27 @@ func applyFirewall(
 	vmAddr string,
 	logger *slog.Logger,
 ) error {
-	if verb == firewallCut {
+	switch verb {
+	case firewallCut:
 		return cutNetwork(ctx, fw, vmAddr, logger)
+	case firewallReapply:
+		return reapplyCut(ctx, fw, vmAddr, logger)
+	default:
+		return resumeNetwork(ctx, fw, vmAddr, logger)
+	}
+}
+
+func markerExists() (bool, error) {
+	_, err := os.Stat(config.CutMarker())
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
 	}
 
-	return resumeNetwork(ctx, fw, vmAddr, logger)
+	if err != nil {
+		return false, fmt.Errorf("checking cut marker: %w", err)
+	}
+
+	return true, nil
 }
 
 func cutNetwork(ctx context.Context, fw *firewall.Firewall, vmAddr string, logger *slog.Logger) error {
@@ -59,10 +81,21 @@ func cutNetwork(ctx context.Context, fw *firewall.Firewall, vmAddr string, logge
 	stamp := time.Now().UTC().Format(time.RFC3339) + "\n"
 	// The marker holds no secret and must be world-readable so IsCut works without root.
 	if err := os.WriteFile(config.CutMarker(), []byte(stamp), markerMode); err != nil { //nolint:gosec
+		logger.ErrorContext(ctx, "vm network cut but cut marker not written", "error", err)
 		return fmt.Errorf("writing cut marker: %w", err)
 	}
 
 	logger.InfoContext(ctx, "vm network cut")
+
+	return nil
+}
+
+func reapplyCut(ctx context.Context, fw *firewall.Firewall, vmAddr string, logger *slog.Logger) error {
+	if err := fw.Cut(ctx, vmAddr); err != nil {
+		return err
+	}
+
+	logger.InfoContext(ctx, "vm network cut reapplied")
 
 	return nil
 }

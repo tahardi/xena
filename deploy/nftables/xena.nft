@@ -11,6 +11,11 @@ table inet xena {
 		flags timeout
 	}
 
+	set forwarded {
+		type ipv4_addr . inet_service
+		flags timeout
+	}
+
 	chain prerouting_nat {
 		type nat hook prerouting priority dstnat; policy accept;
 		meta l4proto tcp dnat ip to ip saddr . tcp dport map @exposed
@@ -21,19 +26,20 @@ table inet xena {
 		iifname != "xena0" return
 		ip saddr @cut drop
 		meta pkttype { broadcast, multicast } drop
-		ct state established,related accept
+		meta nfproto ipv4 ct state established,related accept
 		ip saddr 192.168.150.10 tcp dport 3128 ct state new accept
-		log prefix "xena-drop: " level warn
+		limit rate 10/second burst 50 packets log prefix "xena-drop: " level warn
 		drop
 	}
 
 	chain forward_vm {
 		type filter hook forward priority filter; policy accept;
 		iifname "xena0" ip saddr @cut drop
-		oifname "xena0" ct status dnat accept
-		iifname "xena0" ct status dnat ct state established accept
+		oifname "xena0" ct status dnat ip saddr . tcp dport @forwarded accept
+		iifname "xena0" ct status dnat ct state established ip daddr . tcp sport @forwarded accept
 		iifname "xena0" meta pkttype { broadcast, multicast } drop
-		iifname "xena0" log prefix "xena-drop: " level warn drop
+		iifname "xena0" limit rate 10/second burst 50 packets log prefix "xena-drop: " level warn
+		iifname "xena0" drop
 		oifname "xena0" drop
 	}
 }
