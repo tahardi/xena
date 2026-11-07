@@ -64,6 +64,7 @@ func (f *AlertFollower) Poll(ctx context.Context) error {
 			}
 		}
 	}
+
 	f.offsets = offsets
 
 	if len(showErrs) > 0 {

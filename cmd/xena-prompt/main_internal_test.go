@@ -12,10 +12,16 @@ import (
 func TestRun(t *testing.T) {
 	tests := []struct {
 		name       string
+		args       []string
 		vm         string
 		wantErr    error
 		wantErrMsg string
 	}{
+		{
+			name:       "unknown flag",
+			args:       []string{"--bogus"},
+			wantErrMsg: "parsing flags",
+		},
 		{
 			name:       "missing vm config",
 			wantErrMsg: "loading vm config",
@@ -50,12 +56,13 @@ prompt_timeout_seconds: -1
 			}
 
 			// when
-			err := run(t.Context(), nil, slog.New(slog.DiscardHandler))
+			err := run(t.Context(), tt.args, slog.New(slog.DiscardHandler))
 
 			// then
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
 			}
+
 			require.ErrorContains(t, err, tt.wantErrMsg)
 		})
 	}

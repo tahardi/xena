@@ -73,6 +73,9 @@ func (c PromptClient) Run(ctx context.Context, socket string) error {
 }
 
 func (c PromptClient) Handle(ctx context.Context, conn io.ReadWriter) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	var (
 		wg      sync.WaitGroup
 		writeMu sync.Mutex
@@ -107,6 +110,7 @@ func (c PromptClient) Handle(ctx context.Context, conn io.ReadWriter) error {
 		})
 	}
 
+	cancel()
 	wg.Wait()
 
 	if err := scanner.Err(); err != nil {

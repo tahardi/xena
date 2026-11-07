@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"testing/iotest"
 	"time"
@@ -280,21 +282,31 @@ func TestStore_Get(t *testing.T) {
 		store := newStore(t)
 		require.NoError(t, store.Put("a", strings.NewReader("made-up")))
 
-		script := filepath.Join(t.TempDir(), "age")
-		require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nsleep 30 &\nwait\n"), 0o700))
+		dir := t.TempDir()
+		pidFile := filepath.Join(dir, "child.pid")
+		script := filepath.Join(dir, "age")
+		body := "#!/bin/sh\nsleep 30 &\necho $! > " + pidFile + "\nwait\n"
+		require.NoError(t, os.WriteFile(script, []byte(body), 0o700))
 		store.Age = script
 		store.KillGroup = true
 
 		ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 		defer cancel()
-		start := time.Now()
 
 		// when
 		_, err := store.Get(ctx, "a")
 
 		// then
 		require.Error(t, err)
-		require.Less(t, time.Since(start), 5*time.Second)
+
+		raw, err := os.ReadFile(pidFile)
+		require.NoError(t, err)
+		pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+		require.NoError(t, err)
+
+		require.Eventually(t, func() bool {
+			return errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
+		}, time.Second, 10*time.Millisecond)
 	})
 }
 

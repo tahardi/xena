@@ -68,6 +68,9 @@ func TestDesktop_Ask(t *testing.T) {
 		{name: "uppercase host", host: "Example.com", port: 443, wantErr: notify.ErrUnsafeHost, wantNoRun: true},
 		{name: "IP literal host", host: "192.0.2.10", port: 443, wantErr: allowlist.ErrIPLiteralHost, wantNoRun: true},
 		{name: "port zero", host: "example.com", port: 0, wantErr: notify.ErrUnsafeHost, wantNoRun: true},
+		{name: "port one", host: "example.com", port: 1, output: "once", want: "once", wantLast: "example.com:1"},
+		{name: "port max", host: "example.com", port: 65535, output: "once", want: "once", wantLast: "example.com:65535"},
+		{name: "trailing dot host", host: "example.com.", port: 443, wantErr: notify.ErrUnsafeHost, wantNoRun: true},
 		{name: "port too high", host: "example.com", port: 65536, wantErr: notify.ErrUnsafeHost, wantNoRun: true},
 	}
 	for _, tt := range tests {

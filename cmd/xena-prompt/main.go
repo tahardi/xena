@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/term"
+
 	"github.com/tahardi/xena/internal/config"
 	"github.com/tahardi/xena/internal/notify"
 	"github.com/tahardi/xena/internal/secrets"
@@ -52,9 +54,10 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 
 	store, err := secrets.NewDefaultStore()
 	if err != nil {
-		return err
+		return fmt.Errorf("building secrets store: %w", err)
 	}
-	store.KillGroup = true
+
+	store.KillGroup = !term.IsTerminal(int(os.Stdin.Fd()))
 
 	desktop := notify.Desktop{Run: notify.ExecRun}
 	client := notify.PromptClient{

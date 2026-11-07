@@ -2,12 +2,11 @@ package notify_test
 
 import (
 	"bufio"
-	"context"
 	"errors"
 	"io"
 	"log/slog"
 	"net"
-	"sync"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,114 +19,12 @@ const (
 	noReplyWait = 200 * time.Millisecond
 	replyWait   = 2 * time.Second
 	onceLine    = `{"id":"a1","host":"example.com","port":443}`
-	touchValue  = "s3cr3t-touch"
 )
 
 var (
 	errAsk   = errors.New("made-up ask failure")
 	errTouch = errors.New("made-up touch failure")
-	errShow  = errors.New("made-up show failure")
 )
-
-type showCall struct {
-	title    string
-	body     string
-	critical bool
-}
-
-type askCall struct {
-	host     string
-	port     int
-	at       time.Time
-	deadline time.Time
-	hasDL    bool
-}
-
-type fakeAsker struct {
-	answers  map[string]string
-	errs     map[string]error
-	block    map[string]chan struct{}
-	blockCtx bool
-	showErrs []error
-
-	mu    sync.Mutex
-	asks  []askCall
-	shows []showCall
-}
-
-func (f *fakeAsker) Ask(ctx context.Context, host string, port int) (string, error) {
-	deadline, ok := ctx.Deadline()
-
-	f.mu.Lock()
-	f.asks = append(f.asks, askCall{host: host, port: port, at: time.Now(), deadline: deadline, hasDL: ok})
-	f.mu.Unlock()
-
-	if f.blockCtx {
-		<-ctx.Done()
-		return "", ctx.Err()
-	}
-
-	if ch, ok := f.block[host]; ok {
-		<-ch
-	}
-
-	return f.answers[host], f.errs[host]
-}
-
-func (f *fakeAsker) Show(_ context.Context, title, body string, critical bool) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	f.shows = append(f.shows, showCall{title: title, body: body, critical: critical})
-
-	if len(f.showErrs) > 0 {
-		err := f.showErrs[0]
-		f.showErrs = f.showErrs[1:]
-		return err
-	}
-
-	return nil
-}
-
-func (f *fakeAsker) askCalls() []askCall {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	return append([]askCall(nil), f.asks...)
-}
-
-func (f *fakeAsker) showCalls() []showCall {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	return append([]showCall(nil), f.shows...)
-}
-
-type fakeTouch struct {
-	err error
-
-	mu    sync.Mutex
-	names []string
-}
-
-func (f *fakeTouch) Get(_ context.Context, name string) ([]byte, error) {
-	f.mu.Lock()
-	f.names = append(f.names, name)
-	f.mu.Unlock()
-
-	if f.err != nil {
-		return nil, f.err
-	}
-
-	return []byte(touchValue), nil
-}
-
-func (f *fakeTouch) calls() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	return append([]string(nil), f.names...)
-}
 
 type session struct {
 	conn    net.Conn
@@ -305,6 +202,9 @@ func TestPromptClient_Handle(t *testing.T) {
 			s.noReply(t)
 
 			require.Equal(t, tt.wantTouch, touch.calls())
+			for _, hasDeadline := range touch.deadlineCalls() {
+				require.True(t, hasDeadline)
+			}
 			require.Equal(t, tt.wantShows, asker.showCalls())
 
 			if tt.wantNoAsk {
@@ -316,6 +216,7 @@ func TestPromptClient_Handle(t *testing.T) {
 				require.Len(t, calls, 1)
 				require.True(t, calls[0].hasDL)
 				require.LessOrEqual(t, calls[0].deadline.Sub(calls[0].at), tt.wantDLWith)
+				require.Greater(t, calls[0].deadline.Sub(calls[0].at), tt.wantDLWith/2)
 			}
 		})
 	}
@@ -351,6 +252,41 @@ func TestPromptClient_Handle(t *testing.T) {
 		// then
 		require.JSONEq(t, `{"id":"a2","answer":"deny"}`, first)
 		require.JSONEq(t, `{"id":"a1","answer":"once"}`, second)
+	})
+
+	t.Run("happy path - EOF cancels open prompts", func(t *testing.T) {
+		// given
+		asker := &fakeAsker{blockCtx: true}
+		s := startSession(t, newClient(asker, &fakeTouch{}, time.Minute))
+		s.send(t, onceLine)
+		require.Eventually(t, func() bool { return len(asker.askCalls()) == 1 }, replyWait, 10*time.Millisecond)
+
+		// when
+		require.NoError(t, s.conn.Close())
+
+		// then
+		select {
+		case err := <-s.done:
+			require.NoError(t, err)
+		case <-time.After(replyWait):
+			require.FailNow(t, "Handle did not return")
+		}
+	})
+
+	t.Run("error - oversized prompt line", func(t *testing.T) {
+		// given
+		s := startSession(t, newClient(&fakeAsker{}, &fakeTouch{}, time.Second))
+
+		// when
+		go func() { _, _ = io.WriteString(s.conn, strings.Repeat("a", 5000)+"\n") }()
+
+		// then
+		select {
+		case err := <-s.done:
+			require.ErrorContains(t, err, "reading prompts")
+		case <-time.After(replyWait):
+			require.FailNow(t, "Handle did not return")
+		}
 	})
 
 	t.Run("happy path - returns on EOF", func(t *testing.T) {

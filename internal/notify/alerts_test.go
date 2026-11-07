@@ -186,6 +186,50 @@ func TestAlertFollower_Poll(t *testing.T) {
 			wantErrMsg: "showing alert",
 		},
 		{
+			name: "directory with alert name reports error",
+			actions: []func(t *testing.T, dir string){
+				func(t *testing.T, dir string) {
+					t.Helper()
+					require.NoError(t, os.Mkdir(filepath.Join(dir, "alerts-x.jsonl"), 0o700))
+				},
+				appendTo(alertFile, logs.SeverityHigh, false),
+			},
+			wantShows:  []showCall{highShow},
+			wantErrMsg: "reading alerts",
+		},
+		{
+			name:  "time shown in UTC",
+			setup: emptyAlerts,
+			actions: []func(t *testing.T, dir string){
+				func(t *testing.T, dir string) {
+					t.Helper()
+					line := `{"time":"2026-10-01T05:00:00-05:00","rule":"firewall-drop","severity":"high"}` + "\n"
+					appendAlerts(t, filepath.Join(dir, alertFile), line)
+				},
+			},
+			wantShows: []showCall{highShow},
+		},
+		{
+			name: "recreated file read from start",
+			setup: func(t *testing.T, dir string) {
+				t.Helper()
+				line := alertLine(t, logs.SeverityHigh, false)
+				writeAlerts(t, filepath.Join(dir, alertFile), line+line+line)
+			},
+			actions: []func(t *testing.T, dir string){
+				func(t *testing.T, dir string) {
+					t.Helper()
+					require.NoError(t, os.Remove(filepath.Join(dir, alertFile)))
+				},
+				func(t *testing.T, dir string) {
+					t.Helper()
+					line := alertLine(t, logs.SeverityHigh, false)
+					writeAlerts(t, filepath.Join(dir, alertFile), line+line+line+line)
+				},
+			},
+			wantShows: []showCall{highShow, highShow, highShow, highShow},
+		},
+		{
 			name: "missing directory",
 			actions: []func(t *testing.T, dir string){
 				func(t *testing.T, dir string) {
