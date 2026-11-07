@@ -42,6 +42,9 @@ var tokenFiles = []struct {
 }
 
 func Check(inv Inventory, found []string, now time.Time) []Finding {
+	y, m, d := now.Local().Date()
+	today := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+
 	var out []Finding
 	listed := map[string]bool{}
 	for _, tok := range inv.Entries {
@@ -50,9 +53,9 @@ func Check(inv Inventory, found []string, now time.Time) []Finding {
 		if due, ok := tok.Due(); ok {
 			detail := "due " + due.Format(time.DateOnly)
 			switch {
-			case due.Before(now):
+			case due.Before(today):
 				out = append(out, Finding{Kind: KindOverdue, Token: tok.Name, Detail: detail})
-			case !due.After(now.AddDate(0, 0, inv.Settings.WarnDays)):
+			case !due.After(today.AddDate(0, 0, inv.Settings.WarnDays)):
 				out = append(out, Finding{Kind: KindNearExpiry, Token: tok.Name, Detail: detail})
 			}
 		}

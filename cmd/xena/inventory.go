@@ -45,7 +45,7 @@ func runInventory(ctx context.Context, args []string, home string, out io.Writer
 		return err
 	}
 
-	findings := inventory.Check(inv, found, today())
+	findings := inventory.Check(inv, found, time.Now())
 	for _, f := range findings {
 		if err := printFinding(out, f); err != nil {
 			return err
@@ -77,12 +77,6 @@ func expandHome(path, home string) string {
 	}
 
 	return path
-}
-
-func today() time.Time {
-	y, m, d := time.Now().Date()
-
-	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
 
 func printFinding(out io.Writer, f inventory.Finding) error {
