@@ -35,6 +35,8 @@ type PromptClient struct {
 	Touch   Toucher
 	Timeout time.Duration
 	Logger  *slog.Logger
+	Dial    func(ctx context.Context, network, address string) (net.Conn, error)
+	Retry   time.Duration
 }
 
 type prompt struct {
@@ -49,23 +51,34 @@ type reply struct {
 }
 
 func (c PromptClient) Run(ctx context.Context, socket string) error {
-	var dialer net.Dialer
+	dial := c.Dial
+	if dial == nil {
+		dial = (&net.Dialer{}).DialContext
+	}
+
+	retry := c.Retry
+	if retry == 0 {
+		retry = reconnectDelay
+	}
+
+	failing := false
 	for ctx.Err() == nil {
-		conn, err := dialer.DialContext(ctx, "unix", socket)
+		conn, err := dial(ctx, "unix", socket)
 		if err != nil {
-			c.Logger.Warn("connecting to prompt socket", "error", err)
-		} else {
-			stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
-			if err := c.Handle(ctx, conn); err != nil && ctx.Err() == nil {
-				c.Logger.Warn("reading prompts", "error", err)
+			if !failing && ctx.Err() == nil {
+				c.Logger.Warn("connecting to prompt socket", "error", err)
 			}
-			stop()
-			_ = conn.Close()
+
+			failing = true
+		} else {
+			failing = false
+			c.Logger.Info("connected to prompt socket")
+			c.serve(ctx, conn)
 		}
 
 		select {
 		case <-ctx.Done():
-		case <-time.After(reconnectDelay):
+		case <-time.After(retry):
 		}
 	}
 
@@ -120,6 +133,24 @@ func (c PromptClient) Handle(ctx context.Context, conn io.ReadWriter) error {
 	return nil
 }
 
+func (c PromptClient) serve(ctx context.Context, conn net.Conn) {
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
+	defer func() { _ = conn.Close() }()
+
+	err := c.Handle(ctx, conn)
+	if ctx.Err() != nil {
+		return
+	}
+
+	if err != nil {
+		c.Logger.Warn("prompt socket disconnected", "error", err)
+		return
+	}
+
+	c.Logger.Info("prompt socket disconnected")
+}
+
 func (c PromptClient) answer(ctx context.Context, p prompt) string {
 	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
 	defer cancel()
@@ -143,11 +174,21 @@ func (c PromptClient) answer(ctx context.Context, p prompt) string {
 		answer = c.confirmAlways(ctx, p)
 	}
 
+	if answer == "" {
+		c.Logger.Info("prompt unanswered", "id", p.ID, "host", p.Host, "port", p.Port)
+		return ""
+	}
+
 	c.Logger.Info("answering prompt", "id", p.ID, "host", p.Host, "port", p.Port, "answer", answer)
 	return answer
 }
 
 func (c PromptClient) confirmAlways(ctx context.Context, p prompt) string {
+	hint := "to allow " + hostPort(p.Host, p.Port) + " always"
+	if err := c.Desktop.Show(ctx, "Touch your YubiKey", hint, true); err != nil {
+		c.Logger.Warn("showing touch hint", "id", p.ID, "error", err)
+	}
+
 	if _, err := c.Touch.Get(ctx, touchSecret); err != nil {
 		c.Logger.Warn("confirming touch", "id", p.ID, "host", p.Host, "port", p.Port, "error", err)
 

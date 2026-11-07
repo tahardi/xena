@@ -1,6 +1,7 @@
 package notify_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"sync"
@@ -86,17 +87,25 @@ func (f *fakeAsker) showCalls() []showCall {
 }
 
 type fakeTouch struct {
-	err error
+	err   error
+	asker *fakeAsker
 
 	mu        sync.Mutex
 	names     []string
 	deadlines []bool
+	shows     []int
 }
 
 func (f *fakeTouch) Get(ctx context.Context, name string) ([]byte, error) {
 	_, hasDeadline := ctx.Deadline()
 
+	shown := 0
+	if f.asker != nil {
+		shown = len(f.asker.showCalls())
+	}
+
 	f.mu.Lock()
+	f.shows = append(f.shows, shown)
 	f.names = append(f.names, name)
 	f.deadlines = append(f.deadlines, hasDeadline)
 	f.mu.Unlock()
@@ -106,6 +115,13 @@ func (f *fakeTouch) Get(ctx context.Context, name string) ([]byte, error) {
 	}
 
 	return []byte(touchValue), nil
+}
+
+func (f *fakeTouch) showsAtGet() []int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]int(nil), f.shows...)
 }
 
 func (f *fakeTouch) deadlineCalls() []bool {
@@ -120,4 +136,23 @@ func (f *fakeTouch) calls() []string {
 	defer f.mu.Unlock()
 
 	return append([]string(nil), f.names...)
+}
+
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.String()
 }

@@ -16,7 +16,7 @@ func TestPromptUnit(t *testing.T) {
 
 	wantLines := []string{
 		"ExecStart=/usr/local/bin/xena-prompt",
-		"Environment=PATH=%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin",
+		"Environment=PATH=/usr/local/bin:/usr/bin:/bin:%h/.cargo/bin",
 		"PartOf=graphical-session.target",
 		"WantedBy=graphical-session.target",
 		"NoNewPrivileges=yes",
@@ -26,6 +26,13 @@ func TestPromptUnit(t *testing.T) {
 		"SystemCallArchitectures=native",
 		"RestrictAddressFamilies=AF_UNIX",
 		"UMask=0077",
+		"ConditionPathExists=/usr/local/share/xena/config/vm.yaml",
+		"MemoryDenyWriteExecute=yes",
+		"RestrictNamespaces=yes",
+		"KeyringMode=private",
+		"SystemCallFilter=@system-service",
+		"SystemCallFilter=~@privileged @resources",
+		"SystemCallErrorNumber=EPERM",
 	}
 
 	// when

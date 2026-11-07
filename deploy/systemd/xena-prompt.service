@@ -1,19 +1,26 @@
 [Unit]
 Description=Xena host prompts and alert notifications
+ConditionPathExists=/usr/local/share/xena/config/vm.yaml
 PartOf=graphical-session.target
 After=graphical-session.target
 
 [Service]
 ExecStart=/usr/local/bin/xena-prompt
-Environment=PATH=%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:%h/.cargo/bin
 Restart=on-failure
 RestartSec=5
 UMask=0077
 NoNewPrivileges=yes
+KeyringMode=private
 LockPersonality=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
 RestrictAddressFamilies=AF_UNIX
 
 [Install]

@@ -98,6 +98,60 @@ func TestReadAlerts(t *testing.T) {
 	}
 }
 
+func TestAlertFiles(t *testing.T) {
+	tests := []struct {
+		name    string
+		files   []string
+		missing bool
+		want    []string
+	}{
+		{
+			name:  "happy path - dated alert files in name order",
+			files: []string{"alerts-2026-10-02.jsonl", "alerts-2026-10-01.jsonl"},
+			want:  []string{"alerts-2026-10-01.jsonl", "alerts-2026-10-02.jsonl"},
+		},
+		{
+			name:  "happy path - other files ignored",
+			files: []string{"alerts-bogus.jsonl", "proxy-2026-10-01.jsonl", "notes.jsonl"},
+		},
+		{
+			name:    "happy path - missing directory",
+			missing: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// given
+			dir := t.TempDir()
+			for _, name := range tt.files {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, name), nil, 0o600))
+			}
+
+			if tt.missing {
+				dir = filepath.Join(dir, "absent")
+			}
+
+			// when
+			got, err := watch.AlertFiles(dir)
+
+			// then
+			require.NoError(t, err)
+
+			names := make([]string, 0, len(got))
+			for _, path := range got {
+				names = append(names, filepath.Base(path))
+			}
+
+			if tt.want == nil {
+				tt.want = []string{}
+			}
+
+			assert.Equal(t, tt.want, names)
+		})
+	}
+}
+
 func TestLoadAck(t *testing.T) {
 	tests := []struct {
 		name    string

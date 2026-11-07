@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 	"github.com/tahardi/xena/internal/logs"
 	"github.com/tahardi/xena/internal/notify"
+	"github.com/tahardi/xena/internal/watch"
 )
 
 const (
@@ -50,7 +52,8 @@ func appendAlerts(t *testing.T, path string, content string) {
 }
 
 func TestAlertFollower_Poll(t *testing.T) {
-	highShow := showCall{title: firewallTitle, body: "high at 2026-10-01T10:00:00Z", critical: true}
+	shownAt := time.Date(2026, 10, 1, 10, 0, 0, 0, time.UTC).Local().Format("2006-01-02 15:04:05 MST")
+	highShow := showCall{title: firewallTitle, body: "high at " + shownAt, critical: true}
 
 	tests := []struct {
 		name       string
@@ -88,7 +91,7 @@ func TestAlertFollower_Poll(t *testing.T) {
 			actions: []func(t *testing.T, dir string){
 				appendTo(alertFile, logs.SeverityMedium, false),
 			},
-			wantShows: []showCall{{title: firewallTitle, body: "medium at 2026-10-01T10:00:00Z"}},
+			wantShows: []showCall{{title: firewallTitle, body: "medium at " + shownAt}},
 		},
 		{
 			name:    "low skipped",
@@ -190,7 +193,7 @@ func TestAlertFollower_Poll(t *testing.T) {
 			actions: []func(t *testing.T, dir string){
 				func(t *testing.T, dir string) {
 					t.Helper()
-					require.NoError(t, os.Mkdir(filepath.Join(dir, "alerts-x.jsonl"), 0o700))
+					require.NoError(t, os.Mkdir(filepath.Join(dir, "alerts-2026-10-03.jsonl"), 0o700))
 				},
 				appendTo(alertFile, logs.SeverityHigh, false),
 			},
@@ -198,13 +201,29 @@ func TestAlertFollower_Poll(t *testing.T) {
 			wantErrMsg: "reading alerts",
 		},
 		{
-			name:  "time shown in UTC",
+			name:  "time shown in local time",
 			setup: emptyAlerts,
 			actions: []func(t *testing.T, dir string){
 				func(t *testing.T, dir string) {
 					t.Helper()
 					line := `{"time":"2026-10-01T05:00:00-05:00","rule":"firewall-drop","severity":"high"}` + "\n"
 					appendAlerts(t, filepath.Join(dir, alertFile), line)
+				},
+			},
+			wantShows: []showCall{highShow},
+		},
+		{
+			name:    "non-date alert file ignored",
+			actions: []func(t *testing.T, dir string){appendTo("alerts-bogus.jsonl", logs.SeverityHigh, false)},
+		},
+		{
+			name:  "oversized line skipped",
+			setup: emptyAlerts,
+			actions: []func(t *testing.T, dir string){
+				func(t *testing.T, dir string) {
+					t.Helper()
+					huge := strings.Repeat("a", watch.MaxAlertLine+1) + "\n"
+					appendAlerts(t, filepath.Join(dir, alertFile), huge+alertLine(t, logs.SeverityHigh, false))
 				},
 			},
 			wantShows: []showCall{highShow},

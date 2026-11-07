@@ -9,13 +9,16 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/tahardi/xena/internal/logs"
+	"github.com/tahardi/xena/internal/watch"
 )
 
-const alertPattern = "alerts-*.jsonl"
+const (
+	readLimit  = 4 * watch.MaxAlertLine
+	timeLayout = "2006-01-02 15:04:05 MST"
+)
 
 type AlertFollower struct {
 	Dir     string
@@ -26,7 +29,7 @@ type AlertFollower struct {
 func NewAlertFollower(dir string, desktop Asker) (*AlertFollower, error) {
 	// ponytail: alerts written while the service is down are not replayed; Maple's red status and the weekly
 	// report still show them.
-	paths, err := filepath.Glob(filepath.Join(dir, alertPattern))
+	paths, err := watch.AlertFiles(dir)
 	if err != nil {
 		return nil, fmt.Errorf("listing alerts: %w", err)
 	}
@@ -44,7 +47,7 @@ func NewAlertFollower(dir string, desktop Asker) (*AlertFollower, error) {
 }
 
 func (f *AlertFollower) Poll(ctx context.Context) error {
-	paths, err := filepath.Glob(filepath.Join(f.Dir, alertPattern))
+	paths, err := watch.AlertFiles(f.Dir)
 	if err != nil {
 		return fmt.Errorf("listing alerts: %w", err)
 	}
@@ -58,7 +61,7 @@ func (f *AlertFollower) Poll(ctx context.Context) error {
 			readErrs = append(readErrs, fmt.Errorf("reading alerts %s: %w", path, err))
 		}
 
-		for _, alert := range alerts {
+		for _, alert := range watch.Unacknowledged(alerts, time.Time{}) {
 			if err := f.show(ctx, alert); err != nil {
 				showErrs = append(showErrs, err)
 			}
@@ -75,22 +78,9 @@ func (f *AlertFollower) Poll(ctx context.Context) error {
 }
 
 func (f *AlertFollower) show(ctx context.Context, alert logs.Alert) error {
-	if alert.Guard {
-		return nil
-	}
-
-	var critical bool
-	switch alert.Severity {
-	case logs.SeverityHigh:
-		critical = true
-	case logs.SeverityMedium:
-	default:
-		return nil
-	}
-
 	title := "Xena alert: " + alert.Rule
-	body := alert.Severity + " at " + alert.Time.UTC().Format(time.RFC3339)
-	return f.Desktop.Show(ctx, title, body, critical)
+	body := alert.Severity + " at " + alert.Time.Local().Format(timeLayout)
+	return f.Desktop.Show(ctx, title, body, alert.Severity == logs.SeverityHigh)
 }
 
 func readAlerts(path string, offset int64) ([]logs.Alert, int64, error) {
@@ -116,14 +106,22 @@ func readAlerts(path string, offset int64) ([]logs.Alert, int64, error) {
 		return nil, offset, err
 	}
 
-	data, err := io.ReadAll(file)
+	data, err := io.ReadAll(io.LimitReader(file, readLimit))
 	if err != nil {
 		return nil, offset, err
 	}
 
 	end := bytes.LastIndexByte(data, '\n') + 1
+	if end == 0 && len(data) == readLimit {
+		end = len(data)
+	}
+
 	var alerts []logs.Alert
 	for line := range bytes.SplitSeq(data[:end], []byte("\n")) {
+		if len(line) > watch.MaxAlertLine {
+			continue
+		}
+
 		var alert logs.Alert
 		if json.Unmarshal(line, &alert) == nil {
 			alerts = append(alerts, alert)

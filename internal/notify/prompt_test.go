@@ -2,11 +2,13 @@ package notify_test
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"io"
 	"log/slog"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,6 +26,7 @@ const (
 var (
 	errAsk   = errors.New("made-up ask failure")
 	errTouch = errors.New("made-up touch failure")
+	errDial  = errors.New("made-up dial failure")
 )
 
 type session struct {
@@ -111,12 +114,14 @@ func TestPromptClient_Handle(t *testing.T) {
 		wantShows  []showCall
 		wantNoAsk  bool
 		wantDLWith time.Duration
+		wantLog    string
 	}{
 		{
 			name:      "once",
 			lines:     []string{onceLine},
 			answer:    "once",
 			wantReply: `{"id":"a1","answer":"once"}` + "\n",
+			wantLog:   `"msg":"answering prompt"`,
 		},
 		{
 			name:      "always with touch",
@@ -124,6 +129,7 @@ func TestPromptClient_Handle(t *testing.T) {
 			answer:    "always",
 			wantReply: `{"id":"a1","answer":"always"}` + "\n",
 			wantTouch: []string{"touch-check"},
+			wantShows: []showCall{{title: "Touch your YubiKey", body: "to allow example.com:443 always", critical: true}},
 		},
 		{
 			name:      "always without touch",
@@ -132,7 +138,10 @@ func TestPromptClient_Handle(t *testing.T) {
 			touchErr:  errTouch,
 			wantReply: `{"id":"a1","answer":"once"}` + "\n",
 			wantTouch: []string{"touch-check"},
-			wantShows: []showCall{{title: "Touch not confirmed", body: "example.com:443 allowed once"}},
+			wantShows: []showCall{
+				{title: "Touch your YubiKey", body: "to allow example.com:443 always", critical: true},
+				{title: "Touch not confirmed", body: "example.com:443 allowed once"},
+			},
 		},
 		{
 			name:      "deny",
@@ -140,7 +149,7 @@ func TestPromptClient_Handle(t *testing.T) {
 			answer:    "deny",
 			wantReply: `{"id":"a1","answer":"deny"}` + "\n",
 		},
-		{name: "dismissed", lines: []string{onceLine}, answer: ""},
+		{name: "dismissed", lines: []string{onceLine}, answer: "", wantLog: `"msg":"prompt unanswered"`},
 		{name: "unknown output", lines: []string{onceLine}, answer: "maybe"},
 		{name: "asker error", lines: []string{onceLine}, askErr: errAsk},
 		{
@@ -183,12 +192,15 @@ func TestPromptClient_Handle(t *testing.T) {
 				errs:     map[string]error{"example.com": tt.askErr},
 				blockCtx: tt.blockCtx,
 			}
-			touch := &fakeTouch{err: tt.touchErr}
+			touch := &fakeTouch{err: tt.touchErr, asker: asker}
 			timeout := time.Second
 			if tt.timeout != 0 {
 				timeout = tt.timeout
 			}
-			s := startSession(t, newClient(asker, touch, timeout))
+			logs := &syncBuffer{}
+			client := newClient(asker, touch, timeout)
+			client.Logger = slog.New(slog.NewJSONHandler(logs, nil))
+			s := startSession(t, client)
 
 			// when
 			for _, line := range tt.lines {
@@ -205,6 +217,12 @@ func TestPromptClient_Handle(t *testing.T) {
 			for _, hasDeadline := range touch.deadlineCalls() {
 				require.True(t, hasDeadline)
 			}
+
+			for _, shown := range touch.showsAtGet() {
+				require.Equal(t, 1, shown, "touch hint must show before the touch")
+			}
+
+			require.Contains(t, logs.String(), tt.wantLog)
 			require.Equal(t, tt.wantShows, asker.showCalls())
 
 			if tt.wantNoAsk {
@@ -303,5 +321,138 @@ func TestPromptClient_Handle(t *testing.T) {
 		case <-time.After(replyWait):
 			require.FailNow(t, "Handle did not return")
 		}
+	})
+}
+
+type dialStep struct {
+	conn net.Conn
+	err  error
+}
+
+type fakeDialer struct {
+	mu    sync.Mutex
+	steps []dialStep
+	count int
+}
+
+func (d *fakeDialer) Dial(_ context.Context, _, _ string) (net.Conn, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.count++
+	if len(d.steps) == 0 {
+		return nil, errDial
+	}
+
+	step := d.steps[0]
+	d.steps = d.steps[1:]
+	return step.conn, step.err
+}
+
+func (d *fakeDialer) calls() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	return d.count
+}
+
+func startRun(t *testing.T, dialer *fakeDialer, asker *fakeAsker) (context.CancelFunc, chan error, *syncBuffer) {
+	t.Helper()
+
+	logs := &syncBuffer{}
+	client := newClient(asker, &fakeTouch{}, time.Second)
+	client.Logger = slog.New(slog.NewJSONHandler(logs, nil))
+	client.Dial = dialer.Dial
+	client.Retry = 5 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- client.Run(ctx, "prompt.sock") }()
+
+	t.Cleanup(cancel)
+	return cancel, done, logs
+}
+
+func waitDone(t *testing.T, done chan error) {
+	t.Helper()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(replyWait):
+		require.FailNow(t, "Run did not return")
+	}
+}
+
+func TestPromptClient_Run(t *testing.T) {
+	t.Run("happy path - repeated failures logged once", func(t *testing.T) {
+		// given
+		dialer := &fakeDialer{}
+		cancel, done, logs := startRun(t, dialer, &fakeAsker{})
+
+		// when
+		require.Eventually(t, func() bool { return dialer.calls() >= 5 }, replyWait, time.Millisecond)
+		cancel()
+
+		// then
+		waitDone(t, done)
+		require.Equal(t, 1, strings.Count(logs.String(), `"msg":"connecting to prompt socket"`))
+	})
+
+	t.Run("happy path - failure logged again after recovery", func(t *testing.T) {
+		// given
+		ours, theirs := net.Pipe()
+		require.NoError(t, ours.Close())
+		dialer := &fakeDialer{steps: []dialStep{{err: errDial}, {err: errDial}, {conn: theirs}}}
+		cancel, done, logs := startRun(t, dialer, &fakeAsker{})
+
+		// when
+		require.Eventually(t, func() bool { return dialer.calls() >= 6 }, replyWait, time.Millisecond)
+		cancel()
+
+		// then
+		waitDone(t, done)
+		require.Equal(t, 2, strings.Count(logs.String(), `"msg":"connecting to prompt socket"`))
+		require.Equal(t, 1, strings.Count(logs.String(), `"msg":"connected to prompt socket"`))
+		require.Equal(t, 1, strings.Count(logs.String(), `"msg":"prompt socket disconnected"`))
+	})
+
+	t.Run("happy path - reconnects after disconnect", func(t *testing.T) {
+		// given
+		firstOurs, firstTheirs := net.Pipe()
+		require.NoError(t, firstOurs.Close())
+		ours, theirs := net.Pipe()
+		t.Cleanup(func() { _ = ours.Close() })
+		dialer := &fakeDialer{steps: []dialStep{{conn: firstTheirs}, {conn: theirs}}}
+		asker := &fakeAsker{answers: map[string]string{"example.com": "once"}}
+		cancel, done, _ := startRun(t, dialer, asker)
+
+		// when
+		_, err := io.WriteString(ours, onceLine+"\n")
+		require.NoError(t, err)
+		line, err := bufio.NewReader(ours).ReadString('\n')
+		require.NoError(t, err)
+		cancel()
+
+		// then
+		require.JSONEq(t, `{"id":"a1","answer":"once"}`, line)
+		waitDone(t, done)
+	})
+
+	t.Run("happy path - returns when cancelled while connected", func(t *testing.T) {
+		// given
+		ours, theirs := net.Pipe()
+		t.Cleanup(func() { _ = ours.Close() })
+		dialer := &fakeDialer{steps: []dialStep{{conn: theirs}}}
+		cancel, done, logs := startRun(t, dialer, &fakeAsker{})
+		require.Eventually(t, func() bool {
+			return strings.Contains(logs.String(), `"msg":"connected to prompt socket"`)
+		}, replyWait, time.Millisecond)
+
+		// when
+		cancel()
+
+		// then
+		waitDone(t, done)
 	})
 }
