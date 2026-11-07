@@ -1,0 +1,3 @@
+version: 1
+hosts:
+  - host: api.github.com

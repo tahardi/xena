@@ -983,6 +983,53 @@ func TestServer_ServeHTTP(t *testing.T) {
 		require.Empty(t, f.prompter.Calls())
 	})
 
+	t.Run("happy path - deny prompter without overlay", func(t *testing.T) {
+		// given
+		f := newProxyFixture(t, 0)
+		f.resolver.answers["unlisted.test"] = addrs("192.0.2.10")
+
+		path := filepath.Join(t.TempDir(), "allowlist.yaml")
+		require.NoError(t, os.WriteFile(path, []byte(baseAllowlist), 0o600))
+
+		base, err := allowlist.Load(path)
+		require.NoError(t, err)
+
+		s := proxy.NewServer(
+			netip.MustParseAddr("127.0.0.1"),
+			base,
+			"",
+			f.resolver,
+			f.dialer,
+			proxy.DenyPrompter{},
+			f.log,
+			slog.New(slog.DiscardHandler),
+		)
+
+		ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		f.addr = ln.Addr().String()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() { done <- s.Serve(ctx, ln) }()
+		t.Cleanup(func() {
+			cancel()
+			require.NoError(t, <-done)
+		})
+
+		// when
+		status, _ := f.connect(t, "unlisted.test:443", nil)
+
+		// then
+		require.Equal(t, http.StatusForbidden, status)
+		require.Equal(t, logs.DecisionDeny, f.entry(t).Decision)
+		require.Empty(t, f.dialer.Calls())
+
+		state, err := os.ReadDir(f.stateDir)
+		require.NoError(t, err)
+		require.Empty(t, state)
+	})
+
 	t.Run("happy path - shutdown", func(t *testing.T) {
 		// given
 		path := filepath.Join(t.TempDir(), "allowlist.yaml")
