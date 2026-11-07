@@ -1,0 +1,7 @@
+<network>
+  <name>xena</name>
+  <forward mode='open'/>
+  <bridge name='xena0' stp='on' delay='0'/>
+  <dns enable='no'/>
+  <ip address='192.168.150.1' prefix='24'/>
+</network>

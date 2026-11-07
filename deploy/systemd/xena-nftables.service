@@ -8,6 +8,7 @@ ConditionPathExists=/etc/nftables.d/xena.nft
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/sbin/nft -f /etc/nftables.d/xena.nft
+ExecStartPost=/usr/local/bin/xena firewall reapply
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
