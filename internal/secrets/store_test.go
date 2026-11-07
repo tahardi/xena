@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"testing/iotest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -210,6 +211,28 @@ func TestStore_Get(t *testing.T) {
 		// then
 		require.Error(t, err)
 		require.NotErrorIs(t, err, secrets.ErrNotFound)
+	})
+
+	t.Run("error - timeout stops child processes", func(t *testing.T) {
+		// given
+		store := newStore(t)
+		require.NoError(t, store.Put("a", strings.NewReader("made-up")))
+
+		script := filepath.Join(t.TempDir(), "age")
+		require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nsleep 30 &\nwait\n"), 0o700))
+		store.Age = script
+		store.KillGroup = true
+
+		ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+		defer cancel()
+		start := time.Now()
+
+		// when
+		_, err := store.Get(ctx, "a")
+
+		// then
+		require.Error(t, err)
+		require.Less(t, time.Since(start), 5*time.Second)
 	})
 }
 
