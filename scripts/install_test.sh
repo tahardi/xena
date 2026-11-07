@@ -36,10 +36,22 @@ write_fakes() {
 EOF
 
 	write_fake virsh <<'EOF'
-if [[ -z "${FAKE_VM_STATE:-}" ]]; then
-	exit 1
-fi
-echo "$FAKE_VM_STATE"
+for sub in ${FAKE_VIRSH_FAIL:-}; do
+	if [[ " $* " == *" $sub "* ]]; then
+		exit 1
+	fi
+done
+case " $* " in
+*" domstate "*)
+	if [[ -z "${FAKE_VM_STATE:-}" ]]; then
+		exit 1
+	fi
+	echo "$FAKE_VM_STATE"
+	;;
+*" net-list "*)
+	printf '%s\n' "${FAKE_NETS:-}"
+	;;
+esac
 EOF
 
 	write_fake go <<'EOF'
@@ -110,6 +122,7 @@ setup() {
 	commit_file deploy/polkit/50-xena.rules "polkit.addRule(function () {});"
 	commit_file deploy/sysusers/xena.conf "u xena-proxy -"
 	commit_file deploy/libvirt/hooks/qemu "#!/bin/sh"
+	commit_file deploy/libvirt/xena-net.xml "<network><name>xena</name></network>"
 	commit_file deploy/apparmor/usr.local.bin.xena-tokend "profile xena-tokend {}"
 	commit_file deploy/apparmor/usr.local.bin.xena-vault "profile xena-vault {}"
 	commit_file deploy/journald/xena.conf $'[Journal]\nMaxRetentionSec=90day'
@@ -324,6 +337,50 @@ test_install_loads_apparmor() {
 		load_line=$(grep -nxF "apparmor_parser -r $profile" "$FAKE_LOG" | cut -d: -f1)
 		[[ $load_line -lt $systemctl_line ]] || fail "$name loaded after the first systemctl call"
 	done
+}
+
+test_install_defines_network() {
+	local xml="$root/usr/local/share/xena/libvirt/xena-net.xml" define_line restart_line
+
+	run_install v0.1.0 >/dev/null
+
+	assert_file "$xml"
+	assert_mode 644 "$xml"
+	assert_log_match '^virsh -c qemu:///system net-define .*/xena-net\.xml$'
+	assert_log "virsh -c qemu:///system net-autostart xena"
+	assert_log "virsh -c qemu:///system net-start xena"
+	define_line=$(grep -n '^virsh -c qemu:///system net-define ' "$FAKE_LOG" | head -1 | cut -d: -f1)
+	restart_line=$(grep -nxF "systemctl restart xena-nftables.service xena-proxy.service" "$FAKE_LOG" | cut -d: -f1)
+	[[ $define_line -gt $restart_line ]] || fail "network defined before the nftables table was loaded"
+}
+
+test_install_starts_network_once() {
+	FAKE_NETS=xena run_install v0.1.0 >/dev/null
+
+	assert_log_match '^virsh -c qemu:///system net-define '
+	assert_log "virsh -c qemu:///system net-autostart xena"
+	assert_no_log_match '^virsh .*net-start'
+}
+
+test_install_skips_missing_network() {
+	git -C "$clone" rm -q deploy/libvirt/xena-net.xml
+	git -C "$clone" commit -q -m drop
+	git -C "$clone" push -q origin main
+	signed_tag "$work/key" v0.2.0
+
+	run_install v0.2.0 >/dev/null
+
+	assert_absent "$root/usr/local/share/xena/libvirt"
+	assert_no_log_match '^virsh'
+}
+
+test_install_stops_when_network_define_fails() {
+	if FAKE_VIRSH_FAIL=net-define run_install v0.1.0 >/dev/null 2>&1; then
+		fail "install succeeded, want failure"
+	fi
+
+	assert_no_log_match '^virsh .*net-autostart'
+	assert_no_log_match '^virsh .*net-start'
 }
 
 test_install_builds_from_tag() {
@@ -587,6 +644,54 @@ test_uninstall_stops_running_vm() {
 	destroy_line=$(grep -n '^nft destroy' "$FAKE_LOG" | cut -d: -f1)
 	[[ $stop_line -lt $destroy_line ]] ||
 		fail "vm stopped after the nftables table was deleted"
+}
+
+test_uninstall_removes_network() {
+	run_install v0.1.0 >/dev/null
+	: >"$FAKE_LOG"
+	local stop_line destroy_line
+
+	FAKE_NETS=xena FAKE_VM_STATE=running run_uninstall >/dev/null
+
+	assert_log "virsh -c qemu:///system net-destroy xena"
+	assert_log "virsh -c qemu:///system net-undefine xena"
+	stop_line=$(grep -n '^xena vm stop' "$FAKE_LOG" | cut -d: -f1)
+	destroy_line=$(grep -n '^virsh -c qemu:///system net-destroy xena' "$FAKE_LOG" | cut -d: -f1)
+	[[ $destroy_line -gt $stop_line ]] || fail "network destroyed before the vm stopped"
+	assert_absent "$root/usr/local/share/xena"
+}
+
+test_uninstall_skips_missing_network() {
+	run_install v0.1.0 >/dev/null
+	local out
+
+	out=$(run_uninstall 2>&1)
+
+	[[ "$out" == *"uninstalled xena" ]] || fail "output '$out' does not end with 'uninstalled xena'"
+	[[ "$out" != *"warning"* ]] || fail "output '$out' has warnings"
+	assert_no_log_match '^virsh .*net-destroy'
+	assert_no_log_match '^virsh .*net-undefine'
+}
+
+test_uninstall_warns_when_network_undefine_fails() {
+	run_install v0.1.0 >/dev/null
+	local out err="$work/err"
+
+	out=$(FAKE_NETS=xena FAKE_VIRSH_FAIL=net-undefine run_uninstall 2>"$err")
+
+	[[ "$out" == *"uninstalled xena with 1 warnings"* ]] || fail "stdout '$out' does not count 1 warning"
+	grep -qF "warning: removing libvirt network xena failed" "$err" || fail "missing network warning"
+}
+
+test_uninstall_undefines_stopped_network() {
+	run_install v0.1.0 >/dev/null
+	local out
+
+	out=$(FAKE_NETS=xena FAKE_VIRSH_FAIL=net-destroy run_uninstall 2>&1)
+
+	[[ "$out" == *"uninstalled xena" ]] || fail "output '$out' does not end with 'uninstalled xena'"
+	[[ "$out" != *"warning"* ]] || fail "output '$out' has warnings"
+	assert_log "virsh -c qemu:///system net-undefine xena"
 }
 
 test_uninstall_refuses_when_vm_stop_fails() {
@@ -992,6 +1097,10 @@ tests=(
 	test_install_loads_apparmor
 	test_install_skips_missing_apparmor
 	test_install_stops_when_apparmor_fails
+	test_install_defines_network
+	test_install_starts_network_once
+	test_install_skips_missing_network
+	test_install_stops_when_network_define_fails
 	test_install_builds_from_tag
 	test_install_refuses_unsigned_tag
 	test_install_refuses_foreign_signer
@@ -1019,6 +1128,10 @@ tests=(
 	test_services_skip_without_vm_config
 	test_uninstall_keeps_state
 	test_uninstall_stops_running_vm
+	test_uninstall_removes_network
+	test_uninstall_skips_missing_network
+	test_uninstall_warns_when_network_undefine_fails
+	test_uninstall_undefines_stopped_network
 	test_uninstall_refuses_when_vm_stop_fails
 	test_uninstall_skips_stopped_vm
 	test_uninstall_warns_on_failures

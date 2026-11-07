@@ -195,6 +195,11 @@ func TestRuleset(t *testing.T) {
 			path: "../../deploy/systemd/xena-nftables.service",
 			want: []string{"ExecStartPost=/usr/local/bin/xena firewall reapply\n"},
 		},
+		{
+			name: "happy path - table loads before libvirt",
+			path: "../../deploy/systemd/xena-nftables.service",
+			want: []string{"Before=libvirtd.service xena-proxy.service\n"},
+		},
 	}
 	for _, tt := range units {
 		t.Run(tt.name, func(t *testing.T) {

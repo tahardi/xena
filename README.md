@@ -21,6 +21,8 @@ Desktop programs reach the VM through `internal/vmexec`, which runs `ssh` with t
 
 `xena-agent` (`cmd/xena-agent`) runs inside the VM. The VM's SSH server starts it for every login with the automation key, so that key can only run the commands the agent allows. It never runs on the desktop.
 
+The VM attaches to the `xena` libvirt network on the `xena0` bridge. `make install` defines it from `deploy/libvirt/xena-net.xml`, marks it to start at boot, and starts it; `make uninstall` removes it. An edited `deploy/libvirt/xena-net.xml` reaches the running network only after you stop the VM and run `sudo virsh -c qemu:///system net-destroy xena` then `sudo virsh -c qemu:///system net-start xena`.
+
 ## Desktop hardening
 
 Review `deploy/desktop/harden.sh`, then run `sudo deploy/desktop/harden.sh` for the system steps, `deploy/desktop/harden.sh --user` for gh, Claude settings, and the Claude version, and `deploy/desktop/harden.sh --check` to see each item's state. Reboot after the first system run.
