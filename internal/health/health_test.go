@@ -226,6 +226,26 @@ func TestRun(t *testing.T) {
 			want:      map[string]health.Result{"tokens": {Name: "tokens", Detail: "1 due"}},
 		},
 		{
+			name: "error - token due on the last warning day",
+			inventory: strings.Replace(
+				okInventory,
+				"can_spend: false",
+				"expires: 2026-11-08\n    can_spend: false",
+				1,
+			),
+			want: map[string]health.Result{"tokens": {Name: "tokens", Detail: "1 due"}},
+		},
+		{
+			name: "happy path - token due the day after the warning window",
+			inventory: strings.Replace(
+				okInventory,
+				"can_spend: false",
+				"expires: 2026-11-09\n    can_spend: false",
+				1,
+			),
+			want: map[string]health.Result{"tokens": {Name: "tokens", OK: true, Detail: "0 due"}},
+		},
+		{
 			name:      "error - unreadable inventory",
 			inventory: "version: 1\nentries: [\n",
 			want:      map[string]health.Result{"tokens": {Name: "tokens", Detail: "unreadable inventory"}},

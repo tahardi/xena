@@ -156,8 +156,11 @@ func checkTokens(now time.Time) (string, error) {
 		return "unreadable inventory", ErrNotOK
 	}
 
+	y, m, d := now.Local().Date()
+	today := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+
 	due := 0
-	for _, f := range inventory.Check(inv, nil, now) {
+	for _, f := range inventory.Check(inv, nil, today) {
 		if f.Kind == inventory.KindOverdue || f.Kind == inventory.KindNearExpiry {
 			due++
 		}
