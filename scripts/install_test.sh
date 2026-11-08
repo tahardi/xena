@@ -374,6 +374,20 @@ test_install_skips_missing_network() {
 	assert_no_log_match '^virsh'
 }
 
+test_install_removes_dropped_network() {
+	run_install v0.1.0 >/dev/null
+	git -C "$clone" rm -q deploy/libvirt/xena-net.xml
+	git -C "$clone" commit -q -m drop
+	git -C "$clone" push -q origin main
+	signed_tag "$work/key" v0.2.0
+	: >"$FAKE_LOG"
+
+	run_install v0.2.0 >/dev/null
+
+	assert_absent "$root/usr/local/share/xena/libvirt"
+	assert_no_log_match '^virsh .*net-define'
+}
+
 test_install_stops_when_network_define_fails() {
 	if FAKE_VIRSH_FAIL=net-define run_install v0.1.0 >/dev/null 2>&1; then
 		fail "install succeeded, want failure"
@@ -1100,6 +1114,7 @@ tests=(
 	test_install_defines_network
 	test_install_starts_network_once
 	test_install_skips_missing_network
+	test_install_removes_dropped_network
 	test_install_stops_when_network_define_fails
 	test_install_builds_from_tag
 	test_install_refuses_unsigned_tag

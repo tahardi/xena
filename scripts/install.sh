@@ -192,6 +192,11 @@ install_files() {
 	install_file 0644 "$src/deploy/sysusers/xena.conf" /etc/sysusers.d/xena.conf
 	install_file 0644 "$src/deploy/journald/xena.conf" /etc/systemd/journald.conf.d/xena.conf
 	install_file 0644 "$src/deploy/libvirt/xena-net.xml" /usr/local/share/xena/libvirt/xena-net.xml
+
+	if [[ ! -f "$src/deploy/libvirt/xena-net.xml" ]]; then
+		as_root rm -rf "$destdir/usr/local/share/xena/libvirt"
+	fi
+
 	install_hook "$src/deploy/libvirt/hooks/qemu"
 	remove_stale_units "$src/deploy/systemd"
 
