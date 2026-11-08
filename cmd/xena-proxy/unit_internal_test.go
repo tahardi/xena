@@ -37,7 +37,7 @@ func TestProxyUnit(t *testing.T) {
 		"AmbientCapabilities=",
 		"SystemCallFilter=@chown",
 		"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6",
-		"IPAddressAllow=192.168.150.10/32 127.0.0.53/32",
+		"IPAddressAllow=192.168.150.10/32 127.0.0.1/32 127.0.0.53/32",
 	}
 	wantDenied := []string{
 		"0.0.0.0/8",

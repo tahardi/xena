@@ -172,6 +172,30 @@ remove_stale_units() {
 	done
 }
 
+proxy_port() {
+	local vm="$destdir/usr/local/share/xena/config/vm.yaml"
+
+	if [[ -f "$vm" ]]; then
+		awk '$1 == "proxy_port:" && $2 ~ /^[0-9]+$/ { print $2; exit }' "$vm"
+	fi
+}
+
+fill_proxy_port() {
+	local file=$1 port
+
+	if ! grep -qF '@PROXY_PORT@' "$file"; then
+		return
+	fi
+
+	port=$(proxy_port)
+	if [[ -z "$port" ]]; then
+		warn "proxy_port missing from vm.yaml, $(basename "$file") left without it"
+		return
+	fi
+
+	sed -i "s/@PROXY_PORT@/$port/g" "$file"
+}
+
 install_files() {
 	local src=$build_dir file name
 
@@ -206,6 +230,7 @@ install_files() {
 		fi
 
 		name=$(basename "$file")
+		fill_proxy_port "$file"
 
 		if is_system_unit "$name"; then
 			install_file 0644 "$file" "/etc/systemd/system/$name"
