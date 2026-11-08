@@ -217,10 +217,6 @@ install_files() {
 	install_file 0644 "$src/deploy/journald/xena.conf" /etc/systemd/journald.conf.d/xena.conf
 	install_file 0644 "$src/deploy/libvirt/xena-net.xml" /usr/local/share/xena/libvirt/xena-net.xml
 
-	if [[ ! -f "$src/deploy/libvirt/xena-net.xml" ]]; then
-		as_root rm -rf "$destdir/usr/local/share/xena/libvirt"
-	fi
-
 	install_hook "$src/deploy/libvirt/hooks/qemu"
 	remove_stale_units "$src/deploy/systemd"
 
@@ -302,6 +298,21 @@ enable_units() {
 	fi
 }
 
+remove_dropped_network() {
+	local dir="$destdir/usr/local/share/xena/libvirt"
+
+	if [[ -f "$build_dir/deploy/libvirt/xena-net.xml" || ! -d "$dir" ]]; then
+		return
+	fi
+
+	as_root virsh -c qemu:///system net-destroy xena >/dev/null 2>&1 || true
+
+	as_root virsh -c qemu:///system net-undefine xena ||
+		warn "removing libvirt network xena failed"
+
+	as_root rm -rf "$dir"
+}
+
 define_network() {
 	local xml="$destdir/usr/local/share/xena/libvirt/xena-net.xml"
 
@@ -338,6 +349,7 @@ install_tag() {
 	create_dirs
 	check_not_cut
 	enable_units
+	remove_dropped_network
 	define_network
 
 	echo "installed xena $tag"

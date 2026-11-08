@@ -385,7 +385,24 @@ test_install_removes_dropped_network() {
 	run_install v0.2.0 >/dev/null
 
 	assert_absent "$root/usr/local/share/xena/libvirt"
+	assert_log "virsh -c qemu:///system net-destroy xena"
+	assert_log "virsh -c qemu:///system net-undefine xena"
 	assert_no_log_match '^virsh .*net-define'
+}
+
+test_install_warns_when_dropped_network_undefine_fails() {
+	local err="$work/err"
+
+	run_install v0.1.0 >/dev/null
+	git -C "$clone" rm -q deploy/libvirt/xena-net.xml
+	git -C "$clone" commit -q -m drop
+	git -C "$clone" push -q origin main
+	signed_tag "$work/key" v0.2.0
+
+	FAKE_VIRSH_FAIL="net-destroy net-undefine" run_install v0.2.0 >/dev/null 2>"$err" || fail "install failed"
+
+	grep -qF "warning: removing libvirt network xena failed" "$err" || fail "missing network warning"
+	assert_absent "$root/usr/local/share/xena/libvirt"
 }
 
 test_install_stops_when_network_define_fails() {
@@ -1143,6 +1160,7 @@ tests=(
 	test_install_starts_network_once
 	test_install_skips_missing_network
 	test_install_removes_dropped_network
+	test_install_warns_when_dropped_network_undefine_fails
 	test_install_stops_when_network_define_fails
 	test_install_builds_from_tag
 	test_install_refuses_unsigned_tag
