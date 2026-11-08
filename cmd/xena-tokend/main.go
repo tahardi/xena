@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/tahardi/xena/internal/config"
 	"github.com/tahardi/xena/internal/github"
+	"github.com/tahardi/xena/internal/notify"
 	"github.com/tahardi/xena/internal/secrets"
 	"github.com/tahardi/xena/internal/tokend"
 	"github.com/tahardi/xena/internal/vmexec"
@@ -118,8 +118,8 @@ func useTerminal(path string) {
 func unlock(ctx context.Context, cfg github.AppConfig, out io.Writer, logger *slog.Logger) (github.App, error) {
 	_, _ = fmt.Fprintln(out, "touch your YubiKey to unlock the GitHub token service")
 
-	notify := exec.CommandContext(ctx, "notify-send", "Xena", "Touch your YubiKey to unlock the GitHub token service")
-	if err := notify.Run(); err != nil {
+	desktop := notify.Desktop{Run: notify.ExecRun}
+	if err := desktop.Show(ctx, "Touch your YubiKey", "to unlock the GitHub token service", true); err != nil {
 		logger.Warn("sending desktop notification", "error", err)
 	}
 

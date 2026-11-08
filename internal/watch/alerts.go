@@ -18,7 +18,7 @@ import (
 
 const (
 	ackVersion   = 1
-	maxAlertLine = 1 << 20
+	MaxAlertLine = 1 << 20
 )
 
 type Ack struct {
@@ -27,7 +27,7 @@ type Ack struct {
 }
 
 func ReadAlerts(dir string, since time.Time) ([]logs.Alert, error) {
-	paths, err := filepath.Glob(filepath.Join(dir, "alerts-*.jsonl"))
+	paths, err := AlertFiles(dir)
 	if err != nil {
 		return nil, fmt.Errorf("reading alerts: %w", err)
 	}
@@ -35,8 +35,7 @@ func ReadAlerts(dir string, since time.Time) ([]logs.Alert, error) {
 	first := since.UTC().Format(time.DateOnly)
 	out := []logs.Alert{}
 	for _, path := range paths {
-		day := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "alerts-"), ".jsonl")
-		if _, err := time.Parse(time.DateOnly, day); err != nil || day < first {
+		if alertDay(path) < first {
 			continue
 		}
 
@@ -48,6 +47,22 @@ func ReadAlerts(dir string, since time.Time) ([]logs.Alert, error) {
 	}
 
 	slices.SortStableFunc(out, func(a, b logs.Alert) int { return a.Time.Compare(b.Time) })
+
+	return out, nil
+}
+
+func AlertFiles(dir string) ([]string, error) {
+	paths, err := filepath.Glob(filepath.Join(dir, "alerts-*.jsonl"))
+	if err != nil {
+		return nil, fmt.Errorf("listing alert files: %w", err)
+	}
+
+	out := []string{}
+	for _, path := range paths {
+		if _, err := time.Parse(time.DateOnly, alertDay(path)); err == nil {
+			out = append(out, path)
+		}
+	}
 
 	return out, nil
 }
@@ -76,6 +91,10 @@ func Unacknowledged(alerts []logs.Alert, ackedThrough time.Time) []logs.Alert {
 	return out
 }
 
+func alertDay(path string) string {
+	return strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "alerts-"), ".jsonl")
+}
+
 func readAlertFile(path string) ([]logs.Alert, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -85,7 +104,7 @@ func readAlertFile(path string) ([]logs.Alert, error) {
 
 	var out []logs.Alert
 	scanner := bufio.NewScanner(f)
-	scanner.Buffer(nil, maxAlertLine)
+	scanner.Buffer(nil, MaxAlertLine)
 	for scanner.Scan() {
 		var a logs.Alert
 		if json.Unmarshal(scanner.Bytes(), &a) == nil {
