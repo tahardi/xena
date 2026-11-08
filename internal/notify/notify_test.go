@@ -37,39 +37,38 @@ func TestDesktop_Ask(t *testing.T) {
 		runErr     error
 		want       string
 		wantArgs   []string
-		wantLast   string
+		wantText   string
 		wantErr    error
 		wantErrMsg string
 		wantNoRun  bool
 	}{
 		{
-			name:   "once",
-			host:   "example.com",
-			port:   443,
-			output: "once\n",
-			want:   "once",
+			name: "once",
+			host: "example.com",
+			port: 443,
+			want: "once",
 			wantArgs: []string{
-				"--app-name=Xena",
-				"--urgency=critical",
-				"--action=once=Allow once",
-				"--action=always=Allow always",
-				"--action=deny=Deny",
-				"--wait",
-				"Xena: VM wants a new host",
-				"example.com:443",
+				"--question",
+				"--title=Xena",
+				"--text=VM wants a new host:\nexample.com:443",
+				"--no-markup",
+				"--ok-label=Allow once",
+				"--cancel-label=Deny",
+				"--extra-button=Allow always",
 			},
 		},
-		{name: "always", host: "example.com", port: 443, output: "always\n", want: "always"},
-		{name: "deny", host: "example.com", port: 8443, output: "deny", want: "deny", wantLast: "example.com:8443"},
-		{name: "dismissed", host: "example.com", port: 443, output: "", want: ""},
-		{name: "run error", host: "example.com", port: 443, runErr: errExitStatus, wantErrMsg: "running notify-send"},
+		{name: "always", host: "example.com", port: 443, output: "Allow always\n", runErr: exitCodeError(1), want: "always"},
+		{name: "deny", host: "example.com", port: 8443, runErr: exitCodeError(1), want: "deny", wantText: "example.com:8443"},
+		{name: "unknown output", host: "example.com", port: 443, output: "x\n", runErr: exitCodeError(1), want: "deny"},
+		{name: "zenity failure", host: "example.com", port: 443, runErr: exitCodeError(255), wantErrMsg: "running zenity"},
+		{name: "run error", host: "example.com", port: 443, runErr: errExitStatus, wantErrMsg: "running zenity"},
 		{name: "invalid host", host: "exa mple.com", port: 443, wantErr: allowlist.ErrInvalidHost, wantNoRun: true},
 		{name: "markup host", host: "<b>x</b>.com", port: 443, wantErrMsg: "checking host", wantNoRun: true},
 		{name: "uppercase host", host: "Example.com", port: 443, wantErr: notify.ErrUnsafeHost, wantNoRun: true},
 		{name: "IP literal host", host: "192.0.2.10", port: 443, wantErr: allowlist.ErrIPLiteralHost, wantNoRun: true},
 		{name: "port zero", host: "example.com", port: 0, wantErr: notify.ErrUnsafeHost, wantNoRun: true},
-		{name: "port one", host: "example.com", port: 1, output: "once", want: "once", wantLast: "example.com:1"},
-		{name: "port max", host: "example.com", port: 65535, output: "once", want: "once", wantLast: "example.com:65535"},
+		{name: "port one", host: "example.com", port: 1, want: "once", wantText: "example.com:1"},
+		{name: "port max", host: "example.com", port: 65535, want: "once", wantText: "example.com:65535"},
 		{name: "trailing dot host", host: "example.com.", port: 443, wantErr: notify.ErrUnsafeHost, wantNoRun: true},
 		{name: "port too high", host: "example.com", port: 65536, wantErr: notify.ErrUnsafeHost, wantNoRun: true},
 	}
@@ -99,14 +98,14 @@ func TestDesktop_Ask(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Equal(t, tt.want, got)
-			require.Equal(t, "notify-send", fake.name)
+			require.Equal(t, "zenity", fake.name)
 
 			if tt.wantArgs != nil {
 				require.Equal(t, tt.wantArgs, fake.args)
 			}
 
-			if tt.wantLast != "" {
-				require.Equal(t, tt.wantLast, fake.args[len(fake.args)-1])
+			if tt.wantText != "" {
+				require.Contains(t, fake.args, "--text=VM wants a new host:\n"+tt.wantText)
 			}
 		})
 	}

@@ -13,10 +13,12 @@ import (
 )
 
 const (
-	appName    = "--app-name=Xena"
-	notifySend = "notify-send"
-	promptText = "Xena: VM wants a new host"
-	maxPort    = 65535
+	appName      = "--app-name=Xena"
+	notifySend   = "notify-send"
+	zenity       = "zenity"
+	alwaysLabel  = "Allow always"
+	maxPort      = 65535
+	zenityCancel = 1
 )
 
 var ErrUnsafeHost = errors.New("unsafe host")
@@ -36,21 +38,29 @@ func (d Desktop) Ask(ctx context.Context, host string, port int) (string, error)
 
 	out, err := d.Run(
 		ctx,
-		notifySend,
-		appName,
-		"--urgency=critical",
-		"--action=once=Allow once",
-		"--action=always=Allow always",
-		"--action=deny=Deny",
-		"--wait",
-		promptText,
-		hostPort(host, port),
+		zenity,
+		"--question",
+		"--title=Xena",
+		"--text=VM wants a new host:\n"+hostPort(host, port),
+		"--no-markup",
+		"--ok-label=Allow once",
+		"--cancel-label=Deny",
+		"--extra-button="+alwaysLabel,
 	)
-	if err != nil {
-		return "", fmt.Errorf("running notify-send: %w", err)
+	if err == nil {
+		return answerOnce, nil
 	}
 
-	return strings.TrimSpace(string(out)), nil
+	var exit interface{ ExitCode() int }
+	if !errors.As(err, &exit) || exit.ExitCode() != zenityCancel {
+		return "", fmt.Errorf("running zenity: %w", err)
+	}
+
+	if strings.TrimSpace(string(out)) == alwaysLabel {
+		return answerAlways, nil
+	}
+
+	return answerDeny, nil
 }
 
 func (d Desktop) Show(ctx context.Context, title, body string, critical bool) error {

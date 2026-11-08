@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -155,4 +156,14 @@ func (b *syncBuffer) String() string {
 	defer b.mu.Unlock()
 
 	return b.buf.String()
+}
+
+type exitCodeError int
+
+func (e exitCodeError) Error() string {
+	return "exit status " + strconv.Itoa(int(e))
+}
+
+func (e exitCodeError) ExitCode() int {
+	return int(e)
 }
