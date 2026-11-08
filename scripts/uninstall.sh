@@ -54,6 +54,17 @@ stop_vm() {
 	fi
 }
 
+remove_network() {
+	if ! as_root virsh -c qemu:///system net-list --all --name | grep -xF xena >/dev/null; then
+		return 0
+	fi
+
+	as_root virsh -c qemu:///system net-destroy xena >/dev/null 2>&1 || true
+
+	as_root virsh -c qemu:///system net-undefine xena ||
+		warn "removing libvirt network xena failed"
+}
+
 disable_units() {
 	local unit
 
@@ -126,6 +137,7 @@ purge_state() {
 }
 
 stop_vm
+remove_network
 disable_units
 remove_files
 remove_apparmor

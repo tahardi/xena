@@ -27,6 +27,7 @@ var (
 const (
 	backupShow = "systemctl --user show xena-backup.service --property=ExecMainExitTimestamp --timestamp=unix --value"
 	virshState = "virsh -r --connect qemu:///system domstate xena-test"
+	virshNet   = "virsh -r --connect qemu:///system net-info xena"
 )
 
 const okInventory = `version: 1
@@ -84,6 +85,7 @@ func okOutputs(now time.Time) map[string]fakeOutput {
 	outputs := map[string]fakeOutput{
 		backupShow: {out: unixStamp(now.Add(-time.Hour))},
 		virshState: {out: "shut off\n\n"},
+		virshNet:   {out: "Name:           xena\nActive:         yes\nBridge:         xena0\n\n"},
 	}
 
 	for _, unit := range []string{"xena-proxy", "xena-watch", "xena-nftables"} {
@@ -199,6 +201,16 @@ func TestRun(t *testing.T) {
 			name:    "error - virsh fails",
 			outputs: map[string]fakeOutput{virshState: {err: errExit}},
 			want:    map[string]health.Result{"vm": {Name: "vm", Detail: "unknown"}},
+		},
+		{
+			name:    "error - inactive network",
+			outputs: map[string]fakeOutput{virshNet: {out: "Name:           xena\nActive:         no\n\n"}},
+			want:    map[string]health.Result{"network": {Name: "network", Detail: "inactive"}},
+		},
+		{
+			name:    "error - network not defined",
+			outputs: map[string]fakeOutput{virshNet: {err: errExit}},
+			want:    map[string]health.Result{"network": {Name: "network", Detail: "unknown"}},
 		},
 		{
 			name:    "error - stale backup",
@@ -356,6 +368,7 @@ func TestChecks(t *testing.T) {
 		"xena-proxy",
 		"xena-watch",
 		"nftables",
+		"network",
 		"xena-prompt",
 		"xena-tokend",
 		"xena-vault",

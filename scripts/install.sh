@@ -215,6 +215,8 @@ install_files() {
 	install_file 0644 "$src/deploy/polkit/50-xena.rules" /usr/share/polkit-1/rules.d/50-xena.rules
 	install_file 0644 "$src/deploy/sysusers/xena.conf" /etc/sysusers.d/xena.conf
 	install_file 0644 "$src/deploy/journald/xena.conf" /etc/systemd/journald.conf.d/xena.conf
+	install_file 0644 "$src/deploy/libvirt/xena-net.xml" /usr/local/share/xena/libvirt/xena-net.xml
+
 	install_hook "$src/deploy/libvirt/hooks/qemu"
 	remove_stale_units "$src/deploy/systemd"
 
@@ -296,6 +298,36 @@ enable_units() {
 	fi
 }
 
+remove_dropped_network() {
+	local dir="$destdir/usr/local/share/xena/libvirt"
+
+	if [[ -f "$build_dir/deploy/libvirt/xena-net.xml" || ! -d "$dir" ]]; then
+		return
+	fi
+
+	as_root virsh -c qemu:///system net-destroy xena >/dev/null 2>&1 || true
+
+	as_root virsh -c qemu:///system net-undefine xena ||
+		warn "removing libvirt network xena failed"
+
+	as_root rm -rf "$dir"
+}
+
+define_network() {
+	local xml="$destdir/usr/local/share/xena/libvirt/xena-net.xml"
+
+	if [[ ! -f "$xml" ]]; then
+		return
+	fi
+
+	as_root virsh -c qemu:///system net-define "$xml"
+	as_root virsh -c qemu:///system net-autostart xena
+
+	if ! as_root virsh -c qemu:///system net-list --name | grep -xF xena >/dev/null; then
+		as_root virsh -c qemu:///system net-start xena
+	fi
+}
+
 install_tag() {
 	local tag
 
@@ -317,6 +349,8 @@ install_tag() {
 	create_dirs
 	check_not_cut
 	enable_units
+	remove_dropped_network
+	define_network
 
 	echo "installed xena $tag"
 }

@@ -49,6 +49,7 @@ func Checks(run Command, vm vmexec.Runner, vmName string, now func() time.Time) 
 		serviceCheck("xena-proxy", run, "xena-proxy.service"),
 		serviceCheck("xena-watch", run, "xena-watch.service"),
 		serviceCheck("nftables", run, "xena-nftables.service"),
+		{Name: "network", Run: func(ctx context.Context) (string, error) { return checkNetwork(ctx, run) }},
 		serviceCheck("xena-prompt", run, "--user", "xena-prompt.service"),
 		serviceCheck("xena-tokend", run, "--user", "xena-tokend.service"),
 		serviceCheck("xena-vault", run, "--user", "xena-vault.service"),
@@ -169,6 +170,25 @@ func checkTokens(now time.Time) (string, error) {
 	}
 
 	return detail, nil
+}
+
+func checkNetwork(ctx context.Context, run Command) (string, error) {
+	out, _ := run(ctx, "virsh", "-r", "--connect", "qemu:///system", "net-info", "xena")
+
+	for line := range strings.Lines(string(out)) {
+		value, ok := strings.CutPrefix(line, "Active:")
+		if !ok {
+			continue
+		}
+
+		if strings.TrimSpace(value) == "yes" {
+			return "active", nil
+		}
+
+		return "inactive", ErrNotOK
+	}
+
+	return "unknown", ErrNotOK
 }
 
 func checkVM(ctx context.Context, run Command, vm vmexec.Runner, vmName string) (string, error) {
