@@ -82,7 +82,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		&net.Dialer{Timeout: dialTimeout},
 		prompter,
 		&logs.Writer{Dir: config.ProxyStateDir(), Name: "proxy", Now: time.Now},
-		logger,
+		logger.With("listener", "vm"),
 	)
 
 	if err := server.LoadOverlay(); err != nil {
@@ -97,7 +97,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		&net.Dialer{Timeout: dialTimeout},
 		proxy.DenyPrompter{},
 		&logs.Writer{Dir: config.ProxyStateDir(), Name: "proxy-tokend", Now: time.Now},
-		logger,
+		logger.With("listener", "tokend"),
 	)
 
 	promptLn, err := proxy.ListenPromptSocket(ctx, config.PromptSocket(), promptGroup)
