@@ -97,6 +97,26 @@ func TestUnlock(t *testing.T) {
 		require.FileExists(t, marker)
 	})
 
+	t.Run("error - touch notification is critical", func(t *testing.T) {
+		// given
+		binDir := t.TempDir()
+		argsFile := filepath.Join(binDir, "args")
+		script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\n", argsFile)
+		require.NoError(t, os.WriteFile(filepath.Join(binDir, "notify-send"), []byte(script), 0o700))
+		t.Setenv("PATH", binDir)
+
+		// when
+		_, err := unlock(context.Background(), github.AppConfig{}, io.Discard, slog.New(slog.DiscardHandler))
+
+		// then
+		require.Error(t, err)
+
+		args, err := os.ReadFile(argsFile)
+		require.NoError(t, err)
+		want := "--app-name=Xena\n--urgency=critical\nTouch your YubiKey\nto unlock the GitHub token service\n"
+		assert.Equal(t, want, string(args))
+	})
+
 	t.Run("error - logs when notify-send fails", func(t *testing.T) {
 		// given
 		t.Setenv("PATH", t.TempDir())

@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/tahardi/xena/internal/config"
 )
@@ -21,6 +23,8 @@ const (
 	suffix   = ".age"
 	dirMode  = 0o700
 	fileMode = 0o600
+
+	waitDelay = time.Second
 )
 
 var (
@@ -35,6 +39,7 @@ type Store struct {
 	RecipientsFile string
 	IdentityFile   string
 	Age            string
+	KillGroup      bool
 }
 
 func NewDefaultStore() (Store, error) {
@@ -78,6 +83,13 @@ func (s Store) Get(ctx context.Context, name string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, s.Age, "-d", "-i", s.IdentityFile, path)
 	cmd.Stdout = &out
 	cmd.Stderr = os.Stdout
+
+	if s.KillGroup {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+		cmd.WaitDelay = waitDelay
+	}
+
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("decrypting secret %s: %w", name, err)
 	}

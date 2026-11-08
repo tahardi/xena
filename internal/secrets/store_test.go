@@ -8,9 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"testing/iotest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -272,6 +275,38 @@ func TestStore_Get(t *testing.T) {
 		// then
 		require.Error(t, err)
 		require.NotErrorIs(t, err, secrets.ErrNotFound)
+	})
+
+	t.Run("error - timeout stops child processes", func(t *testing.T) {
+		// given
+		store := newStore(t)
+		require.NoError(t, store.Put("a", strings.NewReader("made-up")))
+
+		dir := t.TempDir()
+		pidFile := filepath.Join(dir, "child.pid")
+		script := filepath.Join(dir, "age")
+		body := "#!/bin/sh\nsleep 30 &\necho $! > " + pidFile + "\nwait\n"
+		require.NoError(t, os.WriteFile(script, []byte(body), 0o700))
+		store.Age = script
+		store.KillGroup = true
+
+		ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+		defer cancel()
+
+		// when
+		_, err := store.Get(ctx, "a")
+
+		// then
+		require.Error(t, err)
+
+		raw, err := os.ReadFile(pidFile)
+		require.NoError(t, err)
+		pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+		require.NoError(t, err)
+
+		require.Eventually(t, func() bool {
+			return errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
+		}, time.Second, 10*time.Millisecond)
 	})
 }
 

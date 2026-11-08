@@ -16,7 +16,7 @@ func TestTokendUnit(t *testing.T) {
 
 	wantLines := []string{
 		"ExecStart=/usr/local/bin/xena-tokend",
-		"Environment=PATH=%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin",
+		"Environment=PATH=/usr/local/bin:/usr/bin:/bin:%h/.cargo/bin",
 		"Environment=HTTPS_PROXY=http://127.0.0.1:3128",
 		"Restart=on-failure",
 		"UMask=0077",
