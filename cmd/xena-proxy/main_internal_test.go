@@ -23,16 +23,18 @@ prompt_timeout_seconds: 60
 hosts:
   - host: example.com
 `
+	validTokendAllowlist = "version: 1\nhosts:\n  - host: api.github.com\n"
 )
 
 func TestRun(t *testing.T) {
 	tests := []struct {
-		name       string
-		vm         string
-		allowlist  string
-		overlay    string
-		wantErr    error
-		wantErrMsg string
+		name            string
+		vm              string
+		allowlist       string
+		tokendAllowlist string
+		overlay         string
+		wantErr         error
+		wantErrMsg      string
 	}{
 		{
 			name:       "missing vm config",
@@ -90,11 +92,28 @@ hosts:
 			wantErr: allowlist.ErrSharedHostingWildcard,
 		},
 		{
-			name:       "bad overlay",
+			name:       "missing tokend allowlist",
 			vm:         validVM,
 			allowlist:  validAllowlist,
-			overlay:    "version: 1\nhosts: [",
-			wantErrMsg: "loading overlay",
+			wantErrMsg: "tokend-allowlist.yaml",
+		},
+		{
+			name:      "shared hosting wildcard in tokend allowlist",
+			vm:        validVM,
+			allowlist: validAllowlist,
+			tokendAllowlist: `version: 1
+hosts:
+  - host: "*.vercel.app"
+`,
+			wantErr: allowlist.ErrSharedHostingWildcard,
+		},
+		{
+			name:            "bad overlay",
+			vm:              validVM,
+			allowlist:       validAllowlist,
+			tokendAllowlist: validTokendAllowlist,
+			overlay:         "version: 1\nhosts: [",
+			wantErrMsg:      "loading overlay",
 		},
 	}
 	for _, tt := range tests {
@@ -107,9 +126,10 @@ hosts:
 			t.Setenv("XENA_PROMPT_SOCKET", filepath.Join(t.TempDir(), "prompt.sock"))
 
 			files := map[string]string{
-				filepath.Join(configDir, "vm.yaml"):        tt.vm,
-				filepath.Join(configDir, "allowlist.yaml"): tt.allowlist,
-				filepath.Join(stateDir, "overlay.yaml"):    tt.overlay,
+				filepath.Join(configDir, "vm.yaml"):               tt.vm,
+				filepath.Join(configDir, "allowlist.yaml"):        tt.allowlist,
+				filepath.Join(configDir, "tokend-allowlist.yaml"): tt.tokendAllowlist,
+				filepath.Join(stateDir, "overlay.yaml"):           tt.overlay,
 			}
 			for path, content := range files {
 				if content != "" {

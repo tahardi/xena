@@ -23,7 +23,8 @@ const (
 	promptGroup = "xena-prompt"
 	dialTimeout = 10 * time.Second
 	maxPort     = 65535
-	servers     = 2
+	servers     = 3
+	tokendAddr  = "127.0.0.1"
 )
 
 var errInvalidProxyPort = errors.New("invalid proxy port")
@@ -66,6 +67,11 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 
+	tokendList, err := allowlist.Load(filepath.Join(config.RepoConfigDir(), "tokend-allowlist.yaml"))
+	if err != nil {
+		return err
+	}
+
 	prompter := proxy.NewSocketPrompter(time.Duration(vm.PromptTimeoutSeconds)*time.Second, logger)
 
 	server := proxy.NewServer(
@@ -76,12 +82,23 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		&net.Dialer{Timeout: dialTimeout},
 		prompter,
 		&logs.Writer{Dir: config.ProxyStateDir(), Name: "proxy", Now: time.Now},
-		logger,
+		logger.With("listener", "vm"),
 	)
 
 	if err := server.LoadOverlay(); err != nil {
 		return err
 	}
+
+	tokendServer := proxy.NewServer(
+		netip.MustParseAddr(tokendAddr),
+		tokendList,
+		"",
+		net.DefaultResolver,
+		&net.Dialer{Timeout: dialTimeout},
+		proxy.DenyPrompter{},
+		&logs.Writer{Dir: config.ProxyStateDir(), Name: "proxy-tokend", Now: time.Now},
+		logger.With("listener", "tokend"),
+	)
 
 	promptLn, err := proxy.ListenPromptSocket(ctx, config.PromptSocket(), promptGroup)
 	if err != nil {
@@ -95,14 +112,23 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("listening on %s: %w", proxyAddr, err)
 	}
 
+	tokendProxyAddr := netip.AddrPortFrom(netip.MustParseAddr(tokendAddr), uint16(vm.ProxyPort)).String()
+	tokendLn, err := (&net.ListenConfig{}).Listen(ctx, "tcp", tokendProxyAddr)
+	if err != nil {
+		_ = proxyLn.Close()
+		_ = promptLn.Close()
+		return fmt.Errorf("listening on %s: %w", tokendProxyAddr, err)
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	errs := make(chan error, servers)
 	go func() { errs <- prompter.Serve(ctx, promptLn) }()
 	go func() { errs <- server.Serve(ctx, proxyLn) }()
+	go func() { errs <- tokendServer.Serve(ctx, tokendLn) }()
 
 	first := <-errs
 	cancel()
-	return errors.Join(first, <-errs)
+	return errors.Join(first, <-errs, <-errs)
 }
