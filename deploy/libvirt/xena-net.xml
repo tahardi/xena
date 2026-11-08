@@ -1,5 +1,6 @@
 <network>
   <name>xena</name>
+  <uuid>9283e5b4-3be3-4470-941c-7f2f10ea23c8</uuid>
   <forward mode='open'/>
   <bridge name='xena0' stp='on' delay='0'/>
   <dns enable='no'/>

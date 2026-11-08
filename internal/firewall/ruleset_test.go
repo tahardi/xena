@@ -24,6 +24,7 @@ var hardening = []string{
 
 type libvirtNetwork struct {
 	Name   string `xml:"name"`
+	UUID   string `xml:"uuid"`
 	Bridge struct {
 		Name string `xml:"name,attr"`
 	} `xml:"bridge"`
@@ -54,6 +55,7 @@ func TestRuleset(t *testing.T) {
 		// then
 		require.NoError(t, err)
 		assert.Equal(t, "xena", network.Name)
+		assert.Regexp(t, `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, network.UUID)
 		assert.Equal(t, "xena0", network.Bridge.Name)
 		assert.Equal(t, "no", network.DNS.Enable)
 		require.Len(t, network.Forward, 1)
