@@ -49,6 +49,10 @@ func PromptSocket() string {
 	return fromEnv("XENA_PROMPT_SOCKET", "/run/xena-proxy/prompt.sock")
 }
 
+func TokendSocket() string {
+	return fromEnv("XENA_TOKEND_SOCKET", "/run/xena-proxy/tokend.sock")
+}
+
 func CutMarker() string {
 	return fromEnv("XENA_CUT_MARKER", "/var/lib/xena/cut")
 }

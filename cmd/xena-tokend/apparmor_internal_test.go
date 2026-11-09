@@ -40,7 +40,7 @@ func TestTokendProfile(t *testing.T) {
 			},
 		},
 		{
-			name: "happy path - writes only to dev null, its controlling terminal, and the pcscd socket",
+			name: "happy path - writes only to dev null, its controlling terminal, the pcscd socket, and the tokend socket",
 			check: func(t *testing.T, lines []string) {
 				t.Helper()
 
@@ -55,6 +55,7 @@ func TestTokendProfile(t *testing.T) {
 					"/dev/null rw,",
 					"/dev/tty rw,",
 					"/run/pcscd/pcscd.comm rw,",
+					"/run/xena-proxy/tokend.sock rw,",
 				}, writes)
 			},
 		},
