@@ -1,2 +1,32 @@
 version: 1
-claude_code_version: "2.1.319"
+name: xena-dev
+image:
+  url: https://cloud-images.ubuntu.com/releases/26.04/release-20261016/ubuntu-26.04-server-cloudimg-amd64.img
+  sha256: "5645d0318ad21f643ebb1ac4567514620e9893380b07b0201fda163baa5b7eb5"
+cpus: 8
+memory_mib: 16384
+disk_gib: 120
+network:
+  bridge: xena0
+  bridge_address: 192.168.150.1
+  vm_address: 192.168.150.10
+  prefix: 24
+  mac: "52:54:00:78:65:6e"
+proxy_port: 3128
+grant:
+  default_hours: 4
+  max_hours: 8
+expose:
+  iphone_address: "192.168.1.50"
+  default_hours: 4
+  max_hours: 8
+prompt_timeout_seconds: 60
+claude_code_version: "2.1.314"
+dotclaude_ref: "8ab1fdff8a7d7deebd073e3e68a967a22bcb0429"
+repos:
+  - tahardi/xena
+  - tahardi/dotclaude
+  - tahardi/maple
+git:
+  name: ""
+  email: ""

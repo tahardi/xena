@@ -12,3 +12,4 @@ coverage.*
 
 tmp/
 /xena
+/vm/agent/xena-agent
