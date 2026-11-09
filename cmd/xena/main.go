@@ -59,6 +59,8 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 		return runRotate(ctx, args[1:], os.Stdin, os.Stdout)
 	case "health":
 		return runHealth(ctx, os.Stdout, defaultChecks(logger))
+	case "guard":
+		return runGuard(ctx, args[1:], logger)
 	case "status":
 		return runStatus(ctx, logger, args[1:], os.Stdout, defaultChecks(logger))
 	default:

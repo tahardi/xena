@@ -621,6 +621,8 @@ func TestRepoAllowlist(t *testing.T) {
 		{host: "vuln.go.dev", port: 443, want: true},
 		{host: "crates.io", port: 443, want: true},
 		{host: "github.com", port: 22, want: false},
+		{host: "xena-guard-rebind.test", port: 443, want: true},
+		{host: "xena-guard-rebind.test", port: 80, want: false},
 		{host: "other.atlassian.net", port: 443, want: false},
 	}
 	for _, tt := range tests {
