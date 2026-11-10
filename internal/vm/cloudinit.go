@@ -125,6 +125,8 @@ func validateSeedData(d SeedData) error {
 		{"instance id", instanceIDPattern.MatchString(d.InstanceID)},
 		{"git name", gitIdentityPattern.MatchString(d.GitName)},
 		{"git email", gitIdentityPattern.MatchString(d.GitEmail)},
+		{"prefix", d.Prefix >= 1 && d.Prefix <= 32},
+		{"proxy port", d.ProxyPort >= 1 && d.ProxyPort <= 65535},
 	}
 	for _, check := range checks {
 		if !check.valid {

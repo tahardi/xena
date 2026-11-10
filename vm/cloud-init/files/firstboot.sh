@@ -8,7 +8,7 @@ export HOME=/root
 
 systemctl start qemu-guest-agent
 
-systemctl disable --now docker.service docker.socket
+systemctl disable --now docker.service docker.socket containerd.service
 apt-get purge -y snapd
 systemctl disable --now motd-news.timer
 

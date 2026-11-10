@@ -404,7 +404,7 @@ func TestRenderSeed(t *testing.T) {
 			`checkout --detach "` + testRef + `"`,
 			"install.sh vm",
 			"apt-get purge -y snapd",
-			"systemctl disable --now docker.service docker.socket",
+			"systemctl disable --now docker.service docker.socket containerd.service",
 			"loginctl enable-linger dev",
 		}
 
@@ -572,6 +572,10 @@ func TestRenderSeed(t *testing.T) {
 		{name: "error - instance id has newline", mutate: func(d *vm.SeedData) { d.InstanceID = "xena\nx: y" }},
 		{name: "error - git name has newline", mutate: func(d *vm.SeedData) { d.GitName = "bot\n[credential]" }},
 		{name: "error - git email has newline", mutate: func(d *vm.SeedData) { d.GitEmail = "a@b\n[credential]" }},
+		{name: "error - prefix zero", mutate: func(d *vm.SeedData) { d.Prefix = 0 }},
+		{name: "error - prefix above 32", mutate: func(d *vm.SeedData) { d.Prefix = 33 }},
+		{name: "error - proxy port zero", mutate: func(d *vm.SeedData) { d.ProxyPort = 0 }},
+		{name: "error - proxy port above 65535", mutate: func(d *vm.SeedData) { d.ProxyPort = 65536 }},
 	}
 	for _, tt := range errorTests {
 		t.Run(tt.name, func(t *testing.T) {
