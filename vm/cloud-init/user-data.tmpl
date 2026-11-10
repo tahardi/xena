@@ -1,0 +1,138 @@
+#cloud-config
+disable_root: true
+ssh_pwauth: false
+ssh_genkeytypes: [ed25519]
+users:
+  - name: dev
+    lock_passwd: true
+    shell: /bin/bash
+apt:
+  http_proxy: http://{{.BridgeAddress}}:{{.ProxyPort}}
+  https_proxy: http://{{.BridgeAddress}}:{{.ProxyPort}}
+package_update: true
+packages:
+  - qemu-guest-agent
+  - unattended-upgrades
+  - docker.io
+  - rootlesskit
+  - uidmap
+  - slirp4netns
+  - dbus-user-session
+  - socat
+  - tmux
+  - git
+  - gh
+  - jq
+  - sqlite3
+  - coreutils
+  - findutils
+  - nodejs
+  - npm
+write_files:
+  - path: /etc/ssh/sshd_config.d/10-xena.conf
+    owner: root:root
+    permissions: "0644"
+    encoding: b64
+    content: {{ b64 (render "sshd-xena.conf") }}
+  - path: /etc/ssh/authorized_keys/dev
+    owner: root:root
+    permissions: "0644"
+    encoding: b64
+    content: {{ b64 (render "authorized_keys") }}
+  - path: /etc/environment
+    owner: root:root
+    permissions: "0644"
+    encoding: b64
+    content: {{ b64 (render "environment") }}
+    append: true
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root:root
+    permissions: "0644"
+    encoding: b64
+    content: {{ b64 (render "20auto-upgrades") }}
+  - path: /etc/npmrc
+    owner: root:root
+    permissions: "0644"
+    encoding: b64
+    content: {{ b64 (render "npmrc") }}
+  - path: /home/dev/.config/pnpm/rc
+    owner: dev:dev
+    permissions: "0644"
+    encoding: b64
+    content: {{ b64 (render "pnpm-rc") }}
+    defer: true
+  - path: /etc/pip.conf
+    owner: root:root
+    permissions: "0644"
+    encoding: b64
+    content: {{ b64 (render "pip.conf") }}
+  - path: /usr/local/lib/xena/package-age
+    owner: root:root
+    permissions: "0755"
+    encoding: b64
+    content: {{ b64 (render "package-age.sh") }}
+  - path: /etc/systemd/system/xena-package-age.service
+    owner: root:root
+    permissions: "0644"
+    encoding: b64
+    content: {{ b64 (render "xena-package-age.service") }}
+  - path: /etc/systemd/system/xena-package-age.timer
+    owner: root:root
+    permissions: "0644"
+    encoding: b64
+    content: {{ b64 (render "xena-package-age.timer") }}
+  - path: /etc/systemd/resolved.conf.d/xena.conf
+    owner: root:root
+    permissions: "0644"
+    encoding: b64
+    content: {{ b64 (render "resolved-xena.conf") }}
+  - path: /etc/sysctl.d/60-xena.conf
+    owner: root:root
+    permissions: "0644"
+    encoding: b64
+    content: {{ b64 (render "sysctl-xena.conf") }}
+  - path: /etc/gitconfig
+    owner: root:root
+    permissions: "0644"
+    encoding: b64
+    content: {{ b64 (render "gitconfig") }}
+  - path: /usr/local/bin/gh
+    owner: root:root
+    permissions: "0755"
+    encoding: b64
+    content: {{ b64 (render "gh") }}
+  - path: /home/dev/.config/systemd/user/docker.service.d/proxy.conf
+    owner: dev:dev
+    permissions: "0644"
+    encoding: b64
+    content: {{ b64 (render "docker-proxy.conf") }}
+    defer: true
+  - path: /etc/update-motd.d/99-xena-rebuild
+    owner: root:root
+    permissions: "0755"
+    encoding: b64
+    content: {{ b64 (render "motd-rebuild") }}
+  - path: /usr/local/lib/xena/firstboot.sh
+    owner: root:root
+    permissions: "0755"
+    encoding: b64
+    content: {{ b64 (render "firstboot.sh") }}
+  - path: /usr/local/lib/xena/xena-agent
+    owner: root:root
+    permissions: "0755"
+    encoding: b64
+    content: {{ b64 (raw "vm/agent/xena-agent") }}
+  - path: /usr/local/lib/xena/guard/.keep
+    owner: root:root
+    permissions: "0644"
+    encoding: b64
+    content: ""
+{{- range guardFiles }}
+  - path: /usr/local/lib/xena/guard/{{ . }}
+    owner: root:root
+    permissions: "0755"
+    encoding: b64
+    content: {{ b64 (raw (printf "vm/guard/%s" .)) }}
+{{- end }}
+runcmd:
+  - ["/usr/local/lib/xena/firstboot.sh"]

@@ -1,0 +1,6 @@
+[Unit]
+Description=Refresh the uv package age cutoff
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/xena/package-age

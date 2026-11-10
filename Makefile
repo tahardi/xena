@@ -25,12 +25,20 @@ pre-pr: \
 	test-shell \
 	test-scripts
 
+.PHONY: agent
+agent:
+	@mkdir -p vm/agent
+	@CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+		-trimpath \
+		-o vm/agent/xena-agent \
+		./cmd/xena-agent
+
 .PHONY: tidy
 tidy:
 	@go mod tidy
 
 .PHONY: fix
-fix:
+fix: agent
 	@go fix ./...
 
 .PHONY: fmt
@@ -38,7 +46,7 @@ fmt:
 	@go tool -modfile=$(lint_modfile) golangci-lint fmt --config .golangci.yaml
 
 .PHONY: lint
-lint: tidy
+lint: tidy agent
 	@go tool -modfile=$(lint_modfile) golangci-lint run --config .golangci.yaml
 
 .PHONY: lint-version
@@ -46,11 +54,11 @@ lint-version:
 	@go tool -modfile=$(lint_modfile) golangci-lint --version
 
 .PHONY: test-unit
-test-unit: tidy
+test-unit: tidy agent
 	@go test -v -count=1 -race ./...
 
 .PHONY: vuln
-vuln: tidy
+vuln: tidy agent
 	@go tool -modfile=$(vuln_modfile) govulncheck ./...
 
 .PHONY: secrets
@@ -62,7 +70,11 @@ secrets:
 
 .PHONY: shellcheck
 shellcheck:
-	@git ls-files -z '*.sh' | xargs -0 -r shellcheck
+	@git ls-files -z \
+		'*.sh' \
+		vm/cloud-init/files/gh \
+		vm/cloud-init/files/motd-rebuild \
+		| xargs -0 -r shellcheck
 
 .PHONY: test-shell
 test-shell:

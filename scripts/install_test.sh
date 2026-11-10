@@ -56,6 +56,7 @@ EOF
 
 	write_fake go <<'EOF'
 echo "go-env GOWORK=${GOWORK-} GOFLAGS=${GOFLAGS-} GOENV=${GOENV-} GOTOOLCHAIN=${GOTOOLCHAIN-}" >>"$FAKE_LOG"
+echo "go-target GOOS=${GOOS-} GOARCH=${GOARCH-} $*" >>"$FAKE_LOG"
 if [[ -n "${FAKE_GO_FAIL:-}" ]]; then
 	exit 1
 fi
@@ -606,6 +607,22 @@ test_install_fills_proxy_port() {
 
 	grep -qxF "Environment=HTTPS_PROXY=http://127.0.0.1:4128" "$root/etc/systemd/user/xena-tokend.service" ||
 		fail "proxy port not filled in"
+}
+
+test_install_builds_agent_first() {
+	local agent_line xena_line
+
+	git -C "$clone" commit -q --allow-empty -m agent
+	git -C "$clone" push -q origin main
+	signed_tag "$work/key" v0.7.1
+
+	run_install v0.7.1 >/dev/null
+
+	agent_line=$(grep -n '^go-target GOOS=linux GOARCH=amd64 build .*-o vm/agent/xena-agent' "$FAKE_LOG" | cut -d: -f1)
+	xena_line=$(grep -n '^go-target .*\./cmd/\.\.\.' "$FAKE_LOG" | cut -d: -f1)
+	if [[ -z "$agent_line" || -z "$xena_line" || "$agent_line" -ge "$xena_line" ]]; then
+		fail "agent not built for linux before the xena binaries"
+	fi
 }
 
 test_install_warns_without_proxy_port() {
@@ -1183,6 +1200,7 @@ tests=(
 	test_install_build_failure_cleans_up
 	test_install_skips_incomplete_vm_config
 	test_install_fills_proxy_port
+	test_install_builds_agent_first
 	test_install_warns_without_proxy_port
 	test_install_clears_go_environment
 	test_install_usage

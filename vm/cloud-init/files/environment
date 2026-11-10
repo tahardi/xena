@@ -1,0 +1,6 @@
+HTTP_PROXY=http://{{.BridgeAddress}}:{{.ProxyPort}}
+HTTPS_PROXY=http://{{.BridgeAddress}}:{{.ProxyPort}}
+http_proxy=http://{{.BridgeAddress}}:{{.ProxyPort}}
+https_proxy=http://{{.BridgeAddress}}:{{.ProxyPort}}
+NO_PROXY=localhost,127.0.0.1
+NPM_CONFIG_GLOBALCONFIG=/etc/npmrc
