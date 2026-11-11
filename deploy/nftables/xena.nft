@@ -49,7 +49,7 @@ table inet xena {
 
 	chain tokend {
 		ip daddr 192.168.150.10 tcp dport 22 accept
-		log prefix "xena-tokend-drop: " level warn
+		limit rate 10/second burst 50 packets log prefix "xena-tokend-drop: " level warn
 		drop
 	}
 }

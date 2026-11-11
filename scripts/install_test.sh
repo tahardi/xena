@@ -679,6 +679,7 @@ test_uninstall_keeps_state() {
 	assert_absent "$root/etc/systemd/journald.conf.d/xena.conf"
 	assert_file "$root/var/lib/xena-proxy/keep.txt"
 	assert_log "nft destroy table inet xena"
+	assert_no_log_match 'disable.*xena-tokend-fence'
 	[[ $(grep -c '^systemctl restart systemd-journald$' "$FAKE_LOG") -eq 2 ]] ||
 		fail "uninstall did not restart systemd-journald"
 	assert_no_log_match '^userdel'

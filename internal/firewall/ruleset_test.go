@@ -111,10 +111,18 @@ func TestRuleset(t *testing.T) {
 		{name: "happy path - drop logs are rate limited", want: `limit rate 10/second burst 50 packets log prefix "xena-drop: "`},
 		{name: "happy path - forward drops after log", want: "\t\tiifname \"xena0\" drop\n"},
 		{name: "happy path - other traffic to the bridge drops", want: `oifname "xena0" drop`},
-		{name: "happy path - tokend output chain", want: "chain output_tokend"},
+		{
+			name: "happy path - tokend output chain",
+			want: "chain output_tokend {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n",
+		},
 		{name: "happy path - tokend chain", want: "chain tokend"},
 		{name: "happy path - tokend ssh rule", want: "ip daddr 192.168.150.10 tcp dport 22 accept"},
 		{name: "happy path - tokend drop log", want: `log prefix "xena-tokend-drop: " level warn`},
+		{
+			name: "happy path - tokend drop log is rate limited",
+			want: `limit rate 10/second burst 50 packets log prefix "xena-tokend-drop: "`,
+		},
+		{name: "happy path - tokend drops after log", want: "log prefix \"xena-tokend-drop: \" level warn\n\t\tdrop\n\t}"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -193,6 +201,23 @@ func TestRuleset(t *testing.T) {
 
 		// then
 		assert.NotContains(t, got, "socket cgroupv2")
+	})
+
+	t.Run("happy path - polkit lets anyone start only the fence", func(t *testing.T) {
+		// given
+		data, err := os.ReadFile("../../deploy/polkit/50-xena.rules")
+		require.NoError(t, err)
+		rule := `if (/^xena-tokend-fence@[0-9]+\.service$/.test(unit) && action.lookup("verb") === "start") {` +
+			"\n      return polkit.Result.YES;"
+
+		// when
+		fence := strings.Index(string(data), rule)
+		admin := strings.Index(string(data), "AUTH_ADMIN")
+
+		// then
+		require.GreaterOrEqual(t, fence, 0)
+		assert.Less(t, fence, admin)
+		assert.Equal(t, 1, strings.Count(string(data), "polkit.Result.YES"))
 	})
 
 	units := []struct {
