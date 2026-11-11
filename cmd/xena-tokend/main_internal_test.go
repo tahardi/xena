@@ -61,8 +61,14 @@ func TestRun(t *testing.T) {
 		args          []string
 		appConfig     string
 		wantErrPrefix string
+		wantStdout    string
 	}{
-		{name: "error - unknown flag", args: []string{"--bogus"}, wantErrPrefix: "parsing flags"},
+		{
+			name:          "error - unknown flag",
+			args:          []string{"--bogus"},
+			wantErrPrefix: "parsing flags",
+			wantStdout:    "Usage of xena-tokend",
+		},
 		{name: "error - missing app config", args: nil, wantErrPrefix: "loading github app config"},
 		{
 			name:          "error - missing vm config",
@@ -83,6 +89,7 @@ func TestRun(t *testing.T) {
 				require.NoError(t, os.WriteFile(path, []byte(tt.appConfig), 0o600))
 			}
 
+			stdout := tempStdout(t)
 			logger := slog.New(slog.DiscardHandler)
 
 			// when
@@ -91,8 +98,51 @@ func TestRun(t *testing.T) {
 			// then
 			require.Error(t, err)
 			assert.True(t, strings.HasPrefix(err.Error(), tt.wantErrPrefix), err.Error())
+
+			got, readErr := os.ReadFile(stdout)
+			require.NoError(t, readErr)
+
+			if tt.wantStdout == "" {
+				assert.Empty(t, string(got))
+
+				return
+			}
+
+			assert.Contains(t, string(got), tt.wantStdout)
 		})
 	}
+
+	t.Run("happy path - help prints usage", func(t *testing.T) {
+		// given
+		stdout := tempStdout(t)
+		logger := slog.New(slog.DiscardHandler)
+
+		// when
+		err := run(context.Background(), []string{"--help"}, logger)
+
+		// then
+		require.NoError(t, err)
+
+		got, readErr := os.ReadFile(stdout)
+		require.NoError(t, readErr)
+		assert.Contains(t, string(got), "Usage of xena-tokend")
+	})
+}
+
+func tempStdout(t *testing.T) string {
+	t.Helper()
+
+	file, err := os.CreateTemp(t.TempDir(), "stdout")
+	require.NoError(t, err)
+
+	stdout := os.Stdout
+	os.Stdout = file
+	t.Cleanup(func() {
+		os.Stdout = stdout
+		_ = file.Close()
+	})
+
+	return file.Name()
 }
 
 func TestUnlock(t *testing.T) {

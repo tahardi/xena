@@ -49,8 +49,14 @@ func main() {
 
 func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	flags := flag.NewFlagSet("xena-tokend", flag.ContinueOnError)
+	flags.SetOutput(os.Stdout)
 	dryRun := flags.Bool("dry-run", false, "mint and revoke one token without touching the VM")
-	if err := flags.Parse(args); err != nil {
+	err := flags.Parse(args)
+	if errors.Is(err, flag.ErrHelp) {
+		return nil
+	}
+
+	if err != nil {
 		return fmt.Errorf("parsing flags: %w", err)
 	}
 
