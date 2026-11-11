@@ -19,3 +19,4 @@ hosts:
     ports: [80, 443]
   - host: security.ubuntu.com
     ports: [80, 443]
+  - host: xena-guard-rebind.test

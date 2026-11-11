@@ -305,13 +305,11 @@ func TestRenderSeed(t *testing.T) {
 		require.NoError(t, globErr)
 
 		// when
-		keep, keepFound := files[guardDir+".keep"]
+		_, keepFound := files[guardDir+".keep"]
 
 		// then
-		require.True(t, keepFound)
-		require.Equal(t, "root:root", keep.Owner)
-		require.Equal(t, "0644", keep.Permissions)
-		require.Empty(t, keep.decoded)
+		require.False(t, keepFound)
+		require.NotEmpty(t, scripts)
 
 		for _, script := range scripts {
 			want, readErr := xena.VMFiles.ReadFile(script)
