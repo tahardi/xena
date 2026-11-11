@@ -122,6 +122,11 @@ build() {
 		cd "$build_dir"
 		export GOWORK=off GOFLAGS="" GOENV=off GOTOOLCHAIN=local
 		go mod verify
+		mkdir -p vm/agent
+		CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+			-trimpath \
+			-o vm/agent/xena-agent \
+			./cmd/xena-agent
 		CGO_ENABLED=0 go build \
 			-trimpath \
 			-ldflags "-X main.version=$tag" \

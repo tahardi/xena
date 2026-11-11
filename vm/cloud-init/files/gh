@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+GH_TOKEN="$(cat /home/dev/.config/xena/github-token)"
+export GH_TOKEN
+
+exec /usr/bin/gh "$@"

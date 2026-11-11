@@ -1,0 +1,9 @@
+[Unit]
+Description=Refresh the uv package age cutoff daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
