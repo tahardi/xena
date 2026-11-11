@@ -2,7 +2,7 @@ abi <abi/4.0>,
 
 include <tunables/global>
 
-profile xena-tokend /usr/local/bin/xena-tokend {
+profile xena-tokend /usr/local/bin/xena-tokend flags=(attach_disconnected) {
   include <abstractions/base>
   include <abstractions/nameservice-strict>
   include <abstractions/ssl_certs>
