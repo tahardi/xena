@@ -25,7 +25,28 @@ func TestParseDrop(t *testing.T) {
 			name: "happy path - tcp input",
 			message: "xena-drop: IN=xena0 OUT= MAC=52:54:00:00:00:01 SRC=192.168.150.10 DST=192.168.150.1 " +
 				"LEN=60 PROTO=TCP SPT=40000 DPT=22 SYN",
-			want:   guard.Drop{In: "xena0", Src: "192.168.150.10", Dst: "192.168.150.1", Proto: "TCP", DstPort: 22},
+			want: guard.Drop{
+				In:      "xena0",
+				Src:     "192.168.150.10",
+				Dst:     "192.168.150.1",
+				Proto:   "TCP",
+				DstPort: 22,
+				SYN:     true,
+			},
+			wantOK: true,
+		},
+		{
+			name: "happy path - tcp flags without syn",
+			message: "xena-drop: IN=xena0 OUT= SRC=192.168.150.10 DST=192.168.150.1 " +
+				"PROTO=TCP SPT=40000 DPT=22 WINDOW=0 RES=0x00 ACK FIN URGP=0",
+			want: guard.Drop{
+				In:      "xena0",
+				Src:     "192.168.150.10",
+				Dst:     "192.168.150.1",
+				Proto:   "TCP",
+				DstPort: 22,
+				ACK:     true,
+			},
 			wantOK: true,
 		},
 		{

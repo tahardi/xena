@@ -235,6 +235,10 @@ func (w DropExpect) matches(d Drop, vmAddr string) bool {
 		return false
 	}
 
+	if d.Proto == "TCP" && (!d.SYN || d.ACK) {
+		return false
+	}
+
 	return strings.Contains(w.Dst, ":") || d.Src == vmAddr
 }
 
@@ -262,7 +266,7 @@ func readVMOutput(out []byte) ([]string, string) {
 
 func cleanVMLine(line string) string {
 	runes := []rune(strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
 			return -1
 		}
 
