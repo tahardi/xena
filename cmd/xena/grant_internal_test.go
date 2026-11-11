@@ -62,3 +62,33 @@ func TestParseGrantArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestGrantTempDir(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     string
+		want    string
+		wantErr error
+	}{
+		{name: "happy path - uses runtime dir", env: "/run/user/1000", want: "/run/user/1000"},
+		{name: "error - runtime dir unset", env: "", wantErr: errNoRuntimeDir},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// given
+			t.Setenv("XDG_RUNTIME_DIR", tt.env)
+
+			// when
+			got, err := grantTempDir()
+
+			// then
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

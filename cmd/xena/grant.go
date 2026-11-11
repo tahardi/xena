@@ -19,6 +19,7 @@ import (
 
 var (
 	errUnknownProvider = errors.New("unknown provider")
+	errNoRuntimeDir    = errors.New("XDG_RUNTIME_DIR is not set")
 	errGrantUsage      = errors.New(
 		"usage: xena grant aws|gcp [--hours N], xena grant clear aws|gcp, or xena grant refresh gcp --until TIME",
 	)
@@ -79,6 +80,15 @@ func parseGrantArgs(args []string) (grantArgs, error) {
 	return a, nil
 }
 
+func grantTempDir() (string, error) {
+	dir := os.Getenv("XDG_RUNTIME_DIR")
+	if dir == "" {
+		return "", fmt.Errorf("finding temp dir for gcp key: %w", errNoRuntimeDir)
+	}
+
+	return dir, nil
+}
+
 func runGrant(ctx context.Context, args []string, in io.Reader, out io.Writer) error {
 	a, err := parseGrantArgs(args)
 	if err != nil {
@@ -95,9 +105,14 @@ func runGrant(ctx context.Context, args []string, in io.Reader, out io.Writer) e
 		return err
 	}
 
+	tempDir, err := grantTempDir()
+	if err != nil {
+		return err
+	}
+
 	providers := map[string]grant.Provider{
 		"aws": grant.AWS{Cmd: grant.Exec{}},
-		"gcp": grant.GCP{Cmd: grant.Exec{}},
+		"gcp": grant.GCP{Cmd: grant.Exec{}, TempDir: tempDir},
 	}
 	p := providers[a.provider]
 
