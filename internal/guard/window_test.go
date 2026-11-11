@@ -75,9 +75,12 @@ func TestRemoveWindow(t *testing.T) {
 	tests := []struct {
 		name    string
 		missing bool
+		dirPath bool
+		wantErr string
 	}{
 		{name: "happy path - removes the file"},
 		{name: "happy path - missing file returns nil", missing: true},
+		{name: "error - window path is a non-empty directory", dirPath: true, wantErr: "removing guard window"},
 	}
 
 	for _, tt := range tests {
@@ -85,7 +88,11 @@ func TestRemoveWindow(t *testing.T) {
 			// given
 			dir := t.TempDir()
 			path := filepath.Join(dir, "window.json")
-			if !tt.missing {
+
+			switch {
+			case tt.dirPath:
+				require.NoError(t, os.MkdirAll(filepath.Join(path, "child"), 0o700))
+			case !tt.missing:
 				require.NoError(t, os.WriteFile(path, []byte("{}"), 0o600))
 			}
 
@@ -93,6 +100,12 @@ func TestRemoveWindow(t *testing.T) {
 			err := guard.RemoveWindow(dir)
 
 			// then
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				assert.DirExists(t, path)
+				return
+			}
+
 			require.NoError(t, err)
 			assert.NoFileExists(t, path)
 		})

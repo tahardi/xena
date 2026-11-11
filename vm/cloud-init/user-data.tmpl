@@ -122,11 +122,6 @@ write_files:
     permissions: "0755"
     encoding: b64
     content: {{ b64 (raw "vm/agent/xena-agent") }}
-  - path: /usr/local/lib/xena/guard/.keep
-    owner: root:root
-    permissions: "0644"
-    encoding: b64
-    content: ""
 {{- range guardFiles }}
   - path: /usr/local/lib/xena/guard/{{ . }}
     owner: root:root

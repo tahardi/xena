@@ -482,14 +482,9 @@ func TestNetworkCases(t *testing.T) {
 		require.NoError(t, err)
 
 		wantBridge := vm.Network.BridgeAddress
-		if wantBridge == "" {
-			wantBridge = bridge
-		}
-
 		wantPort := vm.ProxyPort
-		if wantPort == 0 {
-			wantPort = 3128
-		}
+		require.NotEmpty(t, wantBridge)
+		require.NotZero(t, wantPort)
 
 		// when
 		cases := guard.NetworkCases(netConfig)

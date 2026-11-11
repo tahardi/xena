@@ -151,7 +151,11 @@ func TestDefaultGuardDeps(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
 			dir := t.TempDir()
+			stateDir := t.TempDir()
+			runDir := t.TempDir()
 			t.Setenv("XENA_REPO_CONFIG_DIR", dir)
+			t.Setenv("XENA_STATE_DIR", stateDir)
+			t.Setenv("XENA_GUARD_RUN_DIR", runDir)
 
 			if !tt.noFile {
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "vm.yaml"), []byte(tt.vmYAML), 0o600))
@@ -170,6 +174,8 @@ func TestDefaultGuardDeps(t *testing.T) {
 				require.NoError(t, err)
 				assert.Len(t, deps.Cases, 10)
 				assert.Equal(t, "192.168.150.10", deps.Env.VMAddr)
+				assert.Equal(t, filepath.Join(stateDir, "guard"), deps.ReportDir)
+				assert.Equal(t, runDir, deps.WindowDir)
 			}
 		})
 	}
