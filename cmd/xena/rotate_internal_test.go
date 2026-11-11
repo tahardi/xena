@@ -34,6 +34,7 @@ func TestRunRotate(t *testing.T) {
 		noFile    bool
 		want      string
 		wantErr   error
+		errPrefix string
 	}{
 		{
 			name: "happy path - manual token prints steps",
@@ -56,6 +57,13 @@ func TestRunRotate(t *testing.T) {
 			inventory: githubInventory,
 			wantErr:   os.ErrNotExist,
 		},
+		{name: "error - file for another token", args: []string{"a", "--file", "x.pem"}, wantErr: errRotateUsage},
+		{
+			name:      "error - unknown flag",
+			args:      []string{"github-app-key", "--bogus"},
+			inventory: githubInventory,
+			errPrefix: "parsing flags",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -73,7 +81,12 @@ func TestRunRotate(t *testing.T) {
 			err := runRotate(context.Background(), tt.args, strings.NewReader(""), &out)
 
 			// then
-			require.ErrorIs(t, err, tt.wantErr)
+			if tt.errPrefix != "" {
+				require.Error(t, err)
+				assert.True(t, strings.HasPrefix(err.Error(), tt.errPrefix), err.Error())
+			} else {
+				require.ErrorIs(t, err, tt.wantErr)
+			}
 			assert.Equal(t, tt.want, out.String())
 		})
 	}

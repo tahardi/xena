@@ -38,12 +38,13 @@ func runRotate(ctx context.Context, args []string, in io.Reader, out io.Writer) 
 	}
 	name := args[0]
 
-	fs := flag.NewFlagSet("rotate", flag.ContinueOnError)
-	file := fs.String("file", "", "new GitHub App private key PEM")
-	if err := fs.Parse(args[1:]); err != nil {
+	flags := flag.NewFlagSet("rotate", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	file := flags.String("file", "", "new GitHub App private key PEM")
+	if err := flags.Parse(args[1:]); err != nil {
 		return fmt.Errorf("parsing flags: %w", err)
 	}
-	if fs.NArg() > 0 {
+	if flags.NArg() > 0 || (*file != "" && name != githubKeyRef) {
 		return errRotateUsage
 	}
 

@@ -34,17 +34,18 @@ type githubRequest struct {
 }
 
 type githubServer struct {
-	srv       *httptest.Server
-	newKey    *rsa.PrivateKey
-	appStatus int
-	mu        sync.Mutex
-	requests  []githubRequest
+	srv          *httptest.Server
+	newKey       *rsa.PrivateKey
+	appStatus    int
+	revokeStatus int
+	mu           sync.Mutex
+	requests     []githubRequest
 }
 
 func newGitHubServer(t *testing.T, newKey *rsa.PrivateKey, appStatus int) *githubServer {
 	t.Helper()
 
-	g := &githubServer{newKey: newKey, appStatus: appStatus}
+	g := &githubServer{newKey: newKey, appStatus: appStatus, revokeStatus: http.StatusNoContent}
 	g.srv = httptest.NewServer(http.HandlerFunc(g.handle))
 	t.Cleanup(g.srv.Close)
 
@@ -68,7 +69,7 @@ func (g *githubServer) handle(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"token":"ghs_madeup","expires_at":"2026-11-07T13:00:00Z"}`))
 	case r.Method == http.MethodDelete && r.URL.Path == "/installation/token" && auth == "Bearer ghs_madeup":
-		w.WriteHeader(http.StatusNoContent)
+		w.WriteHeader(g.revokeStatus)
 	case r.Method == http.MethodGet && r.URL.Path == "/app":
 		w.WriteHeader(g.appStatus)
 	default:
@@ -110,7 +111,13 @@ func keyPEM(key *rsa.PrivateKey) []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
 }
 
-func githubAppKey(t *testing.T, srv *githubServer, cmd *fakeCommand, in string, out *bytes.Buffer) inventory.GitHubAppKey {
+func githubAppKey(
+	t *testing.T,
+	srv *githubServer,
+	cmd *fakeCommand,
+	in string,
+	out *bytes.Buffer,
+) inventory.GitHubAppKey {
 	t.Helper()
 
 	return inventory.GitHubAppKey{
@@ -131,12 +138,14 @@ func TestGitHubAppKey_Create(t *testing.T) {
 	otherKey := rsaKey(t)
 
 	tests := []struct {
-		name       string
-		file       []byte
-		noFile     bool
-		wantErr    error
-		wantPrefix string
-		wantNoCall bool
+		name         string
+		file         []byte
+		old          []byte
+		noFile       bool
+		revokeStatus int
+		wantErr      error
+		wantPrefix   string
+		wantNoCall   bool
 	}{
 		{name: "happy path - checks new key and returns it", file: keyPEM(newKey)},
 		{name: "error - same key", file: keyPEM(oldKey), wantErr: inventory.ErrSameKey, wantNoCall: true},
@@ -154,19 +163,41 @@ func TestGitHubAppKey_Create(t *testing.T) {
 			wantErr:    github.ErrUnexpectedStatus,
 			wantPrefix: "checking new github app key",
 		},
+		{
+			name:       "error - stored key invalid",
+			file:       keyPEM(newKey),
+			old:        []byte("not a pem"),
+			wantErr:    github.ErrInvalidKey,
+			wantPrefix: "parsing old github app key",
+			wantNoCall: true,
+		},
+		{
+			name:         "error - check token revoke fails",
+			file:         keyPEM(newKey),
+			revokeStatus: http.StatusInternalServerError,
+			wantErr:      github.ErrUnexpectedStatus,
+			wantPrefix:   "revoking check token",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
 			srv := newGitHubServer(t, newKey, http.StatusOK)
+			if tt.revokeStatus != 0 {
+				srv.revokeStatus = tt.revokeStatus
+			}
 			var out bytes.Buffer
 			key := githubAppKey(t, srv, &fakeCommand{}, "", &out)
 			if !tt.noFile {
 				require.NoError(t, os.WriteFile(key.File, tt.file, 0o600))
 			}
+			old := keyPEM(oldKey)
+			if tt.old != nil {
+				old = tt.old
+			}
 
 			// when
-			got, err := key.Create(context.Background(), keyPEM(oldKey))
+			got, err := key.Create(context.Background(), old)
 
 			// then
 			if tt.wantErr != nil {
@@ -202,12 +233,29 @@ func TestGitHubAppKey_Revoke(t *testing.T) {
 	tests := []struct {
 		name       string
 		in         string
+		old        []byte
 		result     fakeResult
+		wantCalls  int
+		wantErr    error
 		wantPrefix string
 	}{
-		{name: "happy path - restarts tokend and waits for delete", in: "\n"},
-		{name: "error - restart fails", in: "\n", result: fakeResult{err: errFake}, wantPrefix: "restarting xena-tokend"},
-		{name: "error - no input", in: "", wantPrefix: "waiting for old github app key delete"},
+		{name: "happy path - restarts tokend and waits for delete", in: "\n", wantCalls: 1},
+		{
+			name:       "error - restart fails",
+			in:         "\n",
+			result:     fakeResult{err: errFake},
+			wantCalls:  1,
+			wantErr:    errFake,
+			wantPrefix: "restarting xena-tokend",
+		},
+		{name: "error - no input", in: "", wantCalls: 1, wantPrefix: "waiting for old github app key delete"},
+		{
+			name:       "error - stored key invalid",
+			in:         "\n",
+			old:        []byte("not a pem"),
+			wantErr:    github.ErrInvalidKey,
+			wantPrefix: "parsing old github app key",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -216,22 +264,28 @@ func TestGitHubAppKey_Revoke(t *testing.T) {
 			cmd := &fakeCommand{results: map[string]fakeResult{"--user try-restart": tt.result}}
 			var out bytes.Buffer
 			key := githubAppKey(t, srv, cmd, tt.in, &out)
+			old := keyPEM(oldKey)
+			if tt.old != nil {
+				old = tt.old
+			}
 
 			// when
-			err := key.Revoke(context.Background(), keyPEM(oldKey), keyPEM(newKey))
+			err := key.Revoke(context.Background(), old, keyPEM(newKey))
 
 			// then
-			require.Len(t, cmd.calls, 1)
-			assert.Equal(t, "systemctl", cmd.calls[0].name)
-			assert.Equal(t, []string{"--user", "try-restart", "xena-tokend.service"}, cmd.calls[0].args)
+			require.Len(t, cmd.calls, tt.wantCalls)
+			for _, c := range cmd.calls {
+				assert.Equal(t, "systemctl", c.name)
+				assert.Equal(t, []string{"--user", "try-restart", "xena-tokend.service"}, c.args)
+			}
 			assert.NotContains(t, out.String(), "PRIVATE KEY")
 			assert.Empty(t, srv.requests)
 
 			if tt.wantPrefix != "" {
 				require.Error(t, err)
 				assert.True(t, strings.HasPrefix(err.Error(), tt.wantPrefix), err.Error())
-				if tt.result.err != nil {
-					require.ErrorIs(t, err, errFake)
+				if tt.wantErr != nil {
+					require.ErrorIs(t, err, tt.wantErr)
 					assert.NotContains(t, out.String(), "Delete")
 				}
 				return
@@ -249,14 +303,23 @@ func TestGitHubAppKey_Rejected(t *testing.T) {
 	newKey := rsaKey(t)
 
 	tests := []struct {
-		name    string
-		status  int
-		want    bool
-		wantErr error
+		name       string
+		status     int
+		old        []byte
+		want       bool
+		wantErr    error
+		wantPrefix string
 	}{
 		{name: "happy path - old key rejected", status: http.StatusUnauthorized, want: true},
 		{name: "happy path - old key still accepted", status: http.StatusOK, want: false},
 		{name: "error - unexpected status", status: http.StatusInternalServerError, wantErr: github.ErrUnexpectedStatus},
+		{
+			name:       "error - stored key invalid",
+			status:     http.StatusUnauthorized,
+			old:        []byte("not a pem"),
+			wantErr:    github.ErrInvalidKey,
+			wantPrefix: "parsing old github app key",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -264,11 +327,22 @@ func TestGitHubAppKey_Rejected(t *testing.T) {
 			srv := newGitHubServer(t, newKey, tt.status)
 			var out bytes.Buffer
 			key := githubAppKey(t, srv, &fakeCommand{}, "", &out)
+			old := keyPEM(oldKey)
+			if tt.old != nil {
+				old = tt.old
+			}
 
 			// when
-			got, err := key.Rejected(context.Background(), keyPEM(oldKey))
+			got, err := key.Rejected(context.Background(), old)
 
 			// then
+			if tt.old != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				assert.True(t, strings.HasPrefix(err.Error(), tt.wantPrefix), err.Error())
+				assert.Empty(t, srv.requests)
+				return
+			}
+
 			require.NotEmpty(t, srv.requests)
 			for _, r := range srv.requests {
 				assert.Equal(t, http.MethodGet, r.method)
