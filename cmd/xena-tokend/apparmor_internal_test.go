@@ -17,11 +17,11 @@ func TestTokendProfile(t *testing.T) {
 		check func(t *testing.T, lines []string)
 	}{
 		{
-			name: "happy path - attaches to the binary",
+			name: "happy path - attaches to the binary and to disconnected paths",
 			check: func(t *testing.T, lines []string) {
 				t.Helper()
 
-				require.Contains(t, lines, "profile xena-tokend /usr/local/bin/xena-tokend {")
+				require.Contains(t, lines, "profile xena-tokend /usr/local/bin/xena-tokend flags=(attach_disconnected) {")
 			},
 		},
 		{
