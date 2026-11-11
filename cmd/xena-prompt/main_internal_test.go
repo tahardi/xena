@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,11 +17,13 @@ func TestRun(t *testing.T) {
 		vm         string
 		wantErr    error
 		wantErrMsg string
+		wantStdout string
 	}{
 		{
 			name:       "unknown flag",
 			args:       []string{"--bogus"},
 			wantErrMsg: "parsing flags",
+			wantStdout: "Usage of xena-prompt",
 		},
 		{
 			name:       "missing vm config",
@@ -55,6 +58,8 @@ prompt_timeout_seconds: -1
 				require.NoError(t, os.WriteFile(filepath.Join(configDir, "vm.yaml"), []byte(tt.vm), 0o600))
 			}
 
+			stdout := tempStdout(t)
+
 			// when
 			err := run(t.Context(), tt.args, slog.New(slog.DiscardHandler))
 
@@ -64,6 +69,48 @@ prompt_timeout_seconds: -1
 			}
 
 			require.ErrorContains(t, err, tt.wantErrMsg)
+
+			got, readErr := os.ReadFile(stdout)
+			require.NoError(t, readErr)
+
+			if tt.wantStdout == "" {
+				assert.Empty(t, string(got))
+
+				return
+			}
+
+			assert.Contains(t, string(got), tt.wantStdout)
 		})
 	}
+
+	t.Run("happy path - help prints usage", func(t *testing.T) {
+		// given
+		stdout := tempStdout(t)
+
+		// when
+		err := run(t.Context(), []string{"--help"}, slog.New(slog.DiscardHandler))
+
+		// then
+		require.NoError(t, err)
+
+		got, readErr := os.ReadFile(stdout)
+		require.NoError(t, readErr)
+		assert.Contains(t, string(got), "Usage of xena-prompt")
+	})
+}
+
+func tempStdout(t *testing.T) string {
+	t.Helper()
+
+	file, err := os.CreateTemp(t.TempDir(), "stdout")
+	require.NoError(t, err)
+
+	stdout := os.Stdout
+	os.Stdout = file
+	t.Cleanup(func() {
+		os.Stdout = stdout
+		_ = file.Close()
+	})
+
+	return file.Name()
 }
