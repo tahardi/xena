@@ -14,7 +14,7 @@ Xena moves agentic coding into a disposable, encrypted VM behind a network wall 
 | `xena rotate NAME` | Rotate one token and confirm the old value is rejected. |
 | `xena health` | Check every Xena service, timer, and the VM. |
 | `xena status [--json]` | Health, cut state, alerts, and last guard and audit for Maple. |
-| `xena guard [--case NAME]` | Run the guardrail attack suite and writes `~/.local/state/xena/guard/last.json`. Exits non-zero when any case fails. `--case` runs only print their results and leave the report alone. |
+| `xena guard [--case NAME]` | Run the guardrail attack suite and write `~/.local/state/xena/guard/last.json`. Exits non-zero when any case fails. `--case` runs only print their results and leave the report alone. |
 
 ## Talking to the VM
 
