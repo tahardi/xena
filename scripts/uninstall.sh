@@ -131,9 +131,11 @@ purge_state() {
 		fi
 	done
 
-	if getent group xena-prompt >/dev/null; then
-		as_root groupdel xena-prompt || warn "removing group xena-prompt failed"
-	fi
+	for name in xena-prompt xena-tokend; do
+		if getent group "$name" >/dev/null; then
+			as_root groupdel "$name" || warn "removing group $name failed"
+		fi
+	done
 }
 
 stop_vm

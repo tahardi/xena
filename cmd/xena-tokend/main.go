@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -25,6 +27,7 @@ import (
 const (
 	githubAPI   = "https://api.github.com"
 	httpTimeout = 30 * time.Second
+	proxyHost   = "tokend-proxy"
 	appKeyName  = "github-app-key"
 	terminal    = "/dev/tty"
 )
@@ -143,6 +146,18 @@ func unlock(ctx context.Context, cfg github.AppConfig, out io.Writer, logger *sl
 		InstallationID: cfg.InstallationID,
 		Key:            key,
 		API:            githubAPI,
-		HTTP:           &http.Client{Timeout: httpTimeout},
+		HTTP:           tokendClient(),
 	}, nil
+}
+
+func tokendClient() *http.Client {
+	return &http.Client{
+		Timeout: httpTimeout,
+		Transport: &http.Transport{
+			Proxy: http.ProxyURL(&url.URL{Scheme: "http", Host: proxyHost}),
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, "unix", config.TokendSocket())
+			},
+		},
+	}
 }

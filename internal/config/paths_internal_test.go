@@ -110,6 +110,13 @@ func TestPromptSocket(t *testing.T) {
 	})
 }
 
+func TestTokendSocket(t *testing.T) {
+	runPathCases(t, "XENA_TOKEND_SOCKET", TokendSocket, []pathCase{
+		{name: "happy path - env set", env: "/tmp/x", home: "/home/test", want: "/tmp/x"},
+		{name: "happy path - default", home: "/home/test", want: "/run/xena-proxy/tokend.sock"},
+	})
+}
+
 func TestCutMarker(t *testing.T) {
 	runPathCases(t, "XENA_CUT_MARKER", CutMarker, []pathCase{
 		{name: "happy path - env set", env: "/tmp/x", home: "/home/test", want: "/tmp/x"},

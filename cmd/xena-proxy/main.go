@@ -21,10 +21,10 @@ import (
 
 const (
 	promptGroup = "xena-prompt"
+	tokendGroup = "xena-tokend"
 	dialTimeout = 10 * time.Second
 	maxPort     = 65535
 	servers     = 3
-	tokendAddr  = "127.0.0.1"
 )
 
 var errInvalidProxyPort = errors.New("invalid proxy port")
@@ -90,7 +90,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 
 	tokendServer := proxy.NewServer(
-		netip.MustParseAddr(tokendAddr),
+		netip.Addr{},
 		tokendList,
 		"",
 		net.DefaultResolver,
@@ -100,7 +100,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		logger.With("listener", "tokend"),
 	)
 
-	promptLn, err := proxy.ListenPromptSocket(ctx, config.PromptSocket(), promptGroup)
+	promptLn, err := proxy.ListenSocket(ctx, config.PromptSocket(), promptGroup)
 	if err != nil {
 		return err
 	}
@@ -112,12 +112,11 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("listening on %s: %w", proxyAddr, err)
 	}
 
-	tokendProxyAddr := netip.AddrPortFrom(netip.MustParseAddr(tokendAddr), uint16(vm.ProxyPort)).String()
-	tokendLn, err := (&net.ListenConfig{}).Listen(ctx, "tcp", tokendProxyAddr)
+	tokendLn, err := proxy.ListenSocket(ctx, config.TokendSocket(), tokendGroup)
 	if err != nil {
 		_ = proxyLn.Close()
 		_ = promptLn.Close()
-		return fmt.Errorf("listening on %s: %w", tokendProxyAddr, err)
+		return err
 	}
 
 	ctx, cancel := context.WithCancel(ctx)

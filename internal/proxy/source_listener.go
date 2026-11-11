@@ -20,6 +20,10 @@ func (l *sourceListener) Accept() (net.Conn, error) {
 			return nil, err
 		}
 
+		if conn.RemoteAddr().Network() == "unix" && !l.source.IsValid() {
+			return conn, nil
+		}
+
 		remote, err := netip.ParseAddrPort(conn.RemoteAddr().String())
 		if err == nil && remote.Addr().Unmap() == l.source {
 			return conn, nil

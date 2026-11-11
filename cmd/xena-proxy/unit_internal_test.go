@@ -21,7 +21,7 @@ func TestProxyUnit(t *testing.T) {
 	wantLines := []string{
 		"User=xena-proxy",
 		"Group=xena-proxy",
-		"SupplementaryGroups=xena-prompt",
+		"SupplementaryGroups=xena-prompt xena-tokend",
 		"ExecStart=/usr/local/bin/xena-proxy",
 		"StateDirectory=xena-proxy",
 		"StateDirectoryMode=0750",
@@ -37,7 +37,7 @@ func TestProxyUnit(t *testing.T) {
 		"AmbientCapabilities=",
 		"SystemCallFilter=@chown",
 		"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6",
-		"IPAddressAllow=192.168.150.10/32 127.0.0.1/32 127.0.0.53/32",
+		"IPAddressAllow=192.168.150.10/32 127.0.0.53/32",
 	}
 	wantDenied := []string{
 		"0.0.0.0/8",
@@ -55,6 +55,8 @@ func TestProxyUnit(t *testing.T) {
 		"u xena-proxy",
 		"g xena-prompt",
 		"m xena-proxy xena-prompt",
+		"g xena-tokend",
+		"m xena-proxy xena-tokend",
 		"m xena-watch xena-proxy",
 	}
 
@@ -69,6 +71,10 @@ func TestProxyUnit(t *testing.T) {
 	// then
 	for _, want := range wantLines {
 		require.Contains(t, unitLines, want)
+	}
+
+	for _, line := range unitLines {
+		require.NotContains(t, line, "127.0.0.1/32")
 	}
 
 	for _, want := range wantDenied {

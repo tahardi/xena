@@ -40,4 +40,5 @@ profile xena-tokend /usr/local/bin/xena-tokend {
   /dev/null rw,
   /dev/tty rw,
   /run/pcscd/pcscd.comm rw,
+  /run/xena-proxy/tokend.sock rw,
 }
