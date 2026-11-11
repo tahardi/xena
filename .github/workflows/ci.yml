@@ -56,6 +56,9 @@ jobs:
       - name: Run Unit Tests
         run: make test-unit
 
+      - name: Run Cloud Function Tests
+        run: make test-cloud
+
   vuln:
     runs-on: ubuntu-latest
     steps:

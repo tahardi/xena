@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os/exec"
-	"syscall"
 	"time"
 
 	"github.com/tahardi/xena/internal/inventory"
@@ -20,9 +18,10 @@ const (
 )
 
 var (
-	ErrHoursOutOfRange = errors.New("hours out of range")
-	ErrInvalidSecret   = errors.New("invalid issuing secret")
-	ErrEmptyToken      = errors.New("empty token")
+	ErrHoursOutOfRange      = errors.New("hours out of range")
+	ErrInvalidSecret        = errors.New("invalid issuing secret")
+	ErrEmptyToken           = errors.New("empty token")
+	ErrIncompleteCredential = errors.New("issued credential is missing fields")
 )
 
 type Command = inventory.Command
@@ -31,24 +30,8 @@ type Background interface {
 	Start(ctx context.Context, stdin []byte, name string, args ...string) error
 }
 
-type Exec struct {
-	inventory.Exec
-}
-
 type Secrets interface {
 	Get(ctx context.Context, name string) ([]byte, error)
-}
-
-type Credential struct {
-	Value     []byte
-	ExpiresAt time.Time
-}
-
-type Provider interface {
-	Name() string
-	SecretName() string
-	VMSecret() string
-	Issue(ctx context.Context, issuing []byte, lifetime time.Duration, now time.Time) (Credential, error)
 }
 
 type Granter struct {
@@ -62,27 +45,6 @@ type Granter struct {
 	Log          *slog.Logger
 	DefaultHours int
 	MaxHours     int
-}
-
-func (Exec) Start(ctx context.Context, stdin []byte, name string, args ...string) error {
-	// #nosec G204 -- name and args are fixed by Granter and never hold secret values.
-	cmd := exec.CommandContext(context.WithoutCancel(ctx), name, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-
-	w, err := cmd.StdinPipe()
-	if err != nil {
-		return fmt.Errorf("opening stdin for %s: %w", name, err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("starting %s: %w", name, err)
-	}
-
-	_, writeErr := w.Write(stdin)
-	closeErr := w.Close()
-	releaseErr := cmd.Process.Release()
-
-	return errors.Join(writeErr, closeErr, releaseErr)
 }
 
 func (g Granter) Grant(ctx context.Context, p Provider, hours int) (time.Time, error) {
@@ -120,6 +82,7 @@ func (g Granter) Grant(ctx context.Context, p Provider, hours int) (time.Time, e
 		nil,
 		"systemd-run",
 		"--user",
+		"--collect",
 		"--unit="+clearUnit(p),
 		fmt.Sprintf("--on-active=%ds", secs),
 		g.Xena,
@@ -141,6 +104,7 @@ func (g Granter) Grant(ctx context.Context, p Provider, hours int) (time.Time, e
 		"systemd-run",
 		"--user",
 		"--scope",
+		"--collect",
 		"--unit="+refreshUnit(p),
 		fmt.Sprintf("--property=RuntimeMaxSec=%d", secs+int(RetryAfter.Seconds())),
 		"systemd-cat",
@@ -171,14 +135,19 @@ func (g Granter) Clear(ctx context.Context, p Provider) error {
 }
 
 func (g Granter) Refresh(ctx context.Context, p Provider, issuing []byte, until time.Time) error {
+	if len(bytes.TrimSpace(issuing)) == 0 {
+		return fmt.Errorf("checking issuing secret: %w", ErrInvalidSecret)
+	}
+
 	next := g.Now().Add(RefreshEvery)
+
 	for {
 		wake := next
 		if until.Before(wake) {
 			wake = until
 		}
 
-		if err := g.Sleep(ctx, wake.Sub(g.Now())); err != nil {
+		if err := g.Sleep(ctx, max(0, wake.Sub(g.Now()))); err != nil {
 			return fmt.Errorf("waiting to refresh: %w", err)
 		}
 

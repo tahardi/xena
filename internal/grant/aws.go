@@ -33,11 +33,12 @@ func (a AWS) VMSecret() string {
 	return "aws-credentials"
 }
 
-func (a AWS) Issue(ctx context.Context, issuing []byte, lifetime time.Duration, _ time.Time) (Credential, error) {
+func (a AWS) Issue(ctx context.Context, issuing []byte, lifetime time.Duration, now time.Time) (Credential, error) {
 	var s awsSecret
 	if err := json.Unmarshal(issuing, &s); err != nil {
 		return Credential{}, fmt.Errorf("decoding aws-grant secret: %w", err)
 	}
+
 	if s.AccessKeyID == "" || s.SecretAccessKey == "" || s.RoleARN == "" {
 		return Credential{}, fmt.Errorf("decoding aws-grant secret: %w", ErrInvalidSecret)
 	}
@@ -73,9 +74,8 @@ func (a AWS) Issue(ctx context.Context, issuing []byte, lifetime time.Duration, 
 	}
 
 	c := o["Credentials"]
-	expires, err := time.Parse(time.RFC3339, c["Expiration"])
-	if err != nil {
-		return Credential{}, fmt.Errorf("decoding assume-role output: %w", err)
+	if c["AccessKeyId"] == "" || c["SecretAccessKey"] == "" || c["SessionToken"] == "" {
+		return Credential{}, fmt.Errorf("decoding assume-role output: %w", ErrIncompleteCredential)
 	}
 
 	value := fmt.Sprintf(
@@ -85,7 +85,7 @@ func (a AWS) Issue(ctx context.Context, issuing []byte, lifetime time.Duration, 
 		c["SessionToken"],
 	)
 
-	return Credential{Value: []byte(value), ExpiresAt: expires}, nil
+	return Credential{Value: []byte(value), ExpiresAt: now.Add(lifetime)}, nil
 }
 
 func (a AWS) bin() string {

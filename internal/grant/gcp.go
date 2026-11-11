@@ -45,6 +45,7 @@ func (g GCP) Issue(ctx context.Context, issuing []byte, lifetime time.Duration, 
 	if err := json.Unmarshal(issuing, &s); err != nil {
 		return Credential{}, fmt.Errorf("decoding gcp-grant secret: %w", err)
 	}
+
 	if len(s.Key) == 0 || s.ServiceAccount == "" {
 		return Credential{}, fmt.Errorf("decoding gcp-grant secret: %w", ErrInvalidSecret)
 	}

@@ -109,6 +109,7 @@ func TestGCP_Issue(t *testing.T) {
 			entries, readErr := os.ReadDir(tmp)
 			require.NoError(t, readErr)
 			assert.Empty(t, entries)
+
 			if tt.wantCall {
 				require.Len(t, cmd.calls, 1)
 				assert.Equal(t, "gcloud", cmd.calls[0].name)
@@ -130,15 +131,19 @@ func TestGCP_Issue(t *testing.T) {
 			} else {
 				assert.Empty(t, cmd.calls)
 			}
+
 			if tt.wantErr != nil || tt.wantPrefix != "" {
 				require.Error(t, err)
+
 				if tt.wantErr != nil {
 					require.ErrorIs(t, err, tt.wantErr)
 				}
+
 				assert.True(t, strings.HasPrefix(err.Error(), tt.wantPrefix), err.Error())
 				assert.NotContains(t, err.Error(), "made-up")
 				return
 			}
+
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, string(got.Value))
 			assert.Equal(t, tt.wantExpires, got.ExpiresAt)

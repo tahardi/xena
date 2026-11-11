@@ -19,7 +19,11 @@ func TestParseGrantArgs(t *testing.T) {
 		anyErr  bool
 	}{
 		{name: "happy path - aws", args: []string{"aws"}, want: grantArgs{provider: "aws"}},
-		{name: "happy path - gcp with hours", args: []string{"gcp", "--hours", "3"}, want: grantArgs{provider: "gcp", hours: 3}},
+		{
+			name: "happy path - gcp with hours",
+			args: []string{"gcp", "--hours", "3"},
+			want: grantArgs{provider: "gcp", hours: 3},
+		},
 		{name: "happy path - clear", args: []string{"clear", "aws"}, want: grantArgs{provider: "aws", clear: true}},
 		{
 			name: "happy path - refresh",
@@ -30,6 +34,8 @@ func TestParseGrantArgs(t *testing.T) {
 		{name: "error - refresh with bad until", args: []string{"refresh", "gcp", "--until", "soon"}, anyErr: true},
 		{name: "error - unknown provider", args: []string{"bogus"}, wantErr: errUnknownProvider},
 		{name: "error - no arguments", args: []string{}, wantErr: errGrantUsage},
+		{name: "error - clear without provider", args: []string{"clear"}, wantErr: errGrantUsage},
+		{name: "error - extra argument", args: []string{"aws", "extra"}, wantErr: errGrantUsage},
 		{name: "error - bad hours", args: []string{"aws", "--hours", "x"}, anyErr: true},
 	}
 	for _, tt := range tests {
@@ -45,10 +51,12 @@ func TestParseGrantArgs(t *testing.T) {
 				require.ErrorIs(t, err, tt.wantErr)
 				return
 			}
+
 			if tt.anyErr {
 				require.Error(t, err)
 				return
 			}
+
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})

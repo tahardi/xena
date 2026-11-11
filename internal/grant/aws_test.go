@@ -32,7 +32,7 @@ func TestAWS_Issue(t *testing.T) {
 			name:   "happy path - assumes role",
 			secret: awsSecret,
 			out: `{"Credentials":{"AccessKeyId":"ASIANEWEXAMPLE","SecretAccessKey":"made-up-new",` +
-				`"SessionToken":"made-up-session","Expiration":"2026-10-24T16:00:00Z"}}`,
+				`"SessionToken":"made-up-session","Expiration":"2026-10-24T15:59:59Z"}}`,
 			want: "[default]\naws_access_key_id = ASIANEWEXAMPLE\naws_secret_access_key = made-up-new\n" +
 				"aws_session_token = made-up-session\n",
 			wantCall: true,
@@ -52,6 +52,14 @@ func TestAWS_Issue(t *testing.T) {
 			secret:     awsSecret,
 			cmdErr:     errFake,
 			wantPrefix: "assuming aws role",
+			wantCall:   true,
+		},
+		{
+			name:       "error - output missing credentials",
+			secret:     awsSecret,
+			out:        `{"Credentials":{"Expiration":"2026-10-24T16:00:00Z"}}`,
+			wantErr:    grant.ErrIncompleteCredential,
+			wantPrefix: "decoding assume-role output",
 			wantCall:   true,
 		},
 		{
@@ -97,15 +105,19 @@ func TestAWS_Issue(t *testing.T) {
 			} else {
 				assert.Empty(t, cmd.calls)
 			}
+
 			if tt.wantErr != nil || tt.wantPrefix != "" {
 				require.Error(t, err)
+
 				if tt.wantErr != nil {
 					require.ErrorIs(t, err, tt.wantErr)
 				}
+
 				assert.True(t, strings.HasPrefix(err.Error(), tt.wantPrefix), err.Error())
 				assert.NotContains(t, err.Error(), "made-up-secret")
 				return
 			}
+
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, string(got.Value))
 			assert.Equal(t, now.Add(4*time.Hour), got.ExpiresAt)

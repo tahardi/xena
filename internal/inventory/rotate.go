@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -33,10 +35,20 @@ type Exec struct{}
 func (Exec) Output(ctx context.Context, env []string, name string, args ...string) ([]byte, error) {
 	// #nosec G204 -- name is a fixed CLI chosen by a rotator and args never hold secret values.
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = append(baseEnv(env), env...)
 	cmd.Stderr = os.Stderr
 
 	return cmd.Output()
+}
+
+func baseEnv(env []string) []string {
+	if len(env) == 0 {
+		return os.Environ()
+	}
+
+	return slices.DeleteFunc(os.Environ(), func(kv string) bool {
+		return strings.HasPrefix(kv, "AWS_") || strings.HasPrefix(kv, "CLOUDSDK_")
+	})
 }
 
 type Rotation struct {

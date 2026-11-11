@@ -87,6 +87,7 @@ type runCall struct {
 
 type fakeRunner struct {
 	err   error
+	errs  []error
 	calls []runCall
 }
 
@@ -100,7 +101,12 @@ func (f *fakeRunner) Run(_ context.Context, verb string, args []string, stdin io
 		}
 	}
 
+	i := len(f.calls)
 	f.calls = append(f.calls, runCall{verb: verb, args: args, stdin: data})
+
+	if f.err == nil && i < len(f.errs) {
+		return nil, f.errs[i]
+	}
 
 	return nil, f.err
 }
@@ -262,7 +268,7 @@ func TestGranter_Grant(t *testing.T) {
 			wantPut:      []string{"aws-credentials"},
 			wantCmd: append(
 				stops("aws"),
-				"systemd-run --user --unit=xena-grant-clear-aws --on-active=14400s /usr/local/bin/xena grant clear aws",
+				"systemd-run --user --collect --unit=xena-grant-clear-aws --on-active=14400s /usr/local/bin/xena grant clear aws",
 			),
 			want: now.Add(4 * time.Hour),
 		},
@@ -274,7 +280,7 @@ func TestGranter_Grant(t *testing.T) {
 			wantPut:      []string{"aws-credentials"},
 			wantCmd: append(
 				stops("aws"),
-				"systemd-run --user --unit=xena-grant-clear-aws --on-active=28800s /usr/local/bin/xena grant clear aws",
+				"systemd-run --user --collect --unit=xena-grant-clear-aws --on-active=28800s /usr/local/bin/xena grant clear aws",
 			),
 			want: now.Add(8 * time.Hour),
 		},
@@ -287,7 +293,7 @@ func TestGranter_Grant(t *testing.T) {
 			wantPut:      []string{"aws-credentials"},
 			wantCmd: append(
 				stops("aws"),
-				"systemd-run --user --unit=xena-grant-clear-aws --on-active=14400s /usr/local/bin/xena grant clear aws",
+				"systemd-run --user --collect --unit=xena-grant-clear-aws --on-active=14400s /usr/local/bin/xena grant clear aws",
 			),
 			want: now.Add(4 * time.Hour),
 		},
@@ -299,11 +305,12 @@ func TestGranter_Grant(t *testing.T) {
 			wantPut:      []string{"gcp-token"},
 			wantCmd: append(
 				stops("gcp"),
-				"systemd-run --user --unit=xena-grant-clear-gcp --on-active=14400s /usr/local/bin/xena grant clear gcp",
+				"systemd-run --user --collect --unit=xena-grant-clear-gcp --on-active=14400s /usr/local/bin/xena grant clear gcp",
 			),
 			wantBg: []string{
 				"--user",
 				"--scope",
+				"--collect",
 				"--unit=xena-grant-refresh-gcp",
 				"--property=RuntimeMaxSec=14460",
 				"systemd-cat",
@@ -335,6 +342,19 @@ func TestGranter_Grant(t *testing.T) {
 			noRunner:  true,
 		},
 		{
+			name: "error - issue fails",
+			provider: func() *fakeProvider {
+				p := awsProvider()
+				p.errs = []error{errFake}
+				return p
+			}(),
+			hours:      4,
+			wantCmd:    stops("aws"),
+			wantPrefix: "issuing aws grant",
+			wantHidden: "made-up-issuing",
+			noRunner:   true,
+		},
+		{
 			name:       "error - secrets fail",
 			provider:   awsProvider(),
 			hours:      4,
@@ -362,7 +382,7 @@ func TestGranter_Grant(t *testing.T) {
 			wantPut:      []string{"aws-credentials"},
 			wantCmd: append(
 				stops("aws"),
-				"systemd-run --user --unit=xena-grant-clear-aws --on-active=14400s /usr/local/bin/xena grant clear aws",
+				"systemd-run --user --collect --unit=xena-grant-clear-aws --on-active=14400s /usr/local/bin/xena grant clear aws",
 			),
 			wantPrefix: "scheduling clear",
 		},
@@ -375,7 +395,7 @@ func TestGranter_Grant(t *testing.T) {
 			wantPut:      []string{"gcp-token"},
 			wantCmd: append(
 				stops("gcp"),
-				"systemd-run --user --unit=xena-grant-clear-gcp --on-active=14400s /usr/local/bin/xena grant clear gcp",
+				"systemd-run --user --collect --unit=xena-grant-clear-gcp --on-active=14400s /usr/local/bin/xena grant clear gcp",
 			),
 			wantPrefix: "starting refresh",
 			wantHidden: "made-up-issuing",
@@ -397,9 +417,11 @@ func TestGranter_Grant(t *testing.T) {
 			if tt.noSecrets {
 				assert.Empty(t, f.secrets.names)
 			}
+
 			if tt.noRunner {
 				assert.Empty(t, f.runner.calls)
 			}
+
 			if tt.wantErr != nil || tt.wantPrefix != "" {
 				require.Error(t, err)
 				if tt.wantErr != nil {
@@ -414,6 +436,7 @@ func TestGranter_Grant(t *testing.T) {
 				assert.Equal(t, tt.want, got)
 				assert.Equal(t, []string{tt.provider.secret}, f.secrets.names)
 			}
+
 			if tt.wantPut != nil {
 				require.Len(t, f.runner.calls, 1)
 				assert.Equal(t, "secret-put", f.runner.calls[0].verb)
@@ -421,14 +444,17 @@ func TestGranter_Grant(t *testing.T) {
 				assert.Equal(t, "made-up-credential", string(f.runner.calls[0].stdin))
 				assert.Equal(t, []time.Duration{tt.wantLifetime}, tt.provider.lifetimes)
 			}
+
 			if tt.wantCmd != nil {
 				assert.Equal(t, tt.wantCmd, f.cmd.lines())
 			}
+
 			if tt.wantBg != nil {
 				assert.Equal(t, "made-up-issuing", string(f.background.stdin))
 				assert.Equal(t, "systemd-run", f.background.name)
 				assert.Equal(t, tt.wantBg, f.background.args)
 			}
+
 			if tt.wantBg == nil && tt.bgErr == nil {
 				assert.Zero(t, f.background.calls)
 			}
@@ -459,6 +485,7 @@ func TestGranter_Clear(t *testing.T) {
 			assert.Equal(t, []string{"systemctl --user stop xena-grant-refresh-aws.scope"}, f.cmd.lines())
 			require.Len(t, f.runner.calls, 1)
 			assert.Equal(t, runCall{verb: "secret-clear", args: []string{"aws-credentials"}}, f.runner.calls[0])
+
 			if tt.wantPrefix != "" {
 				require.Error(t, err)
 				assert.True(t, strings.HasPrefix(err.Error(), tt.wantPrefix), err.Error())
@@ -470,19 +497,23 @@ func TestGranter_Clear(t *testing.T) {
 }
 
 func TestGranter_Refresh(t *testing.T) {
-	until := now.Add(4 * time.Hour)
+	end := now.Add(4 * time.Hour)
 	put := runCall{verb: "secret-put", args: []string{"gcp-token"}, stdin: []byte("made-up-credential")}
 	clearCall := runCall{verb: "secret-clear", args: []string{"gcp-token"}}
 
 	tests := []struct {
 		name          string
+		issuing       string
+		until         time.Time
 		issueErrs     []error
+		runnerErrs    []error
 		sleepErr      error
 		wantSleeps    []time.Duration
 		wantLifetimes []time.Duration
 		wantRuns      []runCall
 		wantLog       string
 		wantErr       error
+		wantPrefix    string
 	}{
 		{
 			name: "happy path - re-mints until the end",
@@ -509,10 +540,35 @@ func TestGranter_Refresh(t *testing.T) {
 			wantLog:    "refreshing grant",
 		},
 		{
+			name:       "happy path - failed delivery retries after a minute",
+			runnerErrs: []error{errFake},
+			wantSleeps: []time.Duration{50 * time.Minute, time.Minute, 50 * time.Minute},
+			wantLog:    "refreshing grant",
+		},
+		{
+			name:       "happy path - end already passed clears without minting",
+			until:      now,
+			wantSleeps: []time.Duration{0},
+			wantRuns:   []runCall{clearCall},
+		},
+		{
+			name:       "error - final clear fails",
+			until:      now,
+			runnerErrs: []error{errFake},
+			wantRuns:   []runCall{clearCall},
+			wantPrefix: "clearing gcp-token",
+		},
+		{
 			name:     "error - context cancelled",
 			sleepErr: context.Canceled,
 			wantRuns: []runCall{},
 			wantErr:  context.Canceled,
+		},
+		{
+			name:     "error - empty issuing secret",
+			issuing:  " ",
+			wantRuns: []runCall{},
+			wantErr:  grant.ErrInvalidSecret,
 		},
 	}
 	for _, tt := range tests {
@@ -520,30 +576,51 @@ func TestGranter_Refresh(t *testing.T) {
 			// given
 			g, f := newGranter()
 			f.clock.err = tt.sleepErr
+			f.runner.errs = tt.runnerErrs
 			p := gcpProvider()
 			p.errs = tt.issueErrs
 
+			issuing := "made-up-issuing"
+			if tt.issuing != "" {
+				issuing = tt.issuing
+			}
+
+			until := end
+			if !tt.until.IsZero() {
+				until = tt.until
+			}
+
 			// when
-			err := g.Refresh(context.Background(), p, []byte("made-up-issuing"), until)
+			err := g.Refresh(context.Background(), p, []byte(issuing), until)
 
 			// then
-			if tt.wantErr != nil {
-				require.ErrorIs(t, err, tt.wantErr)
-				assert.Empty(t, f.runner.calls)
+			assert.NotContains(t, f.log.String(), "made-up-issuing")
+			assert.NotContains(t, f.log.String(), "made-up-credential")
+
+			if tt.wantRuns != nil {
+				assert.Equal(t, tt.wantRuns, append([]runCall{}, f.runner.calls...))
+			}
+
+			if tt.wantErr != nil || tt.wantPrefix != "" {
+				require.Error(t, err)
+
+				if tt.wantErr != nil {
+					require.ErrorIs(t, err, tt.wantErr)
+				}
+
+				assert.True(t, strings.HasPrefix(err.Error(), tt.wantPrefix), err.Error())
 				return
 			}
+
 			require.NoError(t, err)
+			require.GreaterOrEqual(t, len(f.clock.sleeps), len(tt.wantSleeps))
 			assert.Equal(t, tt.wantSleeps, f.clock.sleeps[:len(tt.wantSleeps)])
+			assert.Equal(t, clearCall, f.runner.calls[len(f.runner.calls)-1])
+			assert.Contains(t, f.log.String(), tt.wantLog)
+
 			if tt.wantLifetimes != nil {
 				assert.Equal(t, tt.wantLifetimes, p.lifetimes)
 			}
-			if tt.wantRuns != nil {
-				assert.Equal(t, tt.wantRuns, f.runner.calls)
-			}
-			assert.Equal(t, clearCall, f.runner.calls[len(f.runner.calls)-1])
-			assert.Contains(t, f.log.String(), tt.wantLog)
-			assert.NotContains(t, f.log.String(), "made-up-issuing")
-			assert.NotContains(t, f.log.String(), "made-up-credential")
 		})
 	}
 }
