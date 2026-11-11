@@ -47,7 +47,11 @@ jobs:
           go-version-file: './go.mod'
 
       - name: Install age
-        run: sudo apt-get update && sudo apt-get install --yes age
+        run: |
+          go install \
+            filippo.io/age/cmd/age@v1.2.1 \
+            filippo.io/age/cmd/age-keygen@v1.2.1
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Run Unit Tests
         run: make test-unit
