@@ -26,6 +26,7 @@ system_units=(
 	xena-resume.service
 	xena-expose@.service
 	xena-unexpose@.service
+	xena-tokend-fence@.service
 )
 installed_system_units=()
 installed_user_units=()

@@ -42,4 +42,14 @@ table inet xena {
 		iifname "xena0" drop
 		oifname "xena0" drop
 	}
+
+	chain output_tokend {
+		type filter hook output priority filter; policy accept;
+	}
+
+	chain tokend {
+		ip daddr 192.168.150.10 tcp dport 22 accept
+		log prefix "xena-tokend-drop: " level warn
+		drop
+	}
 }

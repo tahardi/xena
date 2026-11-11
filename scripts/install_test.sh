@@ -129,6 +129,7 @@ setup() {
 	commit_file deploy/journald/xena.conf $'[Journal]\nMaxRetentionSec=90day'
 	commit_file deploy/systemd/xena-proxy.service $'[Service]\nExecStart=/bin/true\n\n[Install]\nWantedBy=multi-user.target'
 	commit_file deploy/systemd/xena-cut.service $'[Service]\nType=oneshot\nExecStart=/bin/true'
+	commit_file 'deploy/systemd/xena-tokend-fence@.service' $'[Service]\nType=oneshot\nExecStart=/bin/true'
 	commit_file deploy/systemd/xena-nftables.service $'[Service]\nExecStart=/bin/true\n\n[Install]\nWantedBy=multi-user.target'
 	commit_file deploy/systemd/xena-report.timer $'[Timer]\nOnCalendar=daily\n\n[Install]\nWantedBy=timers.target'
 	git -C "$clone" commit -q -m initial
@@ -309,6 +310,9 @@ test_install_happy_path() {
 	assert_log_match '^go build .*-X main\.version=v0\.1\.0 '
 	assert_no_log_match 'enable.*xena-cut\.service'
 	assert_no_log_match '^usermod'
+	assert_file "$root/etc/systemd/system/xena-tokend-fence@.service"
+	assert_absent "$root/etc/systemd/user/xena-tokend-fence@.service"
+	assert_no_log_match 'enable.*xena-tokend-fence'
 }
 
 test_install_idempotent() {

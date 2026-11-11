@@ -1,0 +1,13 @@
+[Unit]
+Description=Limit the Xena token service network
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/nft 'flush chain inet xena output_tokend; add rule inet xena output_tokend socket cgroupv2 level 4 "user.slice/user-%i.slice/user@%i.service/tokend.slice" jump tokend'
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=
+RestrictAddressFamilies=AF_NETLINK AF_UNIX

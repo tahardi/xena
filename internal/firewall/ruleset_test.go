@@ -111,6 +111,10 @@ func TestRuleset(t *testing.T) {
 		{name: "happy path - drop logs are rate limited", want: `limit rate 10/second burst 50 packets log prefix "xena-drop: "`},
 		{name: "happy path - forward drops after log", want: "\t\tiifname \"xena0\" drop\n"},
 		{name: "happy path - other traffic to the bridge drops", want: `oifname "xena0" drop`},
+		{name: "happy path - tokend output chain", want: "chain output_tokend"},
+		{name: "happy path - tokend chain", want: "chain tokend"},
+		{name: "happy path - tokend ssh rule", want: "ip daddr 192.168.150.10 tcp dport 22 accept"},
+		{name: "happy path - tokend drop log", want: `log prefix "xena-tokend-drop: " level warn`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -156,6 +160,11 @@ func TestRuleset(t *testing.T) {
 			first:  `iifname "xena0" meta pkttype { broadcast, multicast } drop`,
 			second: `iifname "xena0" limit rate`,
 		},
+		{
+			name:   "happy path - tokend ssh before tokend log",
+			first:  "ip daddr 192.168.150.10 tcp dport 22 accept",
+			second: `log prefix "xena-tokend-drop: "`,
+		},
 	}
 	for _, tt := range orders {
 		t.Run(tt.name, func(t *testing.T) {
@@ -173,6 +182,18 @@ func TestRuleset(t *testing.T) {
 			assert.Less(t, first, second)
 		})
 	}
+
+	t.Run("happy path - boot file has no cgroup match", func(t *testing.T) {
+		// given
+		data, err := os.ReadFile("../../deploy/nftables/xena.nft")
+		require.NoError(t, err)
+
+		// when
+		got := string(data)
+
+		// then
+		assert.NotContains(t, got, "socket cgroupv2")
+	})
 
 	units := []struct {
 		name    string
@@ -201,6 +222,19 @@ func TestRuleset(t *testing.T) {
 			name: "happy path - table loads before libvirt",
 			path: "../../deploy/systemd/xena-nftables.service",
 			want: []string{"Before=libvirtd.service xena-proxy.service\n"},
+		},
+		{
+			name: "happy path - fence unit",
+			path: "../../deploy/systemd/xena-tokend-fence@.service",
+			want: []string{
+				"Type=oneshot\n",
+				"ExecStart=/usr/sbin/nft 'flush chain inet xena output_tokend; " +
+					"add rule inet xena output_tokend socket cgroupv2 level 4 " +
+					"\"user.slice/user-%i.slice/user@%i.service/tokend.slice\" jump tokend'\n",
+				"CapabilityBoundingSet=CAP_NET_ADMIN\n",
+				"RestrictAddressFamilies=AF_NETLINK AF_UNIX\n",
+			},
+			notWant: []string{"[Install]"},
 		},
 	}
 	for _, tt := range units {
