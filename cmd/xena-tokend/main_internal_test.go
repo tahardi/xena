@@ -98,7 +98,11 @@ func TestRun(t *testing.T) {
 func TestUnlock(t *testing.T) {
 	t.Run("error - prints no touch prompt when age is missing", func(t *testing.T) {
 		// given
-		t.Setenv("PATH", t.TempDir())
+		binDir := t.TempDir()
+		marker := filepath.Join(binDir, "notified")
+		script := fmt.Sprintf("#!/bin/sh\n: > %q\n", marker)
+		require.NoError(t, os.WriteFile(filepath.Join(binDir, "notify-send"), []byte(script), 0o700))
+		t.Setenv("PATH", binDir)
 
 		var buf bytes.Buffer
 
@@ -109,6 +113,7 @@ func TestUnlock(t *testing.T) {
 		require.Error(t, err)
 		assert.True(t, strings.HasPrefix(err.Error(), "building secrets store"), err.Error())
 		assert.Empty(t, buf.String())
+		assert.NoFileExists(t, marker)
 	})
 
 	t.Run("error - prints touch prompt before decrypting", func(t *testing.T) {
@@ -164,6 +169,7 @@ func TestUnlock(t *testing.T) {
 
 		// then
 		require.Error(t, err)
+		assert.True(t, strings.HasPrefix(err.Error(), "reading secret"), err.Error())
 
 		args, err := os.ReadFile(argsFile)
 		require.NoError(t, err)
