@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -104,6 +105,55 @@ func TestLoadVM(t *testing.T) {
 			require.Equal(t, tt.want, got)
 		})
 	}
+	t.Run("happy path - repo file", func(t *testing.T) {
+		// given
+		path := filepath.Join("..", "..", "config", "vm.yaml")
+
+		// when
+		got, err := LoadVM(path)
+
+		// then
+		require.NoError(t, err)
+		require.Equal(t, "xena-dev", got.Name)
+		require.Equal(t, 8, got.Expose.MaxHours)
+		require.Regexp(t, `^[0-9a-f]{64}$`, got.Image.SHA256)
+		require.Regexp(
+			t,
+			`^https://cloud-images\.ubuntu\.com/releases/26\.04/release-[0-9]{8}/ubuntu-26\.04-server-cloudimg-amd64\.img$`,
+			got.Image.URL,
+		)
+		require.Regexp(t, `^52:54:00(:[0-9a-f]{2}){3}$`, got.Network.MAC)
+		require.Regexp(t, `^[0-9]+\.[0-9]+\.[0-9]+$`, got.ClaudeCodeVersion)
+		require.Regexp(t, `^[0-9a-f]{40}$`, got.DotclaudeRef)
+		require.NotEmpty(t, got.Repos)
+		for _, repo := range got.Repos {
+			require.Regexp(t, `^tahardi/[A-Za-z0-9._-]+$`, repo)
+		}
+	})
+	t.Run("happy path - deploy files agree", func(t *testing.T) {
+		// given
+		got, err := LoadVM(filepath.Join("..", "..", "config", "vm.yaml"))
+		require.NoError(t, err)
+
+		// when
+		network, networkErr := os.ReadFile(filepath.Join("..", "..", "deploy", "libvirt", "xena-net.xml"))
+		firewall, firewallErr := os.ReadFile(filepath.Join("..", "..", "deploy", "nftables", "xena.nft"))
+
+		// then
+		require.NoError(t, networkErr)
+		require.NoError(t, firewallErr)
+		require.Contains(
+			t,
+			string(network),
+			"address='"+got.Network.BridgeAddress+"' prefix='"+strconv.Itoa(got.Network.Prefix)+"'",
+		)
+		require.Contains(t, string(network), "name='"+got.Network.Bridge+"'")
+		require.Contains(
+			t,
+			string(firewall),
+			"ip saddr "+got.Network.VMAddress+" tcp dport "+strconv.Itoa(got.ProxyPort),
+		)
+	})
 	t.Run("error - misspelled key", func(t *testing.T) {
 		// given
 		path := filepath.Join(t.TempDir(), "vm.yaml")

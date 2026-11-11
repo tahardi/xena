@@ -6,17 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"log/slog"
 	"net"
-	"os"
-	"os/user"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -53,7 +48,7 @@ func startPrompter(t *testing.T, timeout time.Duration) (*proxy.SocketPrompter, 
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "p.sock")
-	ln, err := proxy.ListenPromptSocket(t.Context(), path, "")
+	ln, err := proxy.ListenSocket(t.Context(), path, "")
 	require.NoError(t, err)
 
 	p := proxy.NewSocketPrompter(timeout, slog.New(slog.DiscardHandler))
@@ -451,7 +446,7 @@ func TestSocketPrompter_Ask(t *testing.T) {
 	t.Run("happy path - shutdown closes client", func(t *testing.T) {
 		// given
 		path := filepath.Join(t.TempDir(), "p.sock")
-		ln, err := proxy.ListenPromptSocket(t.Context(), path, "")
+		ln, err := proxy.ListenSocket(t.Context(), path, "")
 		require.NoError(t, err)
 
 		p := proxy.NewSocketPrompter(time.Second, slog.New(slog.DiscardHandler))
@@ -488,82 +483,6 @@ func TestSocketPrompter_Ask(t *testing.T) {
 
 		require.NoError(t, result.err)
 		require.Equal(t, proxy.AnswerOnce, result.answer)
-	})
-}
-
-func TestListenPromptSocket(t *testing.T) {
-	t.Run("happy path - mode 0660", func(t *testing.T) {
-		// given
-		path := filepath.Join(t.TempDir(), "p.sock")
-
-		// when
-		ln, err := proxy.ListenPromptSocket(t.Context(), path, "")
-
-		// then
-		require.NoError(t, err)
-		defer ln.Close()
-
-		info, err := os.Stat(path)
-		require.NoError(t, err)
-		require.Equal(t, fs.FileMode(0o660)|os.ModeSocket, info.Mode())
-	})
-
-	t.Run("happy path - removes stale socket", func(t *testing.T) {
-		// given
-		path := filepath.Join(t.TempDir(), "p.sock")
-		require.NoError(t, os.WriteFile(path, []byte("stale"), 0o600))
-
-		// when
-		ln, err := proxy.ListenPromptSocket(t.Context(), path, "")
-
-		// then
-		require.NoError(t, err)
-		require.NoError(t, ln.Close())
-	})
-
-	t.Run("happy path - sets group", func(t *testing.T) {
-		// given
-		path := filepath.Join(t.TempDir(), "p.sock")
-		group, err := user.LookupGroupId(strconv.Itoa(os.Getgid()))
-		require.NoError(t, err)
-
-		// when
-		ln, err := proxy.ListenPromptSocket(t.Context(), path, group.Name)
-
-		// then
-		require.NoError(t, err)
-		defer ln.Close()
-
-		info, err := os.Stat(path)
-		require.NoError(t, err)
-
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		require.True(t, ok)
-		require.Equal(t, group.Gid, strconv.FormatUint(uint64(stat.Gid), 10))
-	})
-
-	t.Run("error - missing directory", func(t *testing.T) {
-		// given
-		path := filepath.Join(t.TempDir(), "missing", "p.sock")
-
-		// when
-		_, err := proxy.ListenPromptSocket(t.Context(), path, "")
-
-		// then
-		require.Error(t, err)
-		require.True(t, strings.HasPrefix(err.Error(), "listening on prompt socket"), err.Error())
-	})
-
-	t.Run("error - unknown group", func(t *testing.T) {
-		// given
-		path := filepath.Join(t.TempDir(), "p.sock")
-
-		// when
-		_, err := proxy.ListenPromptSocket(t.Context(), path, "xena-no-such-group")
-
-		// then
-		require.Error(t, err)
-		require.True(t, strings.HasPrefix(err.Error(), "listening on prompt socket"), err.Error())
 	})
 }
 

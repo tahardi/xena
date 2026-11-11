@@ -30,4 +30,4 @@ Review `deploy/desktop/harden.sh`, then run `sudo deploy/desktop/harden.sh` for 
 
 ## Development
 
-Requires Go 1.27, shellcheck, jq, and python3-yaml. `make pre-pr` runs tidy, fix, lint, unit tests, govulncheck, gitleaks, and shellcheck, the same checks CI runs. See `docs/rulesets.md` for the branch rules on `main`.
+Requires Go 1.27, shellcheck, jq, and python3-yaml. Run `make agent` once before using Go commands directly, and again after changing `cmd/xena-agent`, because the `xena` binary embeds the agent it builds. `make pre-pr` runs tidy, fix, lint, unit tests, govulncheck, gitleaks, and shellcheck, the same checks CI runs. See `docs/rulesets.md` for the branch rules on `main`.

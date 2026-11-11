@@ -1,0 +1,4 @@
+{{.InteractiveKey}}
+{{.BackupKey}}
+{{.CarryKey}}
+restrict,command="/usr/local/lib/xena/xena-agent" {{.AutomationKey}}

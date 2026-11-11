@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,43 @@ import (
 
 	"github.com/tahardi/xena/internal/github"
 )
+
+func TestTokendClient(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{name: "happy path - github api", url: githubAPI},
+		{name: "happy path - other host", url: "https://example.com/path"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// given
+			socket := filepath.Join(t.TempDir(), "missing.sock")
+			t.Setenv("XENA_TOKEND_SOCKET", socket)
+
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, tt.url, nil)
+			require.NoError(t, err)
+
+			// when
+			client := tokendClient()
+
+			// then
+			require.Equal(t, httpTimeout, client.Timeout)
+
+			transport, ok := client.Transport.(*http.Transport)
+			require.True(t, ok)
+			require.NotNil(t, transport.DialContext)
+
+			got, err := transport.Proxy(req)
+			require.NoError(t, err)
+			require.Equal(t, "http://"+proxyHost, got.String())
+
+			_, err = transport.DialContext(t.Context(), "tcp", "example.com:443")
+			require.ErrorContains(t, err, "dial unix "+socket)
+		})
+	}
+}
 
 func TestRun(t *testing.T) {
 	tests := []struct {

@@ -8,7 +8,7 @@ ConditionPathExists=/usr/local/share/xena/config/vm.yaml
 Type=simple
 User=xena-proxy
 Group=xena-proxy
-SupplementaryGroups=xena-prompt
+SupplementaryGroups=xena-prompt xena-tokend
 ExecStart=/usr/local/bin/xena-proxy
 Restart=always
 RestartSec=5
@@ -41,7 +41,7 @@ SystemCallFilter=~@privileged @resources
 SystemCallFilter=@chown
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 IPAddressDeny=0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.168.0.0/16 198.18.0.0/15 224.0.0.0/4 240.0.0.0/4 ::/96 ::1/128 64:ff9b::/96 fc00::/7 fe80::/10 fec0::/10 ff00::/8
-IPAddressAllow=192.168.150.10/32 127.0.0.1/32 127.0.0.53/32
+IPAddressAllow=192.168.150.10/32 127.0.0.53/32
 
 [Install]
 WantedBy=multi-user.target

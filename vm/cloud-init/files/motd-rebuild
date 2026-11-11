@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Xena VM built {{.BuiltOn}}. Rebuild with make vm by {{.RebuildBy}}."

@@ -1,0 +1,5 @@
+[user]
+	name = {{.GitName}}
+	email = {{.GitEmail}}
+[credential "https://github.com"]
+	helper = "!f() { echo username=x-access-token; printf 'password=%s\\n' \"$(cat /home/dev/.config/xena/github-token)\"; }; f"

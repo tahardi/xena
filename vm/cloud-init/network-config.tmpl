@@ -1,0 +1,15 @@
+network:
+  version: 2
+  ethernets:
+    primary:
+      match:
+        macaddress: "{{.MAC}}"
+      addresses:
+        - {{.VMAddress}}/{{.Prefix}}
+      dhcp4: false
+      dhcp6: false
+      accept-ra: false
+      link-local: []
+      routes:
+        - to: default
+          via: {{.BridgeAddress}}

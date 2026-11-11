@@ -32,7 +32,7 @@ write_fakes() {
 	write_fake xena </dev/null
 
 	write_fake getent <<'EOF'
-[[ " ${FAKE_GETENT-xena-proxy xena-watch xena-prompt} " == *" $2 "* ]]
+[[ " ${FAKE_GETENT-xena-proxy xena-watch xena-prompt xena-tokend} " == *" $2 "* ]]
 EOF
 
 	write_fake virsh <<'EOF'
@@ -56,6 +56,7 @@ EOF
 
 	write_fake go <<'EOF'
 echo "go-env GOWORK=${GOWORK-} GOFLAGS=${GOFLAGS-} GOENV=${GOENV-} GOTOOLCHAIN=${GOTOOLCHAIN-}" >>"$FAKE_LOG"
+echo "go-target GOOS=${GOOS-} GOARCH=${GOARCH-} $*" >>"$FAKE_LOG"
 if [[ -n "${FAKE_GO_FAIL:-}" ]]; then
 	exit 1
 fi
@@ -595,32 +596,20 @@ test_install_skips_incomplete_vm_config() {
 	assert_file "$root/usr/local/share/xena/config/vm.yaml"
 }
 
-test_install_fills_proxy_port() {
-	commit_file config/vm.yaml $'version: 1\nnetwork:\n  vm_address: 192.168.150.10\nproxy_port: 4128'
-	commit_file deploy/systemd/xena-tokend.service $'[Service]\nEnvironment=HTTPS_PROXY=http://127.0.0.1:@PROXY_PORT@'
-	git -C "$clone" commit -q -m port
+test_install_builds_agent_first() {
+	local agent_line xena_line
+
+	git -C "$clone" commit -q --allow-empty -m agent
 	git -C "$clone" push -q origin main
-	signed_tag "$work/key" v0.7.0
+	signed_tag "$work/key" v0.7.1
 
-	run_install v0.7.0 >/dev/null
+	run_install v0.7.1 >/dev/null
 
-	grep -qxF "Environment=HTTPS_PROXY=http://127.0.0.1:4128" "$root/etc/systemd/user/xena-tokend.service" ||
-		fail "proxy port not filled in"
-}
-
-test_install_warns_without_proxy_port() {
-	local err="$work/err"
-
-	commit_file deploy/systemd/xena-tokend.service $'[Service]\nEnvironment=HTTPS_PROXY=http://127.0.0.1:@PROXY_PORT@'
-	git -C "$clone" commit -q -m port
-	git -C "$clone" push -q origin main
-	signed_tag "$work/key" v0.7.0
-
-	run_install v0.7.0 >/dev/null 2>"$err"
-
-	grep -qF "warning: proxy_port missing from vm.yaml, xena-tokend.service left without it" "$err" ||
-		fail "missing proxy port warning"
-	assert_file "$root/etc/systemd/user/xena-tokend.service"
+	agent_line=$(grep -n '^go-target GOOS=linux GOARCH=amd64 build .*-o vm/agent/xena-agent' "$FAKE_LOG" | cut -d: -f1)
+	xena_line=$(grep -n '^go-target .*\./cmd/\.\.\.' "$FAKE_LOG" | cut -d: -f1)
+	if [[ -z "$agent_line" || -z "$xena_line" || "$agent_line" -ge "$xena_line" ]]; then
+		fail "agent not built for linux before the xena binaries"
+	fi
 }
 
 test_install_build_failure_cleans_up() {
@@ -781,10 +770,11 @@ test_uninstall_warns_on_failures() {
 
 	out=$(PURGE=1 FAKE_FAIL="nft userdel groupdel" run_uninstall 2>"$err")
 
-	[[ "$out" == *"uninstalled xena with 4 warnings"* ]] || fail "stdout '$out' does not count 4 warnings"
+	[[ "$out" == *"uninstalled xena with 5 warnings"* ]] || fail "stdout '$out' does not count 5 warnings"
 	grep -qF "warning: deleting nftables table inet xena failed" "$err" || fail "missing nft warning"
 	grep -qF "warning: removing user xena-proxy failed" "$err" || fail "missing userdel warning"
 	grep -qF "warning: removing group xena-prompt failed" "$err" || fail "missing groupdel warning"
+	grep -qF "warning: removing group xena-tokend failed" "$err" || fail "missing xena-tokend groupdel warning"
 }
 
 test_install_skips_missing_apparmor() {
@@ -875,6 +865,7 @@ test_uninstall_purge() {
 	assert_log "userdel xena-proxy"
 	assert_log "userdel xena-watch"
 	assert_log "groupdel xena-prompt"
+	assert_log "groupdel xena-tokend"
 }
 
 test_uninstall_purge_skips_missing_accounts() {
@@ -1182,8 +1173,7 @@ tests=(
 	test_install_refuses_unpushed_main_tag
 	test_install_build_failure_cleans_up
 	test_install_skips_incomplete_vm_config
-	test_install_fills_proxy_port
-	test_install_warns_without_proxy_port
+	test_install_builds_agent_first
 	test_install_clears_go_environment
 	test_install_usage
 	test_rollback_needs_version

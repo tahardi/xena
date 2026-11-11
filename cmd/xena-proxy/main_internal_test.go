@@ -124,6 +124,7 @@ hosts:
 			t.Setenv("XENA_REPO_CONFIG_DIR", configDir)
 			t.Setenv("XENA_PROXY_STATE_DIR", stateDir)
 			t.Setenv("XENA_PROMPT_SOCKET", filepath.Join(t.TempDir(), "prompt.sock"))
+			t.Setenv("XENA_TOKEND_SOCKET", filepath.Join(t.TempDir(), "tokend.sock"))
 
 			files := map[string]string{
 				filepath.Join(configDir, "vm.yaml"):               tt.vm,
