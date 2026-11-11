@@ -11,7 +11,7 @@ Xena moves agentic coding into a disposable, encrypted VM behind a network wall 
 | `xena audit [--json]` | Checks the desktop against the spec and lists every drift with its fix. Exits non-zero on drift. Runs daily at 04:00. Settings live in `~/.config/xena/audit.yaml`; copy `config/audit.example.yaml` to start. |
 | `xena firewall cut\|resume\|reapply` | Cut or restore the VM's network at the desktop firewall, or re-apply a recorded cut after the table reloads. Root only, normally run by `xena-cut.service`, `xena-resume.service`, and `xena-nftables.service`. |
 | `xena inventory check [--file-cards]` | Check the token inventory and file rotation cards. |
-| `xena rotate NAME` | Rotate one token and confirm the old value is rejected. |
+| `xena rotate NAME [--file PEM]` | Rotate one token and confirm the old value is rejected; `github-app-key` takes the new key's `.pem` with `--file`. |
 | `xena health` | Check every Xena service, timer, and the VM. |
 | `xena status [--json]` | Health, cut state, alerts, and last guard and audit for Maple. |
 | `xena guard [--case NAME]` | Run the guardrail attack suite and write `~/.local/state/xena/guard/last.json`. Exits non-zero when any case fails. `--case` runs only print their results and leave the report alone. |

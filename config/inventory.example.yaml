@@ -14,7 +14,7 @@ entries:
     rotated: 2026-10-01
     rotation_days: 180
     can_spend: false
-    rotate: "In the GitHub App settings, generate a new private key, store it with xena secrets put github-app-key, check xena github token works, then delete the old key in the App settings."
+    rotate: "In the GitHub App settings, generate a new private key, run xena rotate github-app-key --file <the .pem>, follow its prompts, then shred the .pem."
   - name: github-installation-token
     service: github
     owner: Xena GitHub App
