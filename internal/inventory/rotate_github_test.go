@@ -205,6 +205,8 @@ func TestGitHubAppKey_Create(t *testing.T) {
 				assert.True(t, strings.HasPrefix(err.Error(), tt.wantPrefix), err.Error())
 				assert.NotContains(t, err.Error(), "PRIVATE KEY")
 				assert.NotContains(t, out.String(), "PRIVATE KEY")
+				assert.NotContains(t, err.Error(), "ghs_madeup")
+				assert.NotContains(t, out.String(), "ghs_madeup")
 				if tt.wantNoCall {
 					assert.Empty(t, srv.requests)
 				}
