@@ -424,10 +424,13 @@ func TestGranter_Grant(t *testing.T) {
 
 			if tt.wantErr != nil || tt.wantPrefix != "" {
 				require.Error(t, err)
+
 				if tt.wantErr != nil {
 					require.ErrorIs(t, err, tt.wantErr)
 				}
+
 				assert.True(t, strings.HasPrefix(err.Error(), tt.wantPrefix), err.Error())
+
 				if tt.wantHidden != "" {
 					assert.NotContains(t, err.Error(), tt.wantHidden)
 				}
@@ -491,6 +494,7 @@ func TestGranter_Clear(t *testing.T) {
 				assert.True(t, strings.HasPrefix(err.Error(), tt.wantPrefix), err.Error())
 				return
 			}
+
 			require.NoError(t, err)
 		})
 	}
@@ -510,6 +514,7 @@ func TestGranter_Refresh(t *testing.T) {
 		sleepErr      error
 		wantSleeps    []time.Duration
 		wantLifetimes []time.Duration
+		noMint        bool
 		wantRuns      []runCall
 		wantLog       string
 		wantErr       error
@@ -549,6 +554,7 @@ func TestGranter_Refresh(t *testing.T) {
 			name:       "happy path - end already passed clears without minting",
 			until:      now,
 			wantSleeps: []time.Duration{0},
+			noMint:     true,
 			wantRuns:   []runCall{clearCall},
 		},
 		{
@@ -620,6 +626,10 @@ func TestGranter_Refresh(t *testing.T) {
 
 			if tt.wantLifetimes != nil {
 				assert.Equal(t, tt.wantLifetimes, p.lifetimes)
+			}
+
+			if tt.noMint {
+				assert.Empty(t, p.lifetimes)
 			}
 		})
 	}
