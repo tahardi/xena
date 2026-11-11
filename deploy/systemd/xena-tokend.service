@@ -3,6 +3,8 @@ Description=Xena GitHub App token service
 ConditionPathExists=/usr/local/share/xena/config/vm.yaml
 
 [Service]
+Slice=tokend.slice
+ExecStartPre=/usr/bin/systemctl start xena-tokend-fence@%U.service
 ExecStart=/usr/local/bin/xena-tokend
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:%h/.cargo/bin
 Restart=on-failure

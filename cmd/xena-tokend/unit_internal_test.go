@@ -16,6 +16,8 @@ func TestTokendUnit(t *testing.T) {
 
 	wantLines := []string{
 		"ExecStart=/usr/local/bin/xena-tokend",
+		"Slice=tokend.slice",
+		"ExecStartPre=/usr/bin/systemctl start xena-tokend-fence@%U.service",
 		"Environment=PATH=/usr/local/bin:/usr/bin:/bin:%h/.cargo/bin",
 		"Restart=on-failure",
 		"UMask=0077",

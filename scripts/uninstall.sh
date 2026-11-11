@@ -69,7 +69,7 @@ disable_units() {
 	local unit
 
 	for unit in "$destdir"/etc/systemd/system/xena*; do
-		[[ -f "$unit" ]] || continue
+		[[ -f "$unit" && "$unit" != *@.service ]] || continue
 		as_root systemctl disable --now "$(basename "$unit")" || warn "disabling $(basename "$unit") failed"
 	done
 
