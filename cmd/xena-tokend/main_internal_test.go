@@ -101,6 +101,13 @@ func TestRun(t *testing.T) {
 
 			got, readErr := os.ReadFile(stdout)
 			require.NoError(t, readErr)
+
+			if tt.wantStdout == "" {
+				assert.Empty(t, string(got))
+
+				return
+			}
+
 			assert.Contains(t, string(got), tt.wantStdout)
 		})
 	}
