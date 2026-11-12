@@ -28,6 +28,7 @@ type fakeCall struct {
 }
 
 type fakeCommand struct {
+	state  *string
 	outs   [][]byte
 	errs   []error
 	onCall func(env []string)
@@ -45,6 +46,13 @@ func (f *fakeCommand) Output(_ context.Context, env []string, name string, args 
 	var out []byte
 	if i < len(f.outs) {
 		out = f.outs[i]
+	}
+
+	if out == nil && len(args) > 1 && args[1] == "is-active" {
+		out = []byte("inactive\n")
+		if f.state != nil {
+			out = []byte(*f.state + "\n")
+		}
 	}
 
 	var err error
@@ -238,6 +246,7 @@ func TestGranter_Grant(t *testing.T) {
 		return []string{
 			"systemctl --user stop xena-grant-clear-" + name + ".timer",
 			"systemctl --user stop xena-grant-refresh-" + name + ".scope",
+			"systemctl --user is-active xena-grant-refresh-" + name + ".scope",
 		}
 	}
 
@@ -248,6 +257,7 @@ func TestGranter_Grant(t *testing.T) {
 		secretsErr   error
 		runnerErr    error
 		cmdErrs      []error
+		state        *string
 		bgErr        error
 		wantLifetime time.Duration
 		wantPut      []string
@@ -288,7 +298,7 @@ func TestGranter_Grant(t *testing.T) {
 			name:         "happy path - stop of a missing timer or scope is ignored",
 			provider:     awsProvider(),
 			hours:        4,
-			cmdErrs:      []error{errFake, errFake},
+			cmdErrs:      []error{errFake, errFake, errFake},
 			wantLifetime: 4 * time.Hour,
 			wantPut:      []string{"aws-credentials"},
 			wantCmd: append(
@@ -324,6 +334,17 @@ func TestGranter_Grant(t *testing.T) {
 				"2026-10-24T16:00:00Z",
 			},
 			want: now.Add(4 * time.Hour),
+		},
+		{
+			name:       "error - refresher still running",
+			provider:   gcpProvider(),
+			hours:      4,
+			state:      new("active"),
+			wantCmd:    stops("gcp"),
+			wantErr:    grant.ErrRefreshRunning,
+			wantPrefix: "stopping xena-grant-refresh-gcp.scope",
+			noSecrets:  true,
+			noRunner:   true,
 		},
 		{
 			name:      "error - hours above max",
@@ -377,7 +398,7 @@ func TestGranter_Grant(t *testing.T) {
 			name:         "error - schedule fails",
 			provider:     awsProvider(),
 			hours:        4,
-			cmdErrs:      []error{nil, nil, errFake},
+			cmdErrs:      []error{nil, nil, nil, errFake},
 			wantLifetime: 4 * time.Hour,
 			wantPut:      []string{"aws-credentials"},
 			wantCmd: append(
@@ -408,6 +429,7 @@ func TestGranter_Grant(t *testing.T) {
 			f.secrets.err = tt.secretsErr
 			f.runner.err = tt.runnerErr
 			f.cmd.errs = tt.cmdErrs
+			f.cmd.state = tt.state
 			f.background.err = tt.bgErr
 
 			// when
@@ -468,29 +490,54 @@ func TestGranter_Grant(t *testing.T) {
 func TestGranter_Clear(t *testing.T) {
 	tests := []struct {
 		name       string
+		state      *string
 		runnerErr  error
+		wantErr    error
 		wantPrefix string
 	}{
 		{name: "happy path - clears"},
+		{name: "happy path - failed refresher counts as stopped", state: new("failed")},
+		{
+			name:       "error - refresher still running",
+			state:      new("active"),
+			wantErr:    grant.ErrRefreshRunning,
+			wantPrefix: "stopping xena-grant-refresh-aws.scope",
+		},
+		{
+			name:       "error - systemd unreachable",
+			state:      new(""),
+			wantErr:    grant.ErrRefreshRunning,
+			wantPrefix: "stopping xena-grant-refresh-aws.scope",
+		},
 		{name: "error - runner fails", runnerErr: errFake, wantPrefix: "clearing aws-credentials"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
 			g, f := newGranter()
-			f.cmd.errs = []error{errFake}
+			f.cmd.errs = []error{errFake, errFake}
+			f.cmd.state = tt.state
 			f.runner.err = tt.runnerErr
 
 			// when
 			err := g.Clear(context.Background(), awsProvider())
 
 			// then
-			assert.Equal(t, []string{"systemctl --user stop xena-grant-refresh-aws.scope"}, f.cmd.lines())
+			wantCmd := []string{
+				"systemctl --user stop xena-grant-refresh-aws.scope",
+				"systemctl --user is-active xena-grant-refresh-aws.scope",
+			}
+			assert.Equal(t, wantCmd, f.cmd.lines())
 			require.Len(t, f.runner.calls, 1)
 			assert.Equal(t, runCall{verb: "secret-clear", args: []string{"aws-credentials"}}, f.runner.calls[0])
 
 			if tt.wantPrefix != "" {
 				require.Error(t, err)
+
+				if tt.wantErr != nil {
+					require.ErrorIs(t, err, tt.wantErr)
+				}
+
 				assert.True(t, strings.HasPrefix(err.Error(), tt.wantPrefix), err.Error())
 				return
 			}

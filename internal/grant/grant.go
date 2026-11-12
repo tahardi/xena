@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/tahardi/xena/internal/inventory"
@@ -22,6 +23,7 @@ var (
 	ErrInvalidSecret        = errors.New("invalid issuing secret")
 	ErrEmptyToken           = errors.New("empty token")
 	ErrIncompleteCredential = errors.New("issued credential is missing fields")
+	ErrRefreshRunning       = errors.New("refresh still running")
 )
 
 type Command = inventory.Command
@@ -61,7 +63,10 @@ func (g Granter) Grant(ctx context.Context, p Provider, hours int) (time.Time, e
 	secs := int(lifetime.Seconds())
 
 	_, _ = g.Cmd.Output(ctx, nil, "systemctl", "--user", "stop", clearUnit(p)+".timer")
-	_, _ = g.Cmd.Output(ctx, nil, "systemctl", "--user", "stop", refreshUnit(p)+".scope")
+
+	if err := g.stopRefresh(ctx, p); err != nil {
+		return time.Time{}, err
+	}
 
 	issuing, err := g.Secrets.Get(ctx, p.SecretName())
 	if err != nil {
@@ -125,13 +130,13 @@ func (g Granter) Grant(ctx context.Context, p Provider, hours int) (time.Time, e
 }
 
 func (g Granter) Clear(ctx context.Context, p Provider) error {
-	_, _ = g.Cmd.Output(ctx, nil, "systemctl", "--user", "stop", refreshUnit(p)+".scope")
+	stopErr := g.stopRefresh(ctx, p)
 
 	if _, err := g.Runner.Run(ctx, "secret-clear", []string{p.VMSecret()}, nil); err != nil {
-		return fmt.Errorf("clearing %s: %w", p.VMSecret(), err)
+		return errors.Join(stopErr, fmt.Errorf("clearing %s: %w", p.VMSecret(), err))
 	}
 
-	return nil
+	return stopErr
 }
 
 func (g Granter) Refresh(ctx context.Context, p Provider, issuing []byte, until time.Time) error {
@@ -162,6 +167,19 @@ func (g Granter) Refresh(ctx context.Context, p Provider, issuing []byte, until 
 
 		next = now.Add(g.refreshOnce(ctx, p, issuing, now, until))
 	}
+}
+
+func (g Granter) stopRefresh(ctx context.Context, p Provider) error {
+	unit := refreshUnit(p) + ".scope"
+	_, _ = g.Cmd.Output(ctx, nil, "systemctl", "--user", "stop", unit)
+
+	out, _ := g.Cmd.Output(ctx, nil, "systemctl", "--user", "is-active", unit)
+	state := strings.TrimSpace(string(out))
+	if state != "inactive" && state != "failed" {
+		return fmt.Errorf("stopping %s: %w (state %q)", unit, ErrRefreshRunning, state)
+	}
+
+	return nil
 }
 
 func (g Granter) refreshOnce(ctx context.Context, p Provider, issuing []byte, now, until time.Time) time.Duration {
