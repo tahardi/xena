@@ -94,14 +94,17 @@ type runCall struct {
 }
 
 type fakeRunner struct {
-	err     error
-	errs    []error
-	calls   []runCall
-	ctxErrs []error
+	err       error
+	errs      []error
+	calls     []runCall
+	ctxErrs   []error
+	deadlines []bool
 }
 
 func (f *fakeRunner) Run(ctx context.Context, verb string, args []string, stdin io.Reader) ([]byte, error) {
 	f.ctxErrs = append(f.ctxErrs, ctx.Err())
+	_, hasDeadline := ctx.Deadline()
+	f.deadlines = append(f.deadlines, hasDeadline)
 
 	var data []byte
 	if stdin != nil {
@@ -522,6 +525,7 @@ func TestGranter_Grant(t *testing.T) {
 				wantRunner = append(wantRunner, runCall{verb: "secret-clear", args: []string{tt.provider.vmSecret}})
 				require.NotEmpty(t, f.runner.ctxErrs)
 				require.NoError(t, f.runner.ctxErrs[len(f.runner.ctxErrs)-1])
+				assert.True(t, f.runner.deadlines[len(f.runner.deadlines)-1], "clean-up clear has no deadline")
 			}
 
 			assert.Equal(t, wantRunner, f.runner.calls)

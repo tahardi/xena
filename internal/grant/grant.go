@@ -16,6 +16,7 @@ import (
 const (
 	RefreshEvery = 50 * time.Minute
 	RetryAfter   = time.Minute
+	ClearTimeout = 30 * time.Second
 )
 
 var (
@@ -23,7 +24,7 @@ var (
 	ErrInvalidSecret        = errors.New("invalid issuing secret")
 	ErrEmptyToken           = errors.New("empty token")
 	ErrIncompleteCredential = errors.New("issued credential is missing fields")
-	ErrRefreshRunning       = errors.New("refresh still running")
+	ErrRefreshRunning       = errors.New("refresh still running and may put a new token in the VM")
 )
 
 type Command = inventory.Command
@@ -69,7 +70,10 @@ func (g Granter) Grant(ctx context.Context, p Provider, hours int) (end time.Tim
 			return
 		}
 
-		_, clearErr := g.Runner.Run(context.WithoutCancel(ctx), "secret-clear", []string{p.VMSecret()}, nil)
+		clearCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ClearTimeout)
+		defer cancel()
+
+		_, clearErr := g.Runner.Run(clearCtx, "secret-clear", []string{p.VMSecret()}, nil)
 		if clearErr != nil {
 			err = errors.Join(err, fmt.Errorf("clearing %s: %w", p.VMSecret(), clearErr))
 		}
