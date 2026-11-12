@@ -34,6 +34,21 @@
       "Action": ["iam:CreateAccessKey"],
       "Resource": "*",
       "Condition": {"ArnNotLike": {"aws:PrincipalArn": ["arn:aws:iam::*:role/OrganizationAccountAccessRole", "arn:aws:iam::*:user/xena-granter"]}}
+    },
+    {
+      "Sid": "DenyLastingAccess",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateRole", "iam:UpdateAssumeRolePolicy", "iam:PutRolePolicy", "iam:AttachRolePolicy",
+        "iam:DeleteRolePermissionsBoundary", "iam:CreatePolicyVersion", "iam:SetDefaultPolicyVersion",
+        "iam:PutUserPolicy", "iam:AttachUserPolicy", "iam:AddUserToGroup", "iam:PutGroupPolicy",
+        "iam:AttachGroupPolicy", "iam:UpdateLoginProfile", "iam:CreateServiceSpecificCredential",
+        "iam:UploadSSHPublicKey", "iam:UploadSigningCertificate", "iam:CreateOpenIDConnectProvider",
+        "iam:CreateSAMLProvider", "iam:CreateInstanceProfile", "iam:AddRoleToInstanceProfile", "iam:PassRole",
+        "rolesanywhere:*"
+      ],
+      "Resource": "*",
+      "Condition": {"ArnNotLike": {"aws:PrincipalArn": "arn:aws:iam::*:role/OrganizationAccountAccessRole"}}
     }
   ]
 }

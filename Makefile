@@ -63,6 +63,9 @@ test-cloud:
 	@python3 -B -m unittest discover \
 		-s deploy/cloud/gcp-billing-cap \
 		-p 'test_*.py'
+	@python3 -B -m unittest discover \
+		-s deploy/cloud \
+		-p 'test_aws_scp.py'
 
 .PHONY: vuln
 vuln: tidy agent
