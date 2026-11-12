@@ -454,6 +454,8 @@ func TestGranter_Grant(t *testing.T) {
 			wantCmd: append(
 				stops("gcp"),
 				"systemd-run --user --collect --unit=xena-grant-clear-gcp --on-active=14400s /usr/local/bin/xena grant clear gcp",
+				"systemctl --user stop xena-grant-refresh-gcp.scope",
+				"systemctl --user is-active xena-grant-refresh-gcp.scope",
 			),
 			wantPrefix: "starting refresh",
 			wantHidden: "made-up-issuing",

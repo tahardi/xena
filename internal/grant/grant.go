@@ -65,6 +65,7 @@ func (g Granter) Grant(ctx context.Context, p Provider, hours int) (end time.Tim
 
 	_, _ = g.Cmd.Output(ctx, nil, "systemctl", "--user", "stop", clearUnit(p)+".timer")
 
+	refreshStarted := false
 	defer func() {
 		if err == nil {
 			return
@@ -72,6 +73,10 @@ func (g Granter) Grant(ctx context.Context, p Provider, hours int) (end time.Tim
 
 		clearCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ClearTimeout)
 		defer cancel()
+
+		if refreshStarted {
+			err = errors.Join(err, g.stopRefresh(clearCtx, p))
+		}
 
 		_, clearErr := g.Runner.Run(clearCtx, "secret-clear", []string{p.VMSecret()}, nil)
 		if clearErr != nil {
@@ -118,6 +123,7 @@ func (g Granter) Grant(ctx context.Context, p Provider, hours int) (end time.Tim
 		return end, nil
 	}
 
+	refreshStarted = true
 	err = g.Background.Start(
 		ctx,
 		issuing,
