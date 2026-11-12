@@ -142,6 +142,24 @@ func (a App) Suspend(ctx context.Context) error {
 	return nil
 }
 
+func (a App) KeyAccepted(ctx context.Context) (bool, error) {
+	resp, err := a.do(ctx, http.MethodGet, "/app")
+	if err != nil {
+		return false, fmt.Errorf("checking app key: %w", err)
+	}
+
+	defer closeBody(resp)
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusUnauthorized:
+		return false, nil
+	default:
+		return false, fmt.Errorf("checking app key: %w: %d", ErrUnexpectedStatus, resp.StatusCode)
+	}
+}
+
 func (a App) do(ctx context.Context, method, path string) (*http.Response, error) {
 	jwt, err := a.JWT(time.Now())
 	if err != nil {

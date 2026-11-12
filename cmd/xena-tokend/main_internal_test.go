@@ -61,8 +61,14 @@ func TestRun(t *testing.T) {
 		args          []string
 		appConfig     string
 		wantErrPrefix string
+		wantStdout    string
 	}{
-		{name: "error - unknown flag", args: []string{"--bogus"}, wantErrPrefix: "parsing flags"},
+		{
+			name:          "error - unknown flag",
+			args:          []string{"--bogus"},
+			wantErrPrefix: "parsing flags",
+			wantStdout:    "Usage of xena-tokend",
+		},
 		{name: "error - missing app config", args: nil, wantErrPrefix: "loading github app config"},
 		{
 			name:          "error - missing vm config",
@@ -83,6 +89,7 @@ func TestRun(t *testing.T) {
 				require.NoError(t, os.WriteFile(path, []byte(tt.appConfig), 0o600))
 			}
 
+			stdout := tempStdout(t)
 			logger := slog.New(slog.DiscardHandler)
 
 			// when
@@ -91,14 +98,61 @@ func TestRun(t *testing.T) {
 			// then
 			require.Error(t, err)
 			assert.True(t, strings.HasPrefix(err.Error(), tt.wantErrPrefix), err.Error())
+
+			got, readErr := os.ReadFile(stdout)
+			require.NoError(t, readErr)
+
+			if tt.wantStdout == "" {
+				assert.Empty(t, string(got))
+
+				return
+			}
+
+			assert.Contains(t, string(got), tt.wantStdout)
 		})
 	}
+
+	t.Run("happy path - help prints usage", func(t *testing.T) {
+		// given
+		stdout := tempStdout(t)
+		logger := slog.New(slog.DiscardHandler)
+
+		// when
+		err := run(context.Background(), []string{"--help"}, logger)
+
+		// then
+		require.NoError(t, err)
+
+		got, readErr := os.ReadFile(stdout)
+		require.NoError(t, readErr)
+		assert.Contains(t, string(got), "Usage of xena-tokend")
+	})
+}
+
+func tempStdout(t *testing.T) string {
+	t.Helper()
+
+	file, err := os.CreateTemp(t.TempDir(), "stdout")
+	require.NoError(t, err)
+
+	stdout := os.Stdout
+	os.Stdout = file
+	t.Cleanup(func() {
+		os.Stdout = stdout
+		_ = file.Close()
+	})
+
+	return file.Name()
 }
 
 func TestUnlock(t *testing.T) {
-	t.Run("error - prints touch prompt before decrypting", func(t *testing.T) {
+	t.Run("error - prints no touch prompt when age is missing", func(t *testing.T) {
 		// given
-		t.Setenv("PATH", t.TempDir())
+		binDir := t.TempDir()
+		marker := filepath.Join(binDir, "notified")
+		script := fmt.Sprintf("#!/bin/sh\n: > %q\n", marker)
+		require.NoError(t, os.WriteFile(filepath.Join(binDir, "notify-send"), []byte(script), 0o700))
+		t.Setenv("PATH", binDir)
 
 		var buf bytes.Buffer
 
@@ -108,16 +162,32 @@ func TestUnlock(t *testing.T) {
 		// then
 		require.Error(t, err)
 		assert.True(t, strings.HasPrefix(err.Error(), "building secrets store"), err.Error())
+		assert.Empty(t, buf.String())
+		assert.NoFileExists(t, marker)
+	})
+
+	t.Run("error - prints touch prompt before decrypting", func(t *testing.T) {
+		// given
+		fakeAge(t, t.TempDir())
+
+		var buf bytes.Buffer
+
+		// when
+		_, err := unlock(context.Background(), github.AppConfig{}, &buf, slog.New(slog.DiscardHandler))
+
+		// then
+		require.Error(t, err)
+		assert.True(t, strings.HasPrefix(err.Error(), "reading secret"), err.Error())
 		assert.Equal(t, "touch your YubiKey to unlock the GitHub token service\n", buf.String())
 	})
 
 	t.Run("error - prints touch prompt before notify-send", func(t *testing.T) {
 		// given
 		binDir := t.TempDir()
+		fakeAge(t, binDir)
 		marker := filepath.Join(binDir, "notified")
 		script := fmt.Sprintf("#!/bin/sh\n: > %q\n", marker)
 		require.NoError(t, os.WriteFile(filepath.Join(binDir, "notify-send"), []byte(script), 0o700))
-		t.Setenv("PATH", binDir)
 
 		var statErr error
 		out := writerFunc(func(p []byte) (int, error) {
@@ -131,6 +201,7 @@ func TestUnlock(t *testing.T) {
 
 		// then
 		require.Error(t, err)
+		assert.True(t, strings.HasPrefix(err.Error(), "reading secret"), err.Error())
 		require.ErrorIs(t, statErr, os.ErrNotExist)
 		require.FileExists(t, marker)
 	})
@@ -138,16 +209,17 @@ func TestUnlock(t *testing.T) {
 	t.Run("error - touch notification is critical", func(t *testing.T) {
 		// given
 		binDir := t.TempDir()
+		fakeAge(t, binDir)
 		argsFile := filepath.Join(binDir, "args")
 		script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\n", argsFile)
 		require.NoError(t, os.WriteFile(filepath.Join(binDir, "notify-send"), []byte(script), 0o700))
-		t.Setenv("PATH", binDir)
 
 		// when
 		_, err := unlock(context.Background(), github.AppConfig{}, io.Discard, slog.New(slog.DiscardHandler))
 
 		// then
 		require.Error(t, err)
+		assert.True(t, strings.HasPrefix(err.Error(), "reading secret"), err.Error())
 
 		args, err := os.ReadFile(argsFile)
 		require.NoError(t, err)
@@ -157,7 +229,7 @@ func TestUnlock(t *testing.T) {
 
 	t.Run("error - logs when notify-send fails", func(t *testing.T) {
 		// given
-		t.Setenv("PATH", t.TempDir())
+		fakeAge(t, t.TempDir())
 
 		var logs bytes.Buffer
 		logger := slog.New(slog.NewJSONHandler(&logs, nil))
@@ -167,6 +239,7 @@ func TestUnlock(t *testing.T) {
 
 		// then
 		require.Error(t, err)
+		assert.True(t, strings.HasPrefix(err.Error(), "reading secret"), err.Error())
 		assert.Contains(t, logs.String(), `"level":"WARN"`)
 		assert.Contains(t, logs.String(), `"msg":"sending desktop notification"`)
 		assert.Contains(t, logs.String(), `"error":`)
@@ -174,7 +247,7 @@ func TestUnlock(t *testing.T) {
 
 	t.Run("error - continues when the prompt write fails", func(t *testing.T) {
 		// given
-		t.Setenv("PATH", t.TempDir())
+		fakeAge(t, t.TempDir())
 
 		out := writerFunc(func([]byte) (int, error) {
 			return 0, os.ErrClosed
@@ -185,8 +258,16 @@ func TestUnlock(t *testing.T) {
 
 		// then
 		require.Error(t, err)
-		assert.True(t, strings.HasPrefix(err.Error(), "building secrets store"), err.Error())
+		assert.True(t, strings.HasPrefix(err.Error(), "reading secret"), err.Error())
 	})
+}
+
+func fakeAge(t *testing.T, binDir string) {
+	t.Helper()
+
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "age"), []byte("#!/bin/sh\nexit 1\n"), 0o700))
+	t.Setenv("PATH", binDir)
+	t.Setenv("XENA_SECRETS_DIR", t.TempDir())
 }
 
 func TestUseTerminal(t *testing.T) {

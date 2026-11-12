@@ -49,8 +49,14 @@ func main() {
 
 func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	flags := flag.NewFlagSet("xena-tokend", flag.ContinueOnError)
+	flags.SetOutput(os.Stdout)
 	dryRun := flags.Bool("dry-run", false, "mint and revoke one token without touching the VM")
-	if err := flags.Parse(args); err != nil {
+	err := flags.Parse(args)
+	if errors.Is(err, flag.ErrHelp) {
+		return nil
+	}
+
+	if err != nil {
 		return fmt.Errorf("parsing flags: %w", err)
 	}
 
@@ -119,16 +125,16 @@ func useTerminal(path string) {
 }
 
 func unlock(ctx context.Context, cfg github.AppConfig, out io.Writer, logger *slog.Logger) (github.App, error) {
+	store, err := secrets.NewDefaultStore()
+	if err != nil {
+		return github.App{}, fmt.Errorf("building secrets store: %w", err)
+	}
+
 	_, _ = fmt.Fprintln(out, "touch your YubiKey to unlock the GitHub token service")
 
 	desktop := notify.Desktop{Run: notify.ExecRun}
 	if err := desktop.Show(ctx, "Touch your YubiKey", "to unlock the GitHub token service", true); err != nil {
 		logger.Warn("sending desktop notification", "error", err)
-	}
-
-	store, err := secrets.NewDefaultStore()
-	if err != nil {
-		return github.App{}, fmt.Errorf("building secrets store: %w", err)
 	}
 
 	pemKey, err := store.Get(ctx, appKeyName)

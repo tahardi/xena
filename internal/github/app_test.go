@@ -270,6 +270,53 @@ func TestApp_Suspend(t *testing.T) {
 	})
 }
 
+func TestApp_KeyAccepted(t *testing.T) {
+	tests := []struct {
+		name    string
+		noKey   bool
+		status  int
+		want    bool
+		wantErr error
+	}{
+		{name: "happy path - accepted", status: http.StatusOK, want: true},
+		{name: "happy path - rejected", status: http.StatusUnauthorized, want: false},
+		{name: "error - unexpected status", status: http.StatusInternalServerError, wantErr: github.ErrUnexpectedStatus},
+		{name: "error - nil key sends nothing", noKey: true, wantErr: github.ErrInvalidKey},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// given
+			key := testKey(t)
+			if tt.noKey {
+				key = nil
+			}
+			called := false
+			app := newApp(t, key, func(w http.ResponseWriter, r *http.Request) {
+				called = true
+				assert.Equal(t, http.MethodGet, r.Method)
+				assert.Equal(t, "/app", r.URL.Path)
+				requireBearerJWT(t, key, r.Header.Get("Authorization"))
+
+				w.WriteHeader(tt.status)
+			})
+
+			// when
+			got, err := app.KeyAccepted(context.Background())
+
+			// then
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				assert.Equal(t, !tt.noKey, called)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.True(t, called)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestParseKey(t *testing.T) {
 	key := testKey(t)
 

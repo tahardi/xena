@@ -17,11 +17,11 @@ func TestTokendProfile(t *testing.T) {
 		check func(t *testing.T, lines []string)
 	}{
 		{
-			name: "happy path - attaches to the binary",
+			name: "happy path - attaches to the binary and to disconnected paths",
 			check: func(t *testing.T, lines []string) {
 				t.Helper()
 
-				require.Contains(t, lines, "profile xena-tokend /usr/local/bin/xena-tokend {")
+				require.Contains(t, lines, "profile xena-tokend /usr/local/bin/xena-tokend flags=(attach_disconnected) {")
 			},
 		},
 		{
@@ -110,6 +110,34 @@ func TestTokendProfile(t *testing.T) {
 					"network inet6 dgram,",
 					"network unix stream,",
 				}, networks)
+			},
+		},
+		{
+			name: "happy path - cannot leave its cgroup slice",
+			check: func(t *testing.T, lines []string) {
+				t.Helper()
+
+				var execs []string
+				for _, rule := range fileRules(lines) {
+					if strings.Contains(rulePerms(rule), "x") {
+						execs = append(execs, rule)
+					}
+
+					if strings.Contains(rule, "/fs/cgroup/") {
+						require.Equal(t, "r", rulePerms(rule), "cgroup rule allows more than reading: %s", rule)
+					}
+				}
+
+				require.Equal(t, []string{
+					"/usr/bin/age rix,",
+					"owner @{HOME}/.cargo/bin/age-plugin-yubikey rix,",
+					"/usr/bin/ssh rix,",
+					"/usr/bin/notify-send rix,",
+				}, execs)
+
+				for _, line := range lines {
+					require.NotContains(t, line, "systemd", "rule reaches systemd: %s", line)
+				}
 			},
 		},
 		{
