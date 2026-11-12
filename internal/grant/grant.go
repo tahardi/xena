@@ -69,7 +69,8 @@ func (g Granter) Grant(ctx context.Context, p Provider, hours int) (end time.Tim
 			return
 		}
 
-		if _, clearErr := g.Runner.Run(ctx, "secret-clear", []string{p.VMSecret()}, nil); clearErr != nil {
+		_, clearErr := g.Runner.Run(context.WithoutCancel(ctx), "secret-clear", []string{p.VMSecret()}, nil)
+		if clearErr != nil {
 			err = errors.Join(err, fmt.Errorf("clearing %s: %w", p.VMSecret(), clearErr))
 		}
 	}()

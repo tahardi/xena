@@ -94,12 +94,15 @@ type runCall struct {
 }
 
 type fakeRunner struct {
-	err   error
-	errs  []error
-	calls []runCall
+	err     error
+	errs    []error
+	calls   []runCall
+	ctxErrs []error
 }
 
-func (f *fakeRunner) Run(_ context.Context, verb string, args []string, stdin io.Reader) ([]byte, error) {
+func (f *fakeRunner) Run(ctx context.Context, verb string, args []string, stdin io.Reader) ([]byte, error) {
+	f.ctxErrs = append(f.ctxErrs, ctx.Err())
+
 	var data []byte
 	if stdin != nil {
 		var err error
@@ -269,6 +272,7 @@ func TestGranter_Grant(t *testing.T) {
 		wantHidden   string
 		noSecrets    bool
 		wantClear    bool
+		cancel       bool
 		wantAlso     string
 	}{
 		{
@@ -345,6 +349,34 @@ func TestGranter_Grant(t *testing.T) {
 			wantErr:    grant.ErrRefreshRunning,
 			wantPrefix: "stopping xena-grant-refresh-gcp.scope",
 			noSecrets:  true,
+			wantClear:  true,
+		},
+		{
+			name:       "error - refresher still running and clean-up clear fails",
+			provider:   gcpProvider(),
+			hours:      4,
+			state:      new("active"),
+			runnerErr:  errFake,
+			wantCmd:    stops("gcp"),
+			wantErr:    grant.ErrRefreshRunning,
+			wantPrefix: "stopping xena-grant-refresh-gcp.scope",
+			wantAlso:   "clearing gcp-token",
+			noSecrets:  true,
+			wantClear:  true,
+		},
+		{
+			name:         "error - interrupted grant still clears",
+			provider:     awsProvider(),
+			hours:        4,
+			cancel:       true,
+			cmdErrs:      []error{nil, nil, nil, errFake},
+			wantLifetime: 4 * time.Hour,
+			wantPut:      []string{"aws-credentials"},
+			wantCmd: append(
+				stops("aws"),
+				"systemd-run --user --collect --unit=xena-grant-clear-aws --on-active=14400s /usr/local/bin/xena grant clear aws",
+			),
+			wantPrefix: "scheduling clear",
 			wantClear:  true,
 		},
 		{
@@ -436,7 +468,18 @@ func TestGranter_Grant(t *testing.T) {
 			f.background.err = tt.bgErr
 
 			// when
-			got, err := g.Grant(context.Background(), tt.provider, tt.hours)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			if tt.cancel {
+				f.cmd.onCall = func([]string) {
+					if len(f.cmd.calls) == 4 {
+						cancel()
+					}
+				}
+			}
+
+			got, err := g.Grant(ctx, tt.provider, tt.hours)
 
 			// then
 			if tt.noSecrets {
@@ -477,6 +520,8 @@ func TestGranter_Grant(t *testing.T) {
 
 			if tt.wantClear {
 				wantRunner = append(wantRunner, runCall{verb: "secret-clear", args: []string{tt.provider.vmSecret}})
+				require.NotEmpty(t, f.runner.ctxErrs)
+				require.NoError(t, f.runner.ctxErrs[len(f.runner.ctxErrs)-1])
 			}
 
 			assert.Equal(t, wantRunner, f.runner.calls)

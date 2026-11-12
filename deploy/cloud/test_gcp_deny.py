@@ -21,10 +21,15 @@ class TestGCPDeny(unittest.TestCase):
         self.assertNotIn("exceptionPrincipals", rules[0]["denyRule"])
 
     def test_denied(self):
+        # given
         with open(POLICY_PATH) as f:
-            denied = set(json.load(f)["rules"][0]["denyRule"]["deniedPermissions"])
+            policy = json.load(f)
 
-        cases = [
+        # when
+        denied = set(policy["rules"][0]["denyRule"]["deniedPermissions"])
+
+        # then
+        for permission in [
             "iam.googleapis.com/serviceAccountKeys.create",
             "iam.googleapis.com/serviceAccounts.create",
             "iam.googleapis.com/serviceAccounts.setIamPolicy",
@@ -38,17 +43,9 @@ class TestGCPDeny(unittest.TestCase):
             "iam.googleapis.com/workloadIdentityPoolProviders.create",
             "storage.googleapis.com/hmacKeys.create",
             "cloudresourcemanager.googleapis.com/projects.setIamPolicy",
-        ]
-        for permission in cases:
+        ]:
             with self.subTest(permission=permission):
-                # given
-                want = True
-
-                # when
-                got = permission in denied
-
-                # then
-                self.assertEqual(got, want)
+                self.assertIn(permission, denied)
 
 
 if __name__ == "__main__":
