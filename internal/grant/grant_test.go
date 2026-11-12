@@ -268,7 +268,8 @@ func TestGranter_Grant(t *testing.T) {
 		wantPrefix   string
 		wantHidden   string
 		noSecrets    bool
-		noRunner     bool
+		wantClear    bool
+		wantAlso     string
 	}{
 		{
 			name:         "happy path - default hours",
@@ -344,7 +345,7 @@ func TestGranter_Grant(t *testing.T) {
 			wantErr:    grant.ErrRefreshRunning,
 			wantPrefix: "stopping xena-grant-refresh-gcp.scope",
 			noSecrets:  true,
-			noRunner:   true,
+			wantClear:  true,
 		},
 		{
 			name:      "error - hours above max",
@@ -352,7 +353,6 @@ func TestGranter_Grant(t *testing.T) {
 			hours:     9,
 			wantErr:   grant.ErrHoursOutOfRange,
 			noSecrets: true,
-			noRunner:  true,
 		},
 		{
 			name:      "error - negative hours",
@@ -360,7 +360,6 @@ func TestGranter_Grant(t *testing.T) {
 			hours:     -1,
 			wantErr:   grant.ErrHoursOutOfRange,
 			noSecrets: true,
-			noRunner:  true,
 		},
 		{
 			name: "error - issue fails",
@@ -373,7 +372,7 @@ func TestGranter_Grant(t *testing.T) {
 			wantCmd:    stops("aws"),
 			wantPrefix: "issuing aws grant",
 			wantHidden: "made-up-issuing",
-			noRunner:   true,
+			wantClear:  true,
 		},
 		{
 			name:       "error - secrets fail",
@@ -381,7 +380,7 @@ func TestGranter_Grant(t *testing.T) {
 			hours:      4,
 			secretsErr: errFake,
 			wantPrefix: "reading aws-grant",
-			noRunner:   true,
+			wantClear:  true,
 		},
 		{
 			name:         "error - delivery fails",
@@ -392,7 +391,9 @@ func TestGranter_Grant(t *testing.T) {
 			wantPut:      []string{"aws-credentials"},
 			wantCmd:      stops("aws"),
 			wantPrefix:   "delivering aws-credentials",
+			wantAlso:     "clearing aws-credentials",
 			wantHidden:   "made-up-credential",
+			wantClear:    true,
 		},
 		{
 			name:         "error - schedule fails",
@@ -406,6 +407,7 @@ func TestGranter_Grant(t *testing.T) {
 				"systemd-run --user --collect --unit=xena-grant-clear-aws --on-active=14400s /usr/local/bin/xena grant clear aws",
 			),
 			wantPrefix: "scheduling clear",
+			wantClear:  true,
 		},
 		{
 			name:         "error - refresh start fails",
@@ -420,6 +422,7 @@ func TestGranter_Grant(t *testing.T) {
 			),
 			wantPrefix: "starting refresh",
 			wantHidden: "made-up-issuing",
+			wantClear:  true,
 		},
 	}
 	for _, tt := range tests {
@@ -440,10 +443,6 @@ func TestGranter_Grant(t *testing.T) {
 				assert.Empty(t, f.secrets.names)
 			}
 
-			if tt.noRunner {
-				assert.Empty(t, f.runner.calls)
-			}
-
 			if tt.wantErr != nil || tt.wantPrefix != "" {
 				require.Error(t, err)
 
@@ -452,6 +451,10 @@ func TestGranter_Grant(t *testing.T) {
 				}
 
 				assert.True(t, strings.HasPrefix(err.Error(), tt.wantPrefix), err.Error())
+
+				if tt.wantAlso != "" {
+					assert.Contains(t, err.Error(), tt.wantAlso)
+				}
 
 				if tt.wantHidden != "" {
 					assert.NotContains(t, err.Error(), tt.wantHidden)
@@ -462,13 +465,21 @@ func TestGranter_Grant(t *testing.T) {
 				assert.Equal(t, []string{tt.provider.secret}, f.secrets.names)
 			}
 
+			var wantRunner []runCall
 			if tt.wantPut != nil {
-				require.Len(t, f.runner.calls, 1)
-				assert.Equal(t, "secret-put", f.runner.calls[0].verb)
-				assert.Equal(t, tt.wantPut, f.runner.calls[0].args)
-				assert.Equal(t, "made-up-credential", string(f.runner.calls[0].stdin))
+				wantRunner = append(wantRunner, runCall{
+					verb:  "secret-put",
+					args:  tt.wantPut,
+					stdin: []byte("made-up-credential"),
+				})
 				assert.Equal(t, []time.Duration{tt.wantLifetime}, tt.provider.lifetimes)
 			}
+
+			if tt.wantClear {
+				wantRunner = append(wantRunner, runCall{verb: "secret-clear", args: []string{tt.provider.vmSecret}})
+			}
+
+			assert.Equal(t, wantRunner, f.runner.calls)
 
 			if tt.wantCmd != nil {
 				assert.Equal(t, tt.wantCmd, f.cmd.lines())

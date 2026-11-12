@@ -49,7 +49,7 @@ type Granter struct {
 	MaxHours     int
 }
 
-func (g Granter) Grant(ctx context.Context, p Provider, hours int) (time.Time, error) {
+func (g Granter) Grant(ctx context.Context, p Provider, hours int) (end time.Time, err error) {
 	if hours == 0 {
 		hours = g.DefaultHours
 	}
@@ -59,10 +59,20 @@ func (g Granter) Grant(ctx context.Context, p Provider, hours int) (time.Time, e
 
 	now := g.Now()
 	lifetime := time.Duration(hours) * time.Hour
-	end := now.Add(lifetime)
+	end = now.Add(lifetime)
 	secs := int(lifetime.Seconds())
 
 	_, _ = g.Cmd.Output(ctx, nil, "systemctl", "--user", "stop", clearUnit(p)+".timer")
+
+	defer func() {
+		if err == nil {
+			return
+		}
+
+		if _, clearErr := g.Runner.Run(ctx, "secret-clear", []string{p.VMSecret()}, nil); clearErr != nil {
+			err = errors.Join(err, fmt.Errorf("clearing %s: %w", p.VMSecret(), clearErr))
+		}
+	}()
 
 	if err := g.stopRefresh(ctx, p); err != nil {
 		return time.Time{}, err
