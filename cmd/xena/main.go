@@ -57,6 +57,8 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 		return runInventory(ctx, args[1:], home, os.Stdout)
 	case "rotate":
 		return runRotate(ctx, args[1:], os.Stdin, os.Stdout)
+	case "grant":
+		return runGrant(ctx, args[1:], os.Stdin, os.Stdout)
 	case "health":
 		return runHealth(ctx, os.Stdout, defaultChecks(logger))
 	case "guard":

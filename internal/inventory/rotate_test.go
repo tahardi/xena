@@ -353,3 +353,46 @@ func TestSleep(t *testing.T) {
 		})
 	}
 }
+
+func TestExec_Output(t *testing.T) {
+	tests := []struct {
+		name     string
+		env      []string
+		want     []string
+		wantGone []string
+	}{
+		{
+			name:     "happy path - given env drops inherited cloud settings",
+			env:      []string{"AWS_REGION=us-east-1"},
+			want:     []string{"AWS_REGION=us-east-1", "XENA_TEST_KEEP=kept"},
+			wantGone: []string{"AWS_PROFILE=", "CLOUDSDK_CORE_PROJECT="},
+		},
+		{
+			name: "happy path - no env keeps inherited settings",
+			want: []string{"AWS_PROFILE=made-up", "CLOUDSDK_CORE_PROJECT=made-up", "XENA_TEST_KEEP=kept"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// given
+			t.Setenv("AWS_PROFILE", "made-up")
+			t.Setenv("CLOUDSDK_CORE_PROJECT", "made-up")
+			t.Setenv("XENA_TEST_KEEP", "kept")
+
+			// when
+			out, err := inventory.Exec{}.Output(context.Background(), tt.env, "env")
+
+			// then
+			require.NoError(t, err)
+
+			lines := strings.Split(string(out), "\n")
+			assert.Subset(t, lines, tt.want)
+
+			for _, gone := range tt.wantGone {
+				for _, line := range lines {
+					assert.False(t, strings.HasPrefix(line, gone), line)
+				}
+			}
+		})
+	}
+}
