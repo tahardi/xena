@@ -19,7 +19,9 @@
           "iam.googleapis.com/workloadIdentityPools.create",
           "iam.googleapis.com/workloadIdentityPoolProviders.create",
           "storage.googleapis.com/hmacKeys.create",
-          "cloudresourcemanager.googleapis.com/projects.setIamPolicy"
+          "cloudresourcemanager.googleapis.com/projects.setIamPolicy",
+          "storage.googleapis.com/buckets.setIamPolicy",
+          "storage.googleapis.com/objects.setIamPolicy"
         ]
       }
     }

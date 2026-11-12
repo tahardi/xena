@@ -43,6 +43,8 @@ class TestGCPDeny(unittest.TestCase):
             "iam.googleapis.com/workloadIdentityPoolProviders.create",
             "storage.googleapis.com/hmacKeys.create",
             "cloudresourcemanager.googleapis.com/projects.setIamPolicy",
+            "storage.googleapis.com/buckets.setIamPolicy",
+            "storage.googleapis.com/objects.setIamPolicy",
         ]:
             with self.subTest(permission=permission):
                 self.assertIn(permission, denied)
