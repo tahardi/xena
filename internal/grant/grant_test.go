@@ -94,12 +94,18 @@ type runCall struct {
 }
 
 type fakeRunner struct {
-	err   error
-	errs  []error
-	calls []runCall
+	err       error
+	errs      []error
+	calls     []runCall
+	ctxErrs   []error
+	deadlines []bool
 }
 
-func (f *fakeRunner) Run(_ context.Context, verb string, args []string, stdin io.Reader) ([]byte, error) {
+func (f *fakeRunner) Run(ctx context.Context, verb string, args []string, stdin io.Reader) ([]byte, error) {
+	f.ctxErrs = append(f.ctxErrs, ctx.Err())
+	_, hasDeadline := ctx.Deadline()
+	f.deadlines = append(f.deadlines, hasDeadline)
+
 	var data []byte
 	if stdin != nil {
 		var err error
@@ -268,7 +274,9 @@ func TestGranter_Grant(t *testing.T) {
 		wantPrefix   string
 		wantHidden   string
 		noSecrets    bool
-		noRunner     bool
+		wantClear    bool
+		cancel       bool
+		wantAlso     string
 	}{
 		{
 			name:         "happy path - default hours",
@@ -344,7 +352,35 @@ func TestGranter_Grant(t *testing.T) {
 			wantErr:    grant.ErrRefreshRunning,
 			wantPrefix: "stopping xena-grant-refresh-gcp.scope",
 			noSecrets:  true,
-			noRunner:   true,
+			wantClear:  true,
+		},
+		{
+			name:       "error - refresher still running and clean-up clear fails",
+			provider:   gcpProvider(),
+			hours:      4,
+			state:      new("active"),
+			runnerErr:  errFake,
+			wantCmd:    stops("gcp"),
+			wantErr:    grant.ErrRefreshRunning,
+			wantPrefix: "stopping xena-grant-refresh-gcp.scope",
+			wantAlso:   "clearing gcp-token",
+			noSecrets:  true,
+			wantClear:  true,
+		},
+		{
+			name:         "error - interrupted grant still clears",
+			provider:     awsProvider(),
+			hours:        4,
+			cancel:       true,
+			cmdErrs:      []error{nil, nil, nil, errFake},
+			wantLifetime: 4 * time.Hour,
+			wantPut:      []string{"aws-credentials"},
+			wantCmd: append(
+				stops("aws"),
+				"systemd-run --user --collect --unit=xena-grant-clear-aws --on-active=14400s /usr/local/bin/xena grant clear aws",
+			),
+			wantPrefix: "scheduling clear",
+			wantClear:  true,
 		},
 		{
 			name:      "error - hours above max",
@@ -352,7 +388,6 @@ func TestGranter_Grant(t *testing.T) {
 			hours:     9,
 			wantErr:   grant.ErrHoursOutOfRange,
 			noSecrets: true,
-			noRunner:  true,
 		},
 		{
 			name:      "error - negative hours",
@@ -360,7 +395,6 @@ func TestGranter_Grant(t *testing.T) {
 			hours:     -1,
 			wantErr:   grant.ErrHoursOutOfRange,
 			noSecrets: true,
-			noRunner:  true,
 		},
 		{
 			name: "error - issue fails",
@@ -373,7 +407,7 @@ func TestGranter_Grant(t *testing.T) {
 			wantCmd:    stops("aws"),
 			wantPrefix: "issuing aws grant",
 			wantHidden: "made-up-issuing",
-			noRunner:   true,
+			wantClear:  true,
 		},
 		{
 			name:       "error - secrets fail",
@@ -381,7 +415,7 @@ func TestGranter_Grant(t *testing.T) {
 			hours:      4,
 			secretsErr: errFake,
 			wantPrefix: "reading aws-grant",
-			noRunner:   true,
+			wantClear:  true,
 		},
 		{
 			name:         "error - delivery fails",
@@ -392,7 +426,9 @@ func TestGranter_Grant(t *testing.T) {
 			wantPut:      []string{"aws-credentials"},
 			wantCmd:      stops("aws"),
 			wantPrefix:   "delivering aws-credentials",
+			wantAlso:     "clearing aws-credentials",
 			wantHidden:   "made-up-credential",
+			wantClear:    true,
 		},
 		{
 			name:         "error - schedule fails",
@@ -406,6 +442,7 @@ func TestGranter_Grant(t *testing.T) {
 				"systemd-run --user --collect --unit=xena-grant-clear-aws --on-active=14400s /usr/local/bin/xena grant clear aws",
 			),
 			wantPrefix: "scheduling clear",
+			wantClear:  true,
 		},
 		{
 			name:         "error - refresh start fails",
@@ -417,9 +454,12 @@ func TestGranter_Grant(t *testing.T) {
 			wantCmd: append(
 				stops("gcp"),
 				"systemd-run --user --collect --unit=xena-grant-clear-gcp --on-active=14400s /usr/local/bin/xena grant clear gcp",
+				"systemctl --user stop xena-grant-refresh-gcp.scope",
+				"systemctl --user is-active xena-grant-refresh-gcp.scope",
 			),
 			wantPrefix: "starting refresh",
 			wantHidden: "made-up-issuing",
+			wantClear:  true,
 		},
 	}
 	for _, tt := range tests {
@@ -433,15 +473,22 @@ func TestGranter_Grant(t *testing.T) {
 			f.background.err = tt.bgErr
 
 			// when
-			got, err := g.Grant(context.Background(), tt.provider, tt.hours)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			if tt.cancel {
+				f.cmd.onCall = func([]string) {
+					if len(f.cmd.calls) == 4 {
+						cancel()
+					}
+				}
+			}
+
+			got, err := g.Grant(ctx, tt.provider, tt.hours)
 
 			// then
 			if tt.noSecrets {
 				assert.Empty(t, f.secrets.names)
-			}
-
-			if tt.noRunner {
-				assert.Empty(t, f.runner.calls)
 			}
 
 			if tt.wantErr != nil || tt.wantPrefix != "" {
@@ -453,6 +500,10 @@ func TestGranter_Grant(t *testing.T) {
 
 				assert.True(t, strings.HasPrefix(err.Error(), tt.wantPrefix), err.Error())
 
+				if tt.wantAlso != "" {
+					assert.Contains(t, err.Error(), tt.wantAlso)
+				}
+
 				if tt.wantHidden != "" {
 					assert.NotContains(t, err.Error(), tt.wantHidden)
 				}
@@ -462,13 +513,24 @@ func TestGranter_Grant(t *testing.T) {
 				assert.Equal(t, []string{tt.provider.secret}, f.secrets.names)
 			}
 
+			var wantRunner []runCall
 			if tt.wantPut != nil {
-				require.Len(t, f.runner.calls, 1)
-				assert.Equal(t, "secret-put", f.runner.calls[0].verb)
-				assert.Equal(t, tt.wantPut, f.runner.calls[0].args)
-				assert.Equal(t, "made-up-credential", string(f.runner.calls[0].stdin))
+				wantRunner = append(wantRunner, runCall{
+					verb:  "secret-put",
+					args:  tt.wantPut,
+					stdin: []byte("made-up-credential"),
+				})
 				assert.Equal(t, []time.Duration{tt.wantLifetime}, tt.provider.lifetimes)
 			}
+
+			if tt.wantClear {
+				wantRunner = append(wantRunner, runCall{verb: "secret-clear", args: []string{tt.provider.vmSecret}})
+				require.NotEmpty(t, f.runner.ctxErrs)
+				require.NoError(t, f.runner.ctxErrs[len(f.runner.ctxErrs)-1])
+				assert.True(t, f.runner.deadlines[len(f.runner.deadlines)-1], "clean-up clear has no deadline")
+			}
+
+			assert.Equal(t, wantRunner, f.runner.calls)
 
 			if tt.wantCmd != nil {
 				assert.Equal(t, tt.wantCmd, f.cmd.lines())

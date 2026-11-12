@@ -16,6 +16,7 @@ import (
 const (
 	RefreshEvery = 50 * time.Minute
 	RetryAfter   = time.Minute
+	ClearTimeout = 30 * time.Second
 )
 
 var (
@@ -23,7 +24,7 @@ var (
 	ErrInvalidSecret        = errors.New("invalid issuing secret")
 	ErrEmptyToken           = errors.New("empty token")
 	ErrIncompleteCredential = errors.New("issued credential is missing fields")
-	ErrRefreshRunning       = errors.New("refresh still running")
+	ErrRefreshRunning       = errors.New("refresh still running and may put a new token in the VM")
 )
 
 type Command = inventory.Command
@@ -49,7 +50,7 @@ type Granter struct {
 	MaxHours     int
 }
 
-func (g Granter) Grant(ctx context.Context, p Provider, hours int) (time.Time, error) {
+func (g Granter) Grant(ctx context.Context, p Provider, hours int) (end time.Time, err error) {
 	if hours == 0 {
 		hours = g.DefaultHours
 	}
@@ -59,10 +60,29 @@ func (g Granter) Grant(ctx context.Context, p Provider, hours int) (time.Time, e
 
 	now := g.Now()
 	lifetime := time.Duration(hours) * time.Hour
-	end := now.Add(lifetime)
+	end = now.Add(lifetime)
 	secs := int(lifetime.Seconds())
 
 	_, _ = g.Cmd.Output(ctx, nil, "systemctl", "--user", "stop", clearUnit(p)+".timer")
+
+	refreshStarted := false
+	defer func() {
+		if err == nil {
+			return
+		}
+
+		clearCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ClearTimeout)
+		defer cancel()
+
+		if refreshStarted {
+			err = errors.Join(err, g.stopRefresh(clearCtx, p))
+		}
+
+		_, clearErr := g.Runner.Run(clearCtx, "secret-clear", []string{p.VMSecret()}, nil)
+		if clearErr != nil {
+			err = errors.Join(err, fmt.Errorf("clearing %s: %w", p.VMSecret(), clearErr))
+		}
+	}()
 
 	if err := g.stopRefresh(ctx, p); err != nil {
 		return time.Time{}, err
@@ -103,6 +123,7 @@ func (g Granter) Grant(ctx context.Context, p Provider, hours int) (time.Time, e
 		return end, nil
 	}
 
+	refreshStarted = true
 	err = g.Background.Start(
 		ctx,
 		issuing,

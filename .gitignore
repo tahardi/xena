@@ -13,3 +13,6 @@ coverage.*
 tmp/
 /xena
 /vm/agent/xena-agent
+
+__pycache__/
+*.pyc

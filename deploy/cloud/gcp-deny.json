@@ -1,0 +1,32 @@
+{
+  "displayName": "xena-sandbox-guard",
+  "rules": [
+    {
+      "denyRule": {
+        "deniedPrincipals": [
+          "principal://iam.googleapis.com/projects/-/serviceAccounts/xena-dev@SANDBOX_PROJECT.iam.gserviceaccount.com"
+        ],
+        "deniedPermissions": [
+          "iam.googleapis.com/serviceAccountKeys.create",
+          "iam.googleapis.com/serviceAccounts.create",
+          "iam.googleapis.com/serviceAccounts.setIamPolicy",
+          "iam.googleapis.com/serviceAccounts.actAs",
+          "iam.googleapis.com/serviceAccounts.getAccessToken",
+          "iam.googleapis.com/serviceAccounts.getOpenIdToken",
+          "iam.googleapis.com/serviceAccounts.signBlob",
+          "iam.googleapis.com/serviceAccounts.signJwt",
+          "iam.googleapis.com/serviceAccounts.implicitDelegation",
+          "iam.googleapis.com/workloadIdentityPools.create",
+          "iam.googleapis.com/workloadIdentityPoolProviders.create",
+          "storage.googleapis.com/hmacKeys.create",
+          "cloudresourcemanager.googleapis.com/projects.setIamPolicy",
+          "storage.googleapis.com/buckets.setIamPolicy",
+          "storage.googleapis.com/objects.setIamPolicy",
+          "compute.googleapis.com/commitments.create",
+          "compute.googleapis.com/reservations.create",
+          "apikeys.googleapis.com/keys.create"
+        ]
+      }
+    }
+  ]
+}
