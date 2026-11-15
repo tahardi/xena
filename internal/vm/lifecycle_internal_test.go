@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,9 +29,10 @@ const (
 )
 
 type call struct {
-	Name  string
-	Args  []string
-	Stdin string
+	Name     string
+	Args     []string
+	Stdin    string
+	Canceled bool
 }
 
 type response struct {
@@ -53,7 +55,7 @@ func newFakeExec(t *testing.T, responses []response) *fakeExec {
 	return &fakeExec{t: t, responses: responses, used: make([]bool, len(responses))}
 }
 
-func (f *fakeExec) run(_ context.Context, stdin io.Reader, name string, args ...string) ([]byte, error) {
+func (f *fakeExec) run(ctx context.Context, stdin io.Reader, name string, args ...string) ([]byte, error) {
 	in := ""
 	if stdin != nil {
 		data, err := io.ReadAll(stdin)
@@ -61,7 +63,7 @@ func (f *fakeExec) run(_ context.Context, stdin io.Reader, name string, args ...
 		in = string(data)
 	}
 
-	f.calls = append(f.calls, call{Name: name, Args: args, Stdin: in})
+	f.calls = append(f.calls, call{Name: name, Args: args, Stdin: in, Canceled: ctx.Err() != nil})
 
 	line := name + " " + strings.Join(args, " ")
 	for i, r := range f.responses {
@@ -190,6 +192,7 @@ func newTestMachine(t *testing.T, fake *fakeExec, store SecretStore, rotator Tok
 		store,
 		rotator,
 		0,
+		slog.New(slog.DiscardHandler),
 	)
 	m.run = fake.run
 
@@ -214,8 +217,9 @@ func requireErr(t *testing.T, err, wantErr error, wantPrefix string) {
 }
 
 const (
-	pingCmd         = `{"execute":"guest-ping"}`
-	bootOpen        = `{"execute":"guest-file-open","arguments":{"path":"/var/lib/cloud/instance/boot-finished","mode":"r"}}`
+	pingCmd  = `{"execute":"guest-ping"}`
+	bootOpen = `{"execute":"guest-file-open",` +
+		`"arguments":{"path":"/var/lib/cloud/instance/boot-finished","mode":"r"}}`
 	bootClose       = `{"execute":"guest-file-close","arguments":{"handle":1000}}`
 	resultOpen      = `{"execute":"guest-file-open","arguments":{"path":"/run/cloud-init/result.json","mode":"r"}}`
 	resultRead      = `{"execute":"guest-file-read","arguments":{"handle":1001,"count":4096}}`
@@ -358,6 +362,8 @@ func TestMachine_Start(t *testing.T) {
 	tests := []struct {
 		name          string
 		cut           bool
+		cancel        bool
+		getErr        error
 		responses     []response
 		wantCalls     []string
 		wantGets      []string
@@ -390,6 +396,33 @@ func TestMachine_Start(t *testing.T) {
 			wantErrPrefix: "undefining disk secret: ",
 		},
 		{
+			name:          "error - disk key unreadable",
+			getErr:        errFake,
+			responses:     []response{{Match: listCall, Out: "xena-dev\n"}, {Match: stateCall, Out: "shut off\n"}},
+			wantCalls:     []string{listCall, stateCall},
+			wantGets:      []string{"vm-disk-key"},
+			wantErrPrefix: "reading disk key: ",
+		},
+		{
+			name: "error - secret define prints no uuid",
+			responses: []response{
+				{Match: listCall, Out: "xena-dev\n"},
+				{Match: stateCall, Out: "shut off\n"},
+				{Match: virsh + "secret-define /dev/stdin", Out: "done\n"},
+			},
+			wantCalls:     []string{listCall, stateCall, virsh + "secret-define /dev/stdin"},
+			wantGets:      []string{"vm-disk-key"},
+			wantErrPrefix: "defining disk secret: ",
+		},
+		{
+			name:          "error - interrupted start still undefines secret",
+			cancel:        true,
+			responses:     startResponses(errFake, nil),
+			wantCalls:     startCalls(),
+			wantGets:      []string{"vm-disk-key"},
+			wantErrPrefix: "starting vm: ",
+		},
+		{
 			name:      "error - not defined",
 			responses: []response{{Match: listCall, Out: "\n"}},
 			wantCalls: []string{listCall},
@@ -405,8 +438,20 @@ func TestMachine_Start(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
-			fake := newFakeExec(t, tt.responses)
-			store := &fakeSecrets{key: testKey}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			responses := tt.responses
+			if tt.cancel {
+				for i := range responses {
+					if responses[i].Match == virsh+"start xena-dev" {
+						responses[i].Effect = func([]string) { cancel() }
+					}
+				}
+			}
+
+			fake := newFakeExec(t, responses)
+			store := &fakeSecrets{key: testKey, getErr: tt.getErr}
 			m := newTestMachine(t, fake, store, &fakeRotator{})
 
 			if tt.cut {
@@ -416,11 +461,17 @@ func TestMachine_Start(t *testing.T) {
 			}
 
 			// when
-			err := m.Start(context.Background())
+			err := m.Start(ctx)
 
 			// then
 			requireErr(t, err, tt.wantErr, tt.wantErrPrefix)
 			require.Equal(t, tt.wantCalls, fake.lines())
+
+			for _, c := range fake.calls {
+				if c.Name == "virsh" && slices.Contains(c.Args, "secret-undefine") {
+					require.False(t, c.Canceled)
+				}
+			}
 			require.Equal(t, tt.wantGets, store.gets)
 			fake.requireKeyNotInArgs(t)
 
@@ -441,9 +492,10 @@ func TestMachine_Stop(t *testing.T) {
 	running := response{Match: stateCall, Out: "running\n"}
 
 	tests := []struct {
-		name      string
-		responses []response
-		wantCalls []string
+		name          string
+		responses     []response
+		wantCalls     []string
+		wantErrPrefix string
 	}{
 		{
 			name: "happy path - shuts down",
@@ -480,6 +532,16 @@ func TestMachine_Stop(t *testing.T) {
 			responses: []response{{Match: listCall, Out: "xena-dev\n"}, {Match: stateCall, Out: "shut off\n"}},
 			wantCalls: []string{listCall, stateCall},
 		},
+		{
+			name: "error - shutdown fails",
+			responses: []response{
+				{Match: listCall, Out: "xena-dev\n"},
+				running,
+				{Match: virsh + "shutdown xena-dev", Err: errFake},
+			},
+			wantCalls:     []string{listCall, stateCall, virsh + "shutdown xena-dev"},
+			wantErrPrefix: "stopping vm: ",
+		},
 	}
 
 	for _, tt := range tests {
@@ -492,7 +554,7 @@ func TestMachine_Stop(t *testing.T) {
 			err := m.Stop(context.Background())
 
 			// then
-			require.NoError(t, err)
+			requireErr(t, err, nil, tt.wantErrPrefix)
 			require.Equal(t, tt.wantCalls, fake.lines())
 		})
 	}
@@ -500,9 +562,10 @@ func TestMachine_Stop(t *testing.T) {
 
 func TestMachine_Destroy(t *testing.T) {
 	tests := []struct {
-		name      string
-		responses []response
-		wantCalls []string
+		name          string
+		responses     []response
+		wantCalls     []string
+		wantErrPrefix string
 	}{
 		{
 			name: "happy path - running domain",
@@ -528,6 +591,16 @@ func TestMachine_Destroy(t *testing.T) {
 			responses: []response{{Match: listCall, Out: "\n"}},
 			wantCalls: []string{listCall},
 		},
+		{
+			name: "error - undefine fails keeps disk",
+			responses: []response{
+				{Match: listCall, Out: "xena-dev\n"},
+				{Match: stateCall, Out: "shut off\n"},
+				{Match: virsh + "undefine xena-dev", Err: errFake},
+			},
+			wantCalls:     []string{listCall, stateCall, virsh + "undefine xena-dev"},
+			wantErrPrefix: "undefining vm: ",
+		},
 	}
 
 	for _, tt := range tests {
@@ -545,10 +618,14 @@ func TestMachine_Destroy(t *testing.T) {
 			err := m.Destroy(context.Background())
 
 			// then
-			require.NoError(t, err)
+			requireErr(t, err, nil, tt.wantErrPrefix)
 			require.Equal(t, tt.wantCalls, fake.lines())
 
 			for _, file := range files {
+				if tt.wantErrPrefix != "" {
+					require.FileExists(t, file)
+					continue
+				}
 				require.NoFileExists(t, file)
 			}
 		})
@@ -588,6 +665,29 @@ func TestMachine_WaitReady(t *testing.T) {
 			wantCalls: repeatLine(agentCall(pingCmd), readyAttempts),
 			wantErr:   ErrTimeout,
 		},
+		{
+			name: "error - boot never finishes",
+			responses: append(
+				[]response{{Match: agentCall(pingCmd), Out: `{"return":{}}`}},
+				repeat(response{Match: agentCall(bootOpen), Err: errFake}, readyAttempts)...,
+			),
+			wantCalls:     append([]string{agentCall(pingCmd)}, repeatLine(agentCall(bootOpen), readyAttempts)...),
+			wantErr:       ErrTimeout,
+			wantErrPrefix: "waiting for cloud-init: ",
+		},
+		{
+			name:          "error - cloud-init result not json",
+			responses:     readyResponses("not json"),
+			wantCalls:     readyCalls(),
+			wantErrPrefix: "waiting for vm: parsing cloud-init result: ",
+		},
+		{
+			name:          "error - cloud-init result without v1",
+			responses:     readyResponses(`{}`),
+			wantCalls:     readyCalls(),
+			wantErr:       ErrCloudInit,
+			wantErrPrefix: "waiting for vm: ",
+		},
 	}
 
 	for _, tt := range tests {
@@ -623,12 +723,32 @@ func TestMachine_EjectSeed(t *testing.T) {
 
 func TestMachine_Build(t *testing.T) {
 	tests := []struct {
-		name    string
-		exists  bool
-		wantErr error
+		name          string
+		exists        bool
+		diskExists    bool
+		noDir         bool
+		wantCalls     []string
+		wantErr       error
+		wantErrPrefix string
 	}{
 		{name: "happy path - builds and boots"},
-		{name: "error - domain exists", exists: true, wantErr: ErrExists},
+		{
+			name:      "error - domain exists",
+			exists:    true,
+			wantCalls: []string{listCall, stateCall},
+			wantErr:   ErrExists,
+		},
+		{
+			name:       "error - old disk still present",
+			diskExists: true,
+			wantCalls:  []string{listCall},
+			wantErr:    ErrDiskExists,
+		},
+		{
+			name:          "error - vm dir missing",
+			noDir:         true,
+			wantErrPrefix: "checking vm dir: ",
+		},
 	}
 
 	for _, tt := range tests {
@@ -698,15 +818,23 @@ func TestMachine_Build(t *testing.T) {
 			base := filepath.Join(images, m.config.Image.SHA256[:12]+".img")
 			require.NoError(t, os.WriteFile(base, image, 0o600))
 
+			if tt.diskExists {
+				require.NoError(t, os.WriteFile(m.DiskPath(), []byte("old disk"), 0o600))
+			}
+
+			if tt.noDir {
+				m.dir = filepath.Join(t.TempDir(), "missing")
+			}
+
 			now := time.Date(2026, time.November, 15, 12, 0, 0, 0, time.UTC)
 
 			// when
 			err := m.Build(context.Background(), http.DefaultClient, now)
 
 			// then
-			if tt.wantErr != nil {
-				require.ErrorIs(t, err, tt.wantErr)
-				require.Equal(t, []string{listCall, stateCall}, fake.lines())
+			if tt.wantErr != nil || tt.wantErrPrefix != "" {
+				requireErr(t, err, tt.wantErr, tt.wantErrPrefix)
+				require.Equal(t, tt.wantCalls, fake.lines())
 				require.Empty(t, store.puts)
 				return
 			}

@@ -21,7 +21,7 @@ Xena moves agentic coding into a disposable, encrypted VM behind a network wall 
 | `xena vm stop` | Shut the VM down, forcing it off after five minutes. |
 | `xena vm destroy` | Remove the VM, its disk, and its pinned host key. |
 | `xena vm snapshot NAME` | Take a disk snapshot while the VM is off (one touch). `make vm-snapshot` names it by date. |
-| `xena vm restore NAME` | Revert the disk to a snapshot while the VM is off (one touch), then rotate the VM's tokens. `make vm-restore NAME=...` |
+| `xena vm restore NAME` | Revert the disk to a snapshot while the VM is off, then rotate the VM's tokens. Two touches: one for the disk, one for the restarted `xena-tokend`. `make vm-restore NAME=...` |
 | `xena guard [--case NAME]` | Run the guardrail attack suite and write `~/.local/state/xena/guard/last.json`. Exits non-zero when any case fails. `--case` runs only print their results and leave the report alone. |
 
 ## Talking to the VM

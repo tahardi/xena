@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/tahardi/xena/internal/config"
+	"github.com/tahardi/xena/internal/notify"
 	"github.com/tahardi/xena/internal/secrets"
 	"github.com/tahardi/xena/internal/vm"
 )
@@ -31,13 +32,20 @@ type tokendRotator struct {
 	out io.Writer
 }
 
-func (r tokendRotator) RotateVMTokens(ctx context.Context) error {
+func newTokendRotator(out io.Writer) *tokendRotator {
+	return &tokendRotator{out: out}
+}
+
+func (r *tokendRotator) RotateVMTokens(ctx context.Context) error {
+	if _, err := fmt.Fprintln(r.out, snapshotWarning+"\n"+manualRotate); err != nil {
+		return err
+	}
+
 	if err := exec.CommandContext(ctx, "systemctl", "--user", "restart", "xena-tokend.service").Run(); err != nil {
 		return fmt.Errorf("restarting xena-tokend: %w", err)
 	}
 
-	_, err := fmt.Fprintln(r.out, manualRotate)
-	return err
+	return nil
 }
 
 func runVM(ctx context.Context, args []string, logger *slog.Logger) error {
@@ -56,7 +64,7 @@ func runVM(ctx context.Context, args []string, logger *slog.Logger) error {
 		return fmt.Errorf("%w: vm %s", errUnknownCommand, sub)
 	}
 
-	m, err := newMachine()
+	m, err := newMachine(logger)
 	if err != nil {
 		return err
 	}
@@ -74,9 +82,6 @@ func runVM(ctx context.Context, args []string, logger *slog.Logger) error {
 		err = m.Snapshot(ctx, args[1])
 	case "restore":
 		err = m.Restore(ctx, args[1])
-		if err == nil {
-			_, err = fmt.Fprintln(os.Stderr, snapshotWarning)
-		}
 	}
 	if err != nil {
 		return err
@@ -86,7 +91,7 @@ func runVM(ctx context.Context, args []string, logger *slog.Logger) error {
 	return nil
 }
 
-func newMachine() (*vm.Machine, error) {
+func newMachine(logger *slog.Logger) (*vm.Machine, error) {
 	cfg, err := config.LoadVM(filepath.Join(config.RepoConfigDir(), "vm.yaml"))
 	if err != nil {
 		return nil, err
@@ -109,8 +114,9 @@ func newMachine() (*vm.Machine, error) {
 		filepath.Join(home, ".ssh", "id_ed25519_sk.pub"),
 		filepath.Join(home, ".ssh", "id_ed25519_sk_backup.pub"),
 		filepath.Join(home, ".ssh", "id_ed25519_sk_carry.pub"),
-		store,
-		tokendRotator{out: os.Stderr},
+		newTouchStore(store, notify.Desktop{Run: notify.ExecRun}, os.Stderr, logger),
+		newTokendRotator(os.Stderr),
 		vmPollEvery,
+		logger,
 	), nil
 }

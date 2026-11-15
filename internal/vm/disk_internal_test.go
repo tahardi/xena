@@ -45,6 +45,7 @@ func TestMachine_CreateDisk(t *testing.T) {
 		name          string
 		existing      bool
 		convertErr    error
+		resizeErr     error
 		wantCalls     func(disk string) []string
 		wantErr       error
 		wantErrPrefix string
@@ -67,6 +68,12 @@ func TestMachine_CreateDisk(t *testing.T) {
 			wantCalls:     func(disk string) []string { return []string{convertCall(disk)} },
 			wantErrPrefix: "creating disk: ",
 		},
+		{
+			name:          "error - resize fails",
+			resizeErr:     errFake,
+			wantCalls:     func(disk string) []string { return []string{convertCall(disk), resizeCall(disk)} },
+			wantErrPrefix: "creating disk: ",
+		},
 	}
 
 	for _, tt := range tests {
@@ -74,7 +81,7 @@ func TestMachine_CreateDisk(t *testing.T) {
 			// given
 			fake := newFakeExec(t, []response{
 				{Match: "qemu-img convert", Err: tt.convertErr, Effect: createEmpty(t)},
-				{Match: "qemu-img resize"},
+				{Match: "qemu-img resize", Err: tt.resizeErr},
 			})
 			m := newTestMachine(t, fake, &fakeSecrets{}, &fakeRotator{})
 			disk := m.DiskPath()
@@ -101,7 +108,7 @@ func TestMachine_CreateDisk(t *testing.T) {
 				require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 			}
 
-			if tt.convertErr != nil {
+			if tt.convertErr != nil || tt.resizeErr != nil {
 				require.NoFileExists(t, disk)
 			}
 		})
@@ -113,6 +120,8 @@ func TestMachine_Snapshot(t *testing.T) {
 		name          string
 		snapshot      string
 		state         string
+		listOut       string
+		getErr        error
 		wantCalls     func(disk string) []string
 		wantGets      []string
 		wantErr       error
@@ -126,6 +135,24 @@ func TestMachine_Snapshot(t *testing.T) {
 				return []string{listCall, stateCall, snapshotCall("-c", "before-upgrade", disk)}
 			},
 			wantGets: []string{"vm-disk-key"},
+		},
+		{
+			name:     "happy path - domain undefined",
+			snapshot: "before-upgrade",
+			listOut:  "\n",
+			wantCalls: func(disk string) []string {
+				return []string{listCall, snapshotCall("-c", "before-upgrade", disk)}
+			},
+			wantGets: []string{"vm-disk-key"},
+		},
+		{
+			name:          "error - disk key unreadable",
+			snapshot:      "before-upgrade",
+			state:         "shut off",
+			getErr:        errFake,
+			wantCalls:     func(string) []string { return []string{listCall, stateCall} },
+			wantGets:      []string{"vm-disk-key"},
+			wantErrPrefix: "taking snapshot before-upgrade: reading disk key: ",
 		},
 		{
 			name:      "error - vm running",
@@ -163,12 +190,17 @@ func TestMachine_Snapshot(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
+			listOut := "xena-dev\n\n"
+			if tt.listOut != "" {
+				listOut = tt.listOut
+			}
+
 			fake := newFakeExec(t, []response{
-				{Match: listCall, Out: "xena-dev\n\n"},
+				{Match: listCall, Out: listOut},
 				{Match: stateCall, Out: tt.state + "\n\n"},
 				{Match: "qemu-img snapshot"},
 			})
-			store := &fakeSecrets{key: testKey}
+			store := &fakeSecrets{key: testKey, getErr: tt.getErr}
 			m := newTestMachine(t, fake, store, &fakeRotator{})
 
 			// when

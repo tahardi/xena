@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -141,6 +142,7 @@ type Machine struct {
 	secrets        SecretStore
 	rotator        TokenRotator
 	pollEvery      time.Duration
+	logger         *slog.Logger
 	run            execFunc
 }
 
@@ -151,6 +153,7 @@ func NewMachine(
 	secrets SecretStore,
 	rotator TokenRotator,
 	pollEvery time.Duration,
+	logger *slog.Logger,
 ) *Machine {
 	return &Machine{
 		config:         cfg,
@@ -162,6 +165,7 @@ func NewMachine(
 		secrets:        secrets,
 		rotator:        rotator,
 		pollEvery:      pollEvery,
+		logger:         logger,
 		run:            runCommand,
 	}
 }
@@ -242,7 +246,8 @@ func (m *Machine) Start(ctx context.Context) error {
 
 	err = m.startWithSecret(ctx, uuid, key)
 
-	if _, undefineErr := m.virsh(ctx, nil, "secret-undefine", uuid); undefineErr != nil {
+	_, undefineErr := m.virsh(context.WithoutCancel(ctx), nil, "secret-undefine", uuid)
+	if undefineErr != nil {
 		return errors.Join(err, fmt.Errorf("undefining disk secret: %w", undefineErr))
 	}
 
@@ -277,6 +282,8 @@ func (m *Machine) Stop(ctx context.Context) error {
 			return fmt.Errorf("stopping vm: %w", err)
 		}
 	}
+
+	m.logger.Warn("vm did not shut down in time, forcing it off", "name", m.config.Name)
 
 	if _, err = m.virsh(ctx, nil, "destroy", m.config.Name); err != nil {
 		return fmt.Errorf("forcing vm off: %w", err)
@@ -379,6 +386,10 @@ func (m *Machine) EjectSeed(ctx context.Context) error {
 }
 
 func (m *Machine) Build(ctx context.Context, client *http.Client, now time.Time) error {
+	if _, err := os.Stat(m.dir); err != nil {
+		return fmt.Errorf("checking vm dir: %w", err)
+	}
+
 	state, err := m.State(ctx)
 	if err != nil {
 		return fmt.Errorf("building vm: %w", err)
@@ -388,8 +399,8 @@ func (m *Machine) Build(ctx context.Context, client *http.Client, now time.Time)
 		return fmt.Errorf("building vm: %w", ErrExists)
 	}
 
-	if _, err = os.Stat(m.dir); err != nil {
-		return fmt.Errorf("checking vm dir: %w", err)
+	if _, err = os.Stat(m.DiskPath()); !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("building vm: %w", ErrDiskExists)
 	}
 
 	base, err := m.fetchBaseImage(ctx, client)
@@ -410,6 +421,8 @@ func (m *Machine) Build(ctx context.Context, client *http.Client, now time.Time)
 		return err
 	}
 
+	m.logger.Info("vm disk created", "path", m.DiskPath())
+
 	if err = m.Define(ctx); err != nil {
 		return err
 	}
@@ -418,6 +431,8 @@ func (m *Machine) Build(ctx context.Context, client *http.Client, now time.Time)
 		return err
 	}
 
+	m.logger.Info("vm started, waiting for guest agent and cloud-init", "name", m.config.Name)
+
 	if err = m.WaitReady(ctx); err != nil {
 		return err
 	}
@@ -425,6 +440,8 @@ func (m *Machine) Build(ctx context.Context, client *http.Client, now time.Time)
 	if err = m.PinHostKey(ctx); err != nil {
 		return err
 	}
+
+	m.logger.Info("vm host key pinned", "path", m.knownHosts)
 
 	if err = m.EjectSeed(ctx); err != nil {
 		return err
@@ -646,9 +663,12 @@ func (m *Machine) virsh(ctx context.Context, stdin io.Reader, args ...string) ([
 func runCommand(ctx context.Context, stdin io.Reader, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdin = stdin
-	cmd.Stderr = io.Discard
 
 	out, err := cmd.Output()
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
+		return nil, fmt.Errorf("running %s: %w: %s", name, err, strings.TrimSpace(string(exitErr.Stderr)))
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("running %s: %w", name, err)
 	}

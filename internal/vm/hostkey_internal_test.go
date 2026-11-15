@@ -99,6 +99,16 @@ func TestMachine_PinHostKey(t *testing.T) {
 			wantErrPrefix: "reading host key: ",
 		},
 		{
+			name: "error - read fails still closes handle",
+			responses: []response{
+				{Match: agentCall(hostKeyOpen), Out: `{"return":1002}`},
+				{Match: agentCall(hostKeyRead), Err: errFake},
+				{Match: agentCall(hostKeyClose), Out: `{"return":{}}`},
+			},
+			wantCalls:     []string{agentCall(hostKeyOpen), agentCall(hostKeyRead), agentCall(hostKeyClose)},
+			wantErrPrefix: "reading host key: ",
+		},
+		{
 			name:          "error - open fails",
 			responses:     []response{{Match: agentCall(hostKeyOpen), Err: errFake}},
 			wantCalls:     []string{agentCall(hostKeyOpen)},
