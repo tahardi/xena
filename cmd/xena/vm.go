@@ -114,7 +114,7 @@ func newMachine(logger *slog.Logger) (*vm.Machine, error) {
 		filepath.Join(home, ".ssh", "id_ed25519_sk.pub"),
 		filepath.Join(home, ".ssh", "id_ed25519_sk_backup.pub"),
 		filepath.Join(home, ".ssh", "id_ed25519_sk_carry.pub"),
-		newTouchStore(store, notify.Desktop{Run: notify.ExecRun}, os.Stderr, logger),
+		newTouchStore(store, notify.Desktop{Run: notify.ExecRun}, "unlock the VM disk", os.Stderr, logger),
 		newTokendRotator(os.Stderr),
 		vmPollEvery,
 		logger,

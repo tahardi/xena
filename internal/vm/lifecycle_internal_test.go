@@ -472,6 +472,7 @@ func TestMachine_Start(t *testing.T) {
 					require.False(t, c.Canceled)
 				}
 			}
+
 			require.Equal(t, tt.wantGets, store.gets)
 			fake.requireKeyNotInArgs(t)
 
@@ -626,6 +627,7 @@ func TestMachine_Destroy(t *testing.T) {
 					require.FileExists(t, file)
 					continue
 				}
+
 				require.NoFileExists(t, file)
 			}
 		})
@@ -726,6 +728,7 @@ func TestMachine_Build(t *testing.T) {
 		name          string
 		exists        bool
 		diskExists    bool
+		diskHidden    bool
 		noDir         bool
 		wantCalls     []string
 		wantErr       error
@@ -743,6 +746,12 @@ func TestMachine_Build(t *testing.T) {
 			diskExists: true,
 			wantCalls:  []string{listCall},
 			wantErr:    ErrDiskExists,
+		},
+		{
+			name:          "error - disk check fails",
+			diskHidden:    true,
+			wantCalls:     []string{listCall},
+			wantErrPrefix: "checking vm disk: ",
 		},
 		{
 			name:          "error - vm dir missing",
@@ -826,6 +835,11 @@ func TestMachine_Build(t *testing.T) {
 				m.dir = filepath.Join(t.TempDir(), "missing")
 			}
 
+			if tt.diskHidden {
+				require.NoError(t, os.Chmod(m.dir, 0o600))
+				t.Cleanup(func() { _ = os.Chmod(m.dir, 0o700) })
+			}
+
 			now := time.Date(2026, time.November, 15, 12, 0, 0, 0, time.UTC)
 
 			// when
@@ -881,6 +895,48 @@ func TestMachine_Build(t *testing.T) {
 			require.NoDirExists(t, seedSources)
 			require.NoFileExists(t, m.SeedPath())
 			require.FileExists(t, m.knownHosts)
+		})
+	}
+}
+
+func TestRunCommand(t *testing.T) {
+	long := strings.Repeat("x", 500)
+
+	tests := []struct {
+		name          string
+		args          []string
+		stdin         string
+		want          string
+		wantErrPrefix string
+		wantNotIn     string
+	}{
+		{name: "happy path - passes stdin", args: []string{"cat"}, stdin: "hello", want: "hello"},
+		{
+			name:          "error - keeps last stderr line, capped",
+			args:          []string{"sh", "-c", "echo first >&2; echo " + long + " >&2; exit 3"},
+			wantErrPrefix: "running sh: exit status 3: " + strings.Repeat("x", stderrLimit),
+			wantNotIn:     "first",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// given
+			stdin := strings.NewReader(tt.stdin)
+
+			// when
+			out, err := runCommand(context.Background(), stdin, tt.args[0], tt.args[1:]...)
+
+			// then
+			if tt.wantErrPrefix == "" {
+				require.NoError(t, err)
+				require.Equal(t, tt.want, string(out))
+				return
+			}
+
+			require.Error(t, err)
+			require.Equal(t, tt.wantErrPrefix, err.Error())
+			require.NotContains(t, err.Error(), tt.wantNotIn)
 		})
 	}
 }

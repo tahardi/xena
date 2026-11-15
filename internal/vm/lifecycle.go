@@ -41,6 +41,7 @@ const (
 	privateDir    = 0o700
 	privateFile   = 0o600
 	imagePrefix   = 12
+	stderrLimit   = 200
 
 	domainXML = `<domain type='kvm'>
   <name>{{x .Name}}</name>
@@ -399,8 +400,10 @@ func (m *Machine) Build(ctx context.Context, client *http.Client, now time.Time)
 		return fmt.Errorf("building vm: %w", ErrExists)
 	}
 
-	if _, err = os.Stat(m.DiskPath()); !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("building vm: %w", ErrDiskExists)
+	if _, err = os.Stat(m.DiskPath()); err == nil {
+		return fmt.Errorf("building vm: %w: %s; run xena vm destroy first", ErrDiskExists, m.DiskPath())
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("checking vm disk: %w", err)
 	}
 
 	base, err := m.fetchBaseImage(ctx, client)
@@ -616,6 +619,13 @@ func readPublicKey(path string) (string, error) {
 	return strings.TrimSpace(string(content)), nil
 }
 
+func lastLine(stderr []byte) string {
+	lines := strings.Split(strings.TrimSpace(string(stderr)), "\n")
+	line := strings.TrimSpace(lines[len(lines)-1])
+
+	return line[:min(len(line), stderrLimit)]
+}
+
 func removeIfExists(path string) error {
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
@@ -666,7 +676,7 @@ func runCommand(ctx context.Context, stdin io.Reader, name string, args ...strin
 
 	out, err := cmd.Output()
 	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
-		return nil, fmt.Errorf("running %s: %w: %s", name, err, strings.TrimSpace(string(exitErr.Stderr)))
+		return nil, fmt.Errorf("running %s: %w: %s", name, err, lastLine(exitErr.Stderr))
 	}
 
 	if err != nil {

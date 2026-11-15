@@ -16,18 +16,25 @@ type touchShower interface {
 type touchStore struct {
 	store   vm.SecretStore
 	desktop touchShower
+	reason  string
 	out     io.Writer
 	logger  *slog.Logger
 }
 
-func newTouchStore(store vm.SecretStore, desktop touchShower, out io.Writer, logger *slog.Logger) *touchStore {
-	return &touchStore{store: store, desktop: desktop, out: out, logger: logger}
+func newTouchStore(
+	store vm.SecretStore,
+	desktop touchShower,
+	reason string,
+	out io.Writer,
+	logger *slog.Logger,
+) *touchStore {
+	return &touchStore{store: store, desktop: desktop, reason: reason, out: out, logger: logger}
 }
 
 func (s *touchStore) Get(ctx context.Context, name string) ([]byte, error) {
-	_, _ = fmt.Fprintln(s.out, "touch your YubiKey to unlock the VM disk")
+	_, _ = fmt.Fprintln(s.out, "touch your YubiKey to "+s.reason)
 
-	if err := s.desktop.Show(ctx, "Touch your YubiKey", "to unlock the VM disk", true); err != nil {
+	if err := s.desktop.Show(ctx, "Touch your YubiKey", "to "+s.reason, true); err != nil {
 		s.logger.Warn("sending desktop notification", "error", err)
 	}
 
