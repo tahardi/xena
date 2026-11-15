@@ -18,8 +18,9 @@ import (
 	"github.com/tahardi/xena/internal/config"
 )
 
+var testKey = strings.Repeat("0123456789abcdef", 4)
+
 const (
-	testKey    = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	virsh      = "virsh -c qemu:///system "
 	listCall   = virsh + "list --all --name"
 	stateCall  = virsh + "domstate xena-dev"
