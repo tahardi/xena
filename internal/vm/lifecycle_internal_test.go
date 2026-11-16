@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -291,6 +292,11 @@ const (
 	resultDone      = `{"v1":{"datasource":"DataSourceNoCloud","errors":[]}}`
 	resultFailed    = `{"v1":{"datasource":"DataSourceNoCloud","errors":["scripts_user failed"]}}`
 	secretDefineOut = defineUUID + "\n"
+	outputOpen      = `{"execute":"guest-file-open",` +
+		`"arguments":{"path":"/var/log/cloud-init-output.log","mode":"r"}}`
+	outputSeek  = `{"execute":"guest-file-seek","arguments":{"handle":1003,"offset":-8192,"whence":"end"}}`
+	outputRead  = `{"execute":"guest-file-read","arguments":{"handle":1003,"count":8192}}`
+	outputClose = `{"execute":"guest-file-close","arguments":{"handle":1003}}`
 )
 
 func startResponses(startErr, undefineErr error) []response {
@@ -684,6 +690,7 @@ func TestMachine_WaitReady(t *testing.T) {
 		name          string
 		responses     []response
 		wantCalls     []string
+		wantLines     []string
 		wantErr       error
 		wantErrPrefix string
 	}{
@@ -700,9 +707,18 @@ func TestMachine_WaitReady(t *testing.T) {
 			),
 		},
 		{
-			name:          "error - cloud-init reports errors",
-			responses:     readyResponses(resultFailed),
-			wantCalls:     readyCalls(),
+			name: "error - cloud-init reports errors and logs its output",
+			responses: slices.Concat(readyResponses(resultFailed), []response{
+				{Match: agentCall(outputOpen), Out: `{"return":1003}`},
+				{Match: agentCall(outputSeek), Out: `{"return":{"position":0,"eof":false}}`},
+				{Match: agentCall(outputRead), Out: agentRead("ok\nnpm ERR! network\n")},
+				{Match: agentCall(outputClose), Out: `{"return":{}}`},
+			}),
+			wantCalls: slices.Concat(
+				readyCalls(),
+				[]string{agentCall(outputOpen), agentCall(outputSeek), agentCall(outputRead), agentCall(outputClose)},
+			),
+			wantLines:     []string{"ok", "npm ERR! network"},
 			wantErr:       ErrCloudInit,
 			wantErrPrefix: "waiting for vm: cloud-init failed: scripts_user failed; see /var/log/cloud-init-output.log",
 		},
@@ -725,14 +741,14 @@ func TestMachine_WaitReady(t *testing.T) {
 		},
 		{
 			name:          "error - cloud-init result not json",
-			responses:     readyResponses("not json"),
-			wantCalls:     readyCalls(),
+			responses:     append(readyResponses("not json"), response{Match: agentCall(outputOpen), Err: errFake}),
+			wantCalls:     append(readyCalls(), agentCall(outputOpen)),
 			wantErrPrefix: "waiting for vm: parsing cloud-init result: ",
 		},
 		{
 			name:          "error - cloud-init result without v1",
-			responses:     readyResponses(`{}`),
-			wantCalls:     readyCalls(),
+			responses:     append(readyResponses(`{}`), response{Match: agentCall(outputOpen), Err: errFake}),
+			wantCalls:     append(readyCalls(), agentCall(outputOpen)),
 			wantErr:       ErrCloudInit,
 			wantErrPrefix: "waiting for vm: ",
 		},
@@ -744,12 +760,28 @@ func TestMachine_WaitReady(t *testing.T) {
 			fake := newFakeExec(t, tt.responses)
 			m := newTestMachine(t, fake, &fakeSecrets{}, &fakeRotator{})
 
+			var logs bytes.Buffer
+			m.logger = slog.New(slog.NewJSONHandler(&logs, nil))
+
 			// when
 			err := m.WaitReady(context.Background())
 
 			// then
 			requireErr(t, err, tt.wantErr, tt.wantErrPrefix)
 			require.Equal(t, tt.wantCalls, fake.lines())
+
+			var gotLines []string
+			for line := range strings.Lines(logs.String()) {
+				var record struct {
+					Msg  string `json:"msg"`
+					Line string `json:"line"`
+				}
+				require.NoError(t, json.Unmarshal([]byte(line), &record))
+				if record.Msg == "cloud-init output" {
+					gotLines = append(gotLines, record.Line)
+				}
+			}
+			require.Equal(t, tt.wantLines, gotLines)
 		})
 	}
 }

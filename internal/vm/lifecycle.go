@@ -34,6 +34,7 @@ const (
 	seedDevice    = "sda"
 	bootFinished  = "/var/lib/cloud/instance/boot-finished"
 	cloudResult   = "/run/cloud-init/result.json"
+	cloudOutput   = "/var/log/cloud-init-output.log"
 	diskKeyBytes  = 32
 	privateDir    = 0o700
 	privateFile   = 0o600
@@ -350,6 +351,7 @@ func (m *Machine) WaitReady(ctx context.Context) error {
 	}
 
 	if err = checkCloudInit(result); err != nil {
+		m.logCloudInitOutput(ctx)
 		return fmt.Errorf("waiting for vm: %w", err)
 	}
 
@@ -482,6 +484,18 @@ func (m *Machine) Build(ctx context.Context, client *http.Client, now time.Time)
 	m.logger.Info("vm built", "name", m.config.Name)
 
 	return nil
+}
+
+func (m *Machine) logCloudInitOutput(ctx context.Context) {
+	lines, err := m.guestFileTail(ctx, cloudOutput)
+	if err != nil {
+		m.logger.Warn("reading cloud-init output failed", "error", err)
+		return
+	}
+
+	for _, line := range lines {
+		m.logger.Error("cloud-init output", "line", line)
+	}
 }
 
 func (m *Machine) defineSecret(ctx context.Context) (string, error) {
