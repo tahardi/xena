@@ -404,6 +404,10 @@ func TestRenderSeed(t *testing.T) {
 			"apt-get purge -y snapd",
 			"systemctl disable --now docker.service docker.socket containerd.service",
 			"loginctl enable-linger dev",
+			`ln -sf /usr/share/docker.io/contrib/dockerd-rootless.sh "$rootless_bin/dockerd-rootless.sh"`,
+			`ln -sf /usr/bin/docker "$rootless_bin/docker"`,
+			`PATH="$rootless_bin:/usr/sbin:/usr/bin:/sbin:/bin"`,
+			"/usr/share/docker.io/contrib/dockerd-rootless-setuptool.sh install",
 		}
 
 		// when
