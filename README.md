@@ -16,6 +16,12 @@ Xena moves agentic coding into a disposable, encrypted VM behind a network wall 
 | `xena grant clear aws\|gcp` | Remove them from the VM. |
 | `xena health` | Check every Xena service, timer, and the VM. |
 | `xena status [--json]` | Health, cut state, alerts, and last guard and audit for Maple. |
+| `xena vm build` | Build the work VM from the pinned image with an encrypted disk, pin its host key, and boot it. Refuses when the VM exists; run `xena vm destroy` first. |
+| `xena vm start` | Start the VM (one touch to unlock its disk) and wait until it accepts SSH logins. Refuses while the network is cut. |
+| `xena vm stop` | Shut the VM down, forcing it off after five minutes. |
+| `xena vm destroy` | Remove the VM, its disk, and its pinned host key. |
+| `xena vm snapshot NAME` | Take a disk snapshot while the VM is off (one touch). `make vm-snapshot` names it by date. |
+| `xena vm restore NAME` | Revert the disk to a snapshot while the VM is off, then rotate the VM's tokens. Two touches: one for the disk, one for the restarted `xena-tokend`. `make vm-restore NAME=...` |
 | `xena guard [--case NAME]` | Run the guardrail attack suite and write `~/.local/state/xena/guard/last.json`. Exits non-zero when any case fails. `--case` runs only print their results and leave the report alone. |
 
 ## Talking to the VM
