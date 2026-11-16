@@ -60,7 +60,7 @@ runuser -u dev -- env \
 	PATH="$rootless_bin:/usr/sbin:/usr/bin:/sbin:/bin" \
 	XDG_RUNTIME_DIR="$runtime_dir" \
 	DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" \
-	dockerd-rootless-setuptool.sh install
+	/usr/share/docker.io/contrib/dockerd-rootless-setuptool.sh install
 
 if systemctl cat ssh.socket >/dev/null 2>&1; then
 	systemctl restart ssh.socket

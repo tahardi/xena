@@ -407,6 +407,7 @@ func TestRenderSeed(t *testing.T) {
 			`ln -sf /usr/share/docker.io/contrib/dockerd-rootless.sh "$rootless_bin/dockerd-rootless.sh"`,
 			`ln -sf /usr/bin/docker "$rootless_bin/docker"`,
 			`PATH="$rootless_bin:/usr/sbin:/usr/bin:/sbin:/bin"`,
+			"/usr/share/docker.io/contrib/dockerd-rootless-setuptool.sh install",
 		}
 
 		// when
