@@ -23,6 +23,8 @@ func newVault(t *testing.T) string {
 		"Projects/Xena/Reports/2026-W43.md",
 		"Journal/2026-10-01.md",
 		"Projects/.obsidian/x.md",
+		"Learning/Security/Command-Injection.md",
+		"Learning/Networking/TLS.md",
 	}
 	for _, file := range files {
 		full := filepath.Join(root, filepath.FromSlash(file))
@@ -35,6 +37,7 @@ func newVault(t *testing.T) string {
 	require.NoError(t, os.Symlink("../Journal", filepath.Join(root, "Projects", "linkdir")))
 	require.NoError(t, os.Symlink("Xena/Plan.md", filepath.Join(root, "Projects", "inside.md")))
 	require.NoError(t, os.Symlink("missing.md", filepath.Join(root, "Projects", "dangling.md")))
+	require.NoError(t, os.Symlink("../../Journal/2026-10-01.md", filepath.Join(root, "Learning", "Security", "link.md")))
 	return root
 }
 
@@ -114,6 +117,23 @@ func TestPolicy_CheckRead(t *testing.T) {
 		{name: "symlink inside projects", path: "Projects/inside.md", want: vault.ErrSymlink},
 		{name: "dangling symlink", path: "Projects/dangling.md", want: vault.ErrSymlink},
 		{name: "note as directory", path: "Projects/Xena/Plan.md/x.md", want: syscall.ENOTDIR},
+		{name: "lesson note", path: "Learning/Security/Command-Injection.md"},
+		{name: "missing lesson note", path: "Learning/Security/Path-Traversal.md"},
+		{name: "learning outside security", path: "Learning/Networking/TLS.md", want: vault.ErrScope},
+		{name: "learning top-level note", path: "Learning/Security.md", want: vault.ErrScope},
+		{name: "security folder", path: "Learning/Security", want: vault.ErrScope},
+		{name: "lowercase learning", path: "learning/security/XSS.md", want: vault.ErrScope},
+		{name: "lesson class with slash", path: "Learning/Security/Web/XSS.md", want: vault.ErrScope},
+		{name: "lesson dot dot", path: "Learning/Security/../Networking/TLS.md", want: vault.ErrTraversal},
+		{name: "lesson dot segment", path: "Learning/Security/./XSS.md", want: vault.ErrTraversal},
+		{name: "lesson hidden class", path: "Learning/Security/.XSS.md", want: vault.ErrScope},
+		{name: "lesson empty class", path: "Learning/Security/.md", want: vault.ErrScope},
+		{name: "lesson division slash", path: "Learning/Security/Web\u2215XSS.md", want: vault.ErrTraversal},
+		{name: "lesson full-width slash", path: "Learning/Security/Web\uFF0FXSS.md", want: vault.ErrTraversal},
+		{name: "lesson backslash", path: `Learning/Security/Web\XSS.md`, want: vault.ErrTraversal},
+		{name: "lesson not markdown", path: "Learning/Security/XSS.txt", want: vault.ErrScope},
+		{name: "lesson without extension", path: "Learning/Security/XSS", want: vault.ErrScope},
+		{name: "lesson symlink", path: "Learning/Security/link.md", want: vault.ErrSymlink},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -151,6 +171,11 @@ func TestPolicy_CheckWrite(t *testing.T) {
 		{name: "absolute", path: "/x.md", want: vault.ErrAbsolute},
 		{name: "symlink", path: "Projects/link.md", want: vault.ErrSymlink},
 		{name: "scope", path: "Journal/2026-10-01.md", want: vault.ErrScope},
+		{name: "lesson note", path: "Learning/Security/Command-Injection.md"},
+		{name: "new lesson note", path: "Learning/Security/Path-Traversal.md"},
+		{name: "learning outside security", path: "Learning/Networking/TLS.md", want: vault.ErrScope},
+		{name: "lesson class with slash", path: "Learning/Security/Web/XSS.md", want: vault.ErrScope},
+		{name: "lesson not markdown", path: "Learning/Security/XSS.txt", want: vault.ErrScope},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -17,6 +17,7 @@ const (
 	maxPathBytes  = 1024
 	ideasNote     = "Ideas.md"
 	projectsDir   = "Projects/"
+	lessonsDir    = "Learning/Security/"
 	reportsPrefix = "projects/xena/reports/"
 )
 
@@ -80,7 +81,9 @@ func (p *Policy) CheckRead(rel string) error {
 	}
 
 	inProjects := strings.HasPrefix(rel, projectsDir) && strings.HasSuffix(rel, ".md")
-	if rel != ideasNote && !inProjects {
+	lesson, isLesson := strings.CutPrefix(rel, lessonsDir)
+	inLessons := isLesson && strings.HasSuffix(lesson, ".md") && !strings.Contains(lesson, "/")
+	if rel != ideasNote && !inProjects && !inLessons {
 		return ErrScope
 	}
 
