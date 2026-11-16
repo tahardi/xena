@@ -297,6 +297,8 @@ const (
 	outputSeek  = `{"execute":"guest-file-seek","arguments":{"handle":1003,"offset":-8192,"whence":"end"}}`
 	outputRead  = `{"execute":"guest-file-read","arguments":{"handle":1003,"count":8192}}`
 	outputClose = `{"execute":"guest-file-close","arguments":{"handle":1003}}`
+	nologinOpen = `{"execute":"guest-file-open","arguments":{"path":"/run/nologin","mode":"r"}}`
+	nologinShut = `{"execute":"guest-file-close","arguments":{"handle":1004}}`
 )
 
 func startResponses(startErr, undefineErr error) []response {
@@ -307,6 +309,17 @@ func startResponses(startErr, undefineErr error) []response {
 		{Match: lv + "start xena-dev", Err: startErr},
 		{Match: lv + "secret-undefine " + defineUUID, Err: undefineErr},
 	}
+}
+
+func loginResponses() []response {
+	return []response{
+		{Match: agentCall(pingCmd), Out: `{"return":{}}`},
+		{Match: agentCall(nologinOpen), Err: errFake},
+	}
+}
+
+func loginCalls() []string {
+	return []string{agentCall(pingCmd), agentCall(nologinOpen)}
 }
 
 func startCalls() []string {
@@ -345,6 +358,24 @@ func repeat(r response, n int) []response {
 	out := make([]response, n)
 	for i := range out {
 		out[i] = r
+	}
+
+	return out
+}
+
+func repeatPair(first, second response, n int) []response {
+	out := make([]response, 0, 2*n)
+	for range n {
+		out = append(out, first, second)
+	}
+
+	return out
+}
+
+func repeatPairLine(first, second string, n int) []string {
+	out := make([]string, 0, 2*n)
+	for range n {
+		out = append(out, first, second)
 	}
 
 	return out
@@ -439,15 +470,51 @@ func TestMachine_Start(t *testing.T) {
 		wantErrPrefix string
 	}{
 		{
-			name:      "happy path - starts with ephemeral secret",
-			responses: startResponses(nil, nil),
-			wantCalls: startCalls(),
+			name:      "happy path - starts with ephemeral secret and waits for logins",
+			responses: slices.Concat(startResponses(nil, nil), loginResponses()),
+			wantCalls: slices.Concat(startCalls(), loginCalls()),
 			wantGets:  []string{"vm-disk-key"},
 		},
 		{
-			name:      "happy path - already running",
-			responses: []response{{Match: stateCall, Out: "running\n"}},
-			wantCalls: []string{stateCall},
+			name:      "happy path - already running still waits for logins",
+			responses: slices.Concat([]response{{Match: stateCall, Out: "running\n"}}, loginResponses()),
+			wantCalls: slices.Concat([]string{stateCall}, loginCalls()),
+		},
+		{
+			name: "happy path - waits while boot blocks logins",
+			responses: []response{
+				{Match: stateCall, Out: "running\n"},
+				{Match: agentCall(pingCmd), Err: errFake},
+				{Match: agentCall(pingCmd), Out: `{"return":{}}`},
+				{Match: agentCall(nologinOpen), Out: `{"return":1004}`},
+				{Match: agentCall(nologinShut), Out: `{"return":{}}`},
+				{Match: agentCall(nologinOpen), Err: errFake},
+			},
+			wantCalls: []string{
+				stateCall,
+				agentCall(pingCmd),
+				agentCall(pingCmd),
+				agentCall(nologinOpen),
+				agentCall(nologinShut),
+				agentCall(nologinOpen),
+			},
+		},
+		{
+			name: "error - boot never allows logins",
+			responses: slices.Concat(
+				[]response{{Match: stateCall, Out: "running\n"}, {Match: agentCall(pingCmd), Out: `{"return":{}}`}},
+				repeatPair(
+					response{Match: agentCall(nologinOpen), Out: `{"return":1004}`},
+					response{Match: agentCall(nologinShut), Out: `{"return":{}}`},
+					readyAttempts,
+				),
+			),
+			wantCalls: slices.Concat(
+				[]string{stateCall, agentCall(pingCmd)},
+				repeatPairLine(agentCall(nologinOpen), agentCall(nologinShut), readyAttempts),
+			),
+			wantErr:       ErrTimeout,
+			wantErrPrefix: "waiting for login: ",
 		},
 		{
 			name:          "error - start fails",
@@ -891,6 +958,7 @@ func TestMachine_Build(t *testing.T) {
 					{Match: lv + "define"},
 				},
 				startResponses(nil, nil),
+				loginResponses(),
 				readyResponses(resultDone),
 				hostKeyResponses("ssh-ed25519 "+hostKey+" root@xena-dev\n"),
 				[]response{{Match: lv + "update-device xena-dev"}},
@@ -952,6 +1020,7 @@ func TestMachine_Build(t *testing.T) {
 					lv + "define",
 				},
 				startCalls(),
+				loginCalls(),
 				readyCalls(),
 				[]string{agentCall(hostKeyOpen), agentCall(hostKeyRead), agentCall(hostKeyClose)},
 				[]string{lv + "update-device xena-dev"},

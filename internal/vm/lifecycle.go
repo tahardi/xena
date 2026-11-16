@@ -35,6 +35,7 @@ const (
 	bootFinished  = "/var/lib/cloud/instance/boot-finished"
 	cloudResult   = "/run/cloud-init/result.json"
 	cloudOutput   = "/var/log/cloud-init-output.log"
+	nologinPath   = "/run/nologin"
 	diskKeyBytes  = 32
 	privateDir    = 0o700
 	privateFile   = 0o600
@@ -111,6 +112,7 @@ var (
 	ErrCloudInit = errors.New("cloud-init failed")
 
 	errInvalidImageSHA = errors.New("invalid image sha256")
+	errBooting         = errors.New("vm is still booting")
 
 	xmlFuncs       = template.FuncMap{"x": xmlText}
 	domainTemplate = template.Must(template.New("domain").Funcs(xmlFuncs).Parse(domainXML))
@@ -214,42 +216,13 @@ func (m *Machine) Define(ctx context.Context) error {
 }
 
 func (m *Machine) Start(ctx context.Context) error {
-	if _, err := os.Stat(config.CutMarker()); err == nil {
-		return fmt.Errorf("starting vm: %w", ErrCut)
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("checking cut marker: %w", err)
+	if err := m.start(ctx); err != nil {
+		return err
 	}
 
-	state, err := m.State(ctx)
-	if err != nil {
-		return fmt.Errorf("starting vm: %w", err)
-	}
+	m.logger.Info("vm is on, waiting until it accepts logins", "name", m.config.Name)
 
-	switch state {
-	case stateRunning:
-		return nil
-	case stateUndef:
-		return fmt.Errorf("starting vm: %w", ErrUndefined)
-	}
-
-	key, err := m.secrets.Get(ctx, diskKeyName)
-	if err != nil {
-		return fmt.Errorf("reading disk key: %w", err)
-	}
-	defer clear(key)
-
-	uuid, err := m.defineSecret(ctx)
-	if err != nil {
-		return fmt.Errorf("defining disk secret: %w", err)
-	}
-
-	err = m.startWithSecret(ctx, uuid, key)
-
-	if undefineErr := m.virt.UndefineSecret(context.WithoutCancel(ctx), uuid); undefineErr != nil {
-		return errors.Join(err, fmt.Errorf("undefining disk secret: %w", undefineErr))
-	}
-
-	return err
+	return m.waitLogin(ctx)
 }
 
 func (m *Machine) Stop(ctx context.Context) error {
@@ -461,7 +434,7 @@ func (m *Machine) Build(ctx context.Context, client *http.Client, now time.Time)
 		return err
 	}
 
-	m.logger.Info("vm started, waiting for the guest agent", "name", m.config.Name)
+	m.logger.Info("vm accepts logins, waiting for cloud-init", "name", m.config.Name)
 
 	if err = m.WaitReady(ctx); err != nil {
 		return err
@@ -496,6 +469,70 @@ func (m *Machine) logCloudInitOutput(ctx context.Context) {
 	for _, line := range lines {
 		m.logger.Error("cloud-init output", "line", line)
 	}
+}
+
+func (m *Machine) start(ctx context.Context) error {
+	if _, err := os.Stat(config.CutMarker()); err == nil {
+		return fmt.Errorf("starting vm: %w", ErrCut)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("checking cut marker: %w", err)
+	}
+
+	state, err := m.State(ctx)
+	if err != nil {
+		return fmt.Errorf("starting vm: %w", err)
+	}
+
+	switch state {
+	case stateRunning:
+		return nil
+	case stateUndef:
+		return fmt.Errorf("starting vm: %w", ErrUndefined)
+	}
+
+	key, err := m.secrets.Get(ctx, diskKeyName)
+	if err != nil {
+		return fmt.Errorf("reading disk key: %w", err)
+	}
+	defer clear(key)
+
+	uuid, err := m.defineSecret(ctx)
+	if err != nil {
+		return fmt.Errorf("defining disk secret: %w", err)
+	}
+
+	err = m.startWithSecret(ctx, uuid, key)
+
+	if undefineErr := m.virt.UndefineSecret(context.WithoutCancel(ctx), uuid); undefineErr != nil {
+		return errors.Join(err, fmt.Errorf("undefining disk secret: %w", undefineErr))
+	}
+
+	return err
+}
+
+func (m *Machine) waitLogin(ctx context.Context) error {
+	err := m.poll(ctx, "guest agent", func() error {
+		return m.agent(ctx, "guest-ping", nil, nil)
+	})
+	if err != nil {
+		return fmt.Errorf("waiting for guest agent: %w", err)
+	}
+
+	err = m.poll(ctx, "boot to allow logins", func() error {
+		handle, err := m.openGuestFile(ctx, nologinPath)
+		if err != nil {
+			return nil
+		}
+
+		_ = m.closeGuestFile(ctx, handle)
+
+		return errBooting
+	})
+	if err != nil {
+		return fmt.Errorf("waiting for login: %w", err)
+	}
+
+	return nil
 }
 
 func (m *Machine) defineSecret(ctx context.Context) (string, error) {
