@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -22,9 +23,8 @@ import (
 var testKey = strings.Repeat("0123456789abcdef", 4)
 
 const (
-	virsh      = "virsh -c qemu:///system "
-	listCall   = virsh + "list --all --name"
-	stateCall  = virsh + "domstate xena-dev"
+	lv         = "libvirt "
+	stateCall  = lv + "domstate xena-dev"
 	defineUUID = "6f1c2d3e-0000-4000-8000-000000000001"
 )
 
@@ -117,6 +117,69 @@ func (f *fakeExec) stdinOf(prefix string) []string {
 	return stdins
 }
 
+type fakeHypervisor struct {
+	exec *fakeExec
+}
+
+func (f fakeHypervisor) DomainState(ctx context.Context, name string) (string, error) {
+	out, err := f.exec.run(ctx, nil, "libvirt", "domstate", name)
+	return strings.TrimSpace(string(out)), err
+}
+
+func (f fakeHypervisor) DefineDomain(ctx context.Context, xml string) error {
+	_, err := f.exec.run(ctx, strings.NewReader(xml), "libvirt", "define")
+	return err
+}
+
+func (f fakeHypervisor) DefineSecret(ctx context.Context, xml string) (string, error) {
+	out, err := f.exec.run(ctx, strings.NewReader(xml), "libvirt", "secret-define")
+	return strings.TrimSpace(string(out)), err
+}
+
+func (f fakeHypervisor) SetSecretValue(ctx context.Context, uuid string, value []byte) error {
+	_, err := f.exec.run(ctx, bytes.NewReader(value), "libvirt", "secret-set-value", uuid)
+	return err
+}
+
+func (f fakeHypervisor) UndefineSecret(ctx context.Context, uuid string) error {
+	_, err := f.exec.run(ctx, nil, "libvirt", "secret-undefine", uuid)
+	return err
+}
+
+func (f fakeHypervisor) StartDomain(ctx context.Context, name string) error {
+	_, err := f.exec.run(ctx, nil, "libvirt", "start", name)
+	return err
+}
+
+func (f fakeHypervisor) ShutdownDomain(ctx context.Context, name string) error {
+	_, err := f.exec.run(ctx, nil, "libvirt", "shutdown", name)
+	return err
+}
+
+func (f fakeHypervisor) DestroyDomain(ctx context.Context, name string) error {
+	_, err := f.exec.run(ctx, nil, "libvirt", "destroy", name)
+	return err
+}
+
+func (f fakeHypervisor) UndefineDomain(ctx context.Context, name string) error {
+	_, err := f.exec.run(ctx, nil, "libvirt", "undefine", name)
+	return err
+}
+
+func (f fakeHypervisor) UpdateDevice(ctx context.Context, name, xml string) error {
+	_, err := f.exec.run(ctx, strings.NewReader(xml), "libvirt", "update-device", name)
+	return err
+}
+
+func (f fakeHypervisor) AgentCommand(ctx context.Context, name, command string) (string, error) {
+	out, err := f.exec.run(ctx, nil, "libvirt", "qemu-agent-command", name, command)
+	return string(out), err
+}
+
+func (fakeHypervisor) Close() error {
+	return nil
+}
+
 type fakeSecrets struct {
 	key    string
 	getErr error
@@ -195,6 +258,7 @@ func newTestMachine(t *testing.T, fake *fakeExec, store SecretStore, rotator Tok
 		slog.New(slog.DiscardHandler),
 	)
 	m.run = fake.run
+	m.virt = fakeHypervisor{exec: fake}
 
 	return m
 }
@@ -226,28 +290,26 @@ const (
 	resultClose     = `{"execute":"guest-file-close","arguments":{"handle":1001}}`
 	resultDone      = `{"v1":{"datasource":"DataSourceNoCloud","errors":[]}}`
 	resultFailed    = `{"v1":{"datasource":"DataSourceNoCloud","errors":["scripts_user failed"]}}`
-	secretDefineOut = "Secret " + defineUUID + " created\n\n"
+	secretDefineOut = defineUUID + "\n"
 )
 
 func startResponses(startErr, undefineErr error) []response {
 	return []response{
-		{Match: listCall, Out: "xena-dev\n\n"},
 		{Match: stateCall, Out: "shut off\n\n"},
-		{Match: virsh + "secret-define /dev/stdin", Out: secretDefineOut},
-		{Match: virsh + "secret-set-value"},
-		{Match: virsh + "start xena-dev", Err: startErr},
-		{Match: virsh + "secret-undefine " + defineUUID, Err: undefineErr},
+		{Match: lv + "secret-define", Out: secretDefineOut},
+		{Match: lv + "secret-set-value"},
+		{Match: lv + "start xena-dev", Err: startErr},
+		{Match: lv + "secret-undefine " + defineUUID, Err: undefineErr},
 	}
 }
 
 func startCalls() []string {
 	return []string{
-		listCall,
 		stateCall,
-		virsh + "secret-define /dev/stdin",
-		virsh + "secret-set-value --secret " + defineUUID + " --file /dev/stdin --plain",
-		virsh + "start xena-dev",
-		virsh + "secret-undefine " + defineUUID,
+		lv + "secret-define",
+		lv + "secret-set-value " + defineUUID,
+		lv + "start xena-dev",
+		lv + "secret-undefine " + defineUUID,
 	}
 }
 
@@ -300,14 +362,14 @@ func TestMachine_State(t *testing.T) {
 	}{
 		{
 			name:      "happy path - undefined",
-			responses: []response{{Match: listCall, Out: "other-vm\n\n"}},
-			wantCalls: []string{listCall},
+			responses: []response{{Match: stateCall, Out: "undefined\n"}},
+			wantCalls: []string{stateCall},
 			want:      "undefined",
 		},
 		{
 			name:      "happy path - running",
-			responses: []response{{Match: listCall, Out: "xena-dev\n\n"}, {Match: stateCall, Out: "running\n\n"}},
-			wantCalls: []string{listCall, stateCall},
+			responses: []response{{Match: stateCall, Out: "running\n\n"}},
+			wantCalls: []string{stateCall},
 			want:      "running",
 		},
 	}
@@ -331,7 +393,7 @@ func TestMachine_State(t *testing.T) {
 
 func TestMachine_Define(t *testing.T) {
 	// given
-	fake := newFakeExec(t, []response{{Match: virsh + "define /dev/stdin"}})
+	fake := newFakeExec(t, []response{{Match: lv + "define"}})
 	m := newTestMachine(t, fake, &fakeSecrets{}, &fakeRotator{})
 
 	// when
@@ -339,7 +401,7 @@ func TestMachine_Define(t *testing.T) {
 
 	// then
 	require.NoError(t, err)
-	require.Equal(t, []string{virsh + "define /dev/stdin"}, fake.lines())
+	require.Equal(t, []string{lv + "define"}, fake.lines())
 
 	xml := fake.calls[0].Stdin
 	for _, want := range []string{
@@ -378,8 +440,8 @@ func TestMachine_Start(t *testing.T) {
 		},
 		{
 			name:      "happy path - already running",
-			responses: []response{{Match: listCall, Out: "xena-dev\n"}, {Match: stateCall, Out: "running\n"}},
-			wantCalls: []string{listCall, stateCall},
+			responses: []response{{Match: stateCall, Out: "running\n"}},
+			wantCalls: []string{stateCall},
 		},
 		{
 			name:          "error - start fails",
@@ -398,21 +460,10 @@ func TestMachine_Start(t *testing.T) {
 		{
 			name:          "error - disk key unreadable",
 			getErr:        errFake,
-			responses:     []response{{Match: listCall, Out: "xena-dev\n"}, {Match: stateCall, Out: "shut off\n"}},
-			wantCalls:     []string{listCall, stateCall},
+			responses:     []response{{Match: stateCall, Out: "shut off\n"}},
+			wantCalls:     []string{stateCall},
 			wantGets:      []string{"vm-disk-key"},
 			wantErrPrefix: "reading disk key: ",
-		},
-		{
-			name: "error - secret define prints no uuid",
-			responses: []response{
-				{Match: listCall, Out: "xena-dev\n"},
-				{Match: stateCall, Out: "shut off\n"},
-				{Match: virsh + "secret-define /dev/stdin", Out: "done\n"},
-			},
-			wantCalls:     []string{listCall, stateCall, virsh + "secret-define /dev/stdin"},
-			wantGets:      []string{"vm-disk-key"},
-			wantErrPrefix: "defining disk secret: ",
 		},
 		{
 			name:          "error - interrupted start still undefines secret",
@@ -424,8 +475,8 @@ func TestMachine_Start(t *testing.T) {
 		},
 		{
 			name:      "error - not defined",
-			responses: []response{{Match: listCall, Out: "\n"}},
-			wantCalls: []string{listCall},
+			responses: []response{{Match: stateCall, Out: "undefined\n"}},
+			wantCalls: []string{stateCall},
 			wantErr:   ErrUndefined,
 		},
 		{
@@ -444,7 +495,7 @@ func TestMachine_Start(t *testing.T) {
 			responses := tt.responses
 			if tt.cancel {
 				for i := range responses {
-					if responses[i].Match == virsh+"start xena-dev" {
+					if responses[i].Match == lv+"start xena-dev" {
 						responses[i].Effect = func([]string) { cancel() }
 					}
 				}
@@ -468,7 +519,7 @@ func TestMachine_Start(t *testing.T) {
 			require.Equal(t, tt.wantCalls, fake.lines())
 
 			for _, c := range fake.calls {
-				if c.Name == "virsh" && slices.Contains(c.Args, "secret-undefine") {
+				if c.Name == "libvirt" && slices.Contains(c.Args, "secret-undefine") {
 					require.False(t, c.Canceled)
 				}
 			}
@@ -476,13 +527,13 @@ func TestMachine_Start(t *testing.T) {
 			require.Equal(t, tt.wantGets, store.gets)
 			fake.requireKeyNotInArgs(t)
 
-			for _, stdin := range fake.stdinOf(virsh + "secret-define") {
+			for _, stdin := range fake.stdinOf(lv + "secret-define") {
 				require.Contains(t, stdin, "ephemeral='yes'")
 				require.Contains(t, stdin, "private='yes'")
 				require.Contains(t, stdin, "<volume>"+m.DiskPath()+"</volume>")
 			}
 
-			for _, stdin := range fake.stdinOf(virsh + "secret-set-value") {
+			for _, stdin := range fake.stdinOf(lv + "secret-set-value") {
 				require.Equal(t, testKey, stdin)
 			}
 		})
@@ -501,17 +552,15 @@ func TestMachine_Stop(t *testing.T) {
 		{
 			name: "happy path - shuts down",
 			responses: []response{
-				{Match: listCall, Out: "xena-dev\n"},
 				running,
-				{Match: virsh + "shutdown xena-dev"},
+				{Match: lv + "shutdown xena-dev"},
 				running,
 				running,
 				{Match: stateCall, Out: "shut off\n"},
 			},
 			wantCalls: []string{
-				listCall,
 				stateCall,
-				virsh + "shutdown xena-dev",
+				lv + "shutdown xena-dev",
 				stateCall,
 				stateCall,
 				stateCall,
@@ -520,27 +569,26 @@ func TestMachine_Stop(t *testing.T) {
 		{
 			name: "happy path - forces off after timeout",
 			responses: append(
-				[]response{{Match: listCall, Out: "xena-dev\n"}, running, {Match: virsh + "shutdown xena-dev"}},
-				append(repeat(running, stopAttempts), response{Match: virsh + "destroy xena-dev"})...,
+				[]response{running, {Match: lv + "shutdown xena-dev"}},
+				append(repeat(running, stopAttempts), response{Match: lv + "destroy xena-dev"})...,
 			),
 			wantCalls: append(
-				[]string{listCall, stateCall, virsh + "shutdown xena-dev"},
-				append(repeatLine(stateCall, stopAttempts), virsh+"destroy xena-dev")...,
+				[]string{stateCall, lv + "shutdown xena-dev"},
+				append(repeatLine(stateCall, stopAttempts), lv+"destroy xena-dev")...,
 			),
 		},
 		{
 			name:      "happy path - already shut off",
-			responses: []response{{Match: listCall, Out: "xena-dev\n"}, {Match: stateCall, Out: "shut off\n"}},
-			wantCalls: []string{listCall, stateCall},
+			responses: []response{{Match: stateCall, Out: "shut off\n"}},
+			wantCalls: []string{stateCall},
 		},
 		{
 			name: "error - shutdown fails",
 			responses: []response{
-				{Match: listCall, Out: "xena-dev\n"},
 				running,
-				{Match: virsh + "shutdown xena-dev", Err: errFake},
+				{Match: lv + "shutdown xena-dev", Err: errFake},
 			},
-			wantCalls:     []string{listCall, stateCall, virsh + "shutdown xena-dev"},
+			wantCalls:     []string{stateCall, lv + "shutdown xena-dev"},
 			wantErrPrefix: "stopping vm: ",
 		},
 	}
@@ -571,35 +619,32 @@ func TestMachine_Destroy(t *testing.T) {
 		{
 			name: "happy path - running domain",
 			responses: []response{
-				{Match: listCall, Out: "xena-dev\n"},
 				{Match: stateCall, Out: "running\n"},
-				{Match: virsh + "destroy xena-dev"},
-				{Match: virsh + "undefine xena-dev"},
+				{Match: lv + "destroy xena-dev"},
+				{Match: lv + "undefine xena-dev"},
 			},
-			wantCalls: []string{listCall, stateCall, virsh + "destroy xena-dev", virsh + "undefine xena-dev"},
+			wantCalls: []string{stateCall, lv + "destroy xena-dev", lv + "undefine xena-dev"},
 		},
 		{
 			name: "happy path - shut off domain",
 			responses: []response{
-				{Match: listCall, Out: "xena-dev\n"},
 				{Match: stateCall, Out: "shut off\n"},
-				{Match: virsh + "undefine xena-dev"},
+				{Match: lv + "undefine xena-dev"},
 			},
-			wantCalls: []string{listCall, stateCall, virsh + "undefine xena-dev"},
+			wantCalls: []string{stateCall, lv + "undefine xena-dev"},
 		},
 		{
 			name:      "happy path - undefined domain",
-			responses: []response{{Match: listCall, Out: "\n"}},
-			wantCalls: []string{listCall},
+			responses: []response{{Match: stateCall, Out: "undefined\n"}},
+			wantCalls: []string{stateCall},
 		},
 		{
 			name: "error - undefine fails keeps disk",
 			responses: []response{
-				{Match: listCall, Out: "xena-dev\n"},
 				{Match: stateCall, Out: "shut off\n"},
-				{Match: virsh + "undefine xena-dev", Err: errFake},
+				{Match: lv + "undefine xena-dev", Err: errFake},
 			},
-			wantCalls:     []string{listCall, stateCall, virsh + "undefine xena-dev"},
+			wantCalls:     []string{stateCall, lv + "undefine xena-dev"},
 			wantErrPrefix: "undefining vm: ",
 		},
 	}
@@ -659,13 +704,14 @@ func TestMachine_WaitReady(t *testing.T) {
 			responses:     readyResponses(resultFailed),
 			wantCalls:     readyCalls(),
 			wantErr:       ErrCloudInit,
-			wantErrPrefix: "waiting for vm: ",
+			wantErrPrefix: "waiting for vm: cloud-init failed: scripts_user failed; see /var/log/cloud-init-output.log",
 		},
 		{
-			name:      "error - agent never answers",
-			responses: repeat(response{Match: agentCall(pingCmd), Err: errFake}, readyAttempts),
-			wantCalls: repeatLine(agentCall(pingCmd), readyAttempts),
-			wantErr:   ErrTimeout,
+			name:          "error - agent never answers",
+			responses:     repeat(response{Match: agentCall(pingCmd), Err: errFake}, readyAttempts),
+			wantCalls:     repeatLine(agentCall(pingCmd), readyAttempts),
+			wantErr:       ErrTimeout,
+			wantErrPrefix: "waiting for guest agent: timed out: last error: exit status 1",
 		},
 		{
 			name: "error - boot never finishes",
@@ -710,7 +756,7 @@ func TestMachine_WaitReady(t *testing.T) {
 
 func TestMachine_EjectSeed(t *testing.T) {
 	// given
-	fake := newFakeExec(t, []response{{Match: virsh + "change-media xena-dev sda --eject --live --config"}})
+	fake := newFakeExec(t, []response{{Match: lv + "update-device xena-dev"}})
 	m := newTestMachine(t, fake, &fakeSecrets{}, &fakeRotator{})
 	require.NoError(t, os.WriteFile(m.SeedPath(), nil, 0o600))
 
@@ -719,7 +765,13 @@ func TestMachine_EjectSeed(t *testing.T) {
 
 	// then
 	require.NoError(t, err)
-	require.Equal(t, []string{virsh + "change-media xena-dev sda --eject --live --config"}, fake.lines())
+	require.Equal(t, []string{lv + "update-device xena-dev"}, fake.lines())
+	require.Equal(
+		t,
+		[]string{`<disk type='file' device='cdrom'><driver name='qemu' type='raw'/>` +
+			`<target dev='sda' bus='sata'/><readonly/></disk>`},
+		fake.stdinOf(lv+"update-device"),
+	)
 	require.NoFileExists(t, m.SeedPath())
 }
 
@@ -738,19 +790,19 @@ func TestMachine_Build(t *testing.T) {
 		{
 			name:      "error - domain exists",
 			exists:    true,
-			wantCalls: []string{listCall, stateCall},
+			wantCalls: []string{stateCall},
 			wantErr:   ErrExists,
 		},
 		{
 			name:       "error - old disk still present",
 			diskExists: true,
-			wantCalls:  []string{listCall},
+			wantCalls:  []string{stateCall},
 			wantErr:    ErrDiskExists,
 		},
 		{
 			name:          "error - disk check fails",
 			diskHidden:    true,
-			wantCalls:     []string{listCall},
+			wantCalls:     []string{stateCall},
 			wantErrPrefix: "checking vm disk: ",
 		},
 		{
@@ -782,9 +834,9 @@ func TestMachine_Build(t *testing.T) {
 			hostKey := ed25519Blob(t, "ssh-ed25519", nil)
 			var seedSources string
 
-			head := []response{{Match: listCall, Out: "\n"}}
+			head := []response{{Match: stateCall, Out: "undefined\n"}}
 			if tt.exists {
-				head = []response{{Match: listCall, Out: "xena-dev\n"}, {Match: stateCall, Out: "shut off\n"}}
+				head = []response{{Match: stateCall, Out: "shut off\n"}}
 			}
 			responses := slices.Concat(
 				head,
@@ -804,12 +856,12 @@ func TestMachine_Build(t *testing.T) {
 					}},
 					{Match: "qemu-img convert", Effect: createEmpty(t)},
 					{Match: "qemu-img resize"},
-					{Match: virsh + "define /dev/stdin"},
+					{Match: lv + "define"},
 				},
 				startResponses(nil, nil),
 				readyResponses(resultDone),
 				hostKeyResponses("ssh-ed25519 "+hostKey+" root@xena-dev\n"),
-				[]response{{Match: virsh + "change-media xena-dev sda --eject --live --config"}},
+				[]response{{Match: lv + "update-device xena-dev"}},
 			)
 
 			fake := newFakeExec(t, responses)
@@ -858,19 +910,19 @@ func TestMachine_Build(t *testing.T) {
 			disk := m.DiskPath()
 			want := slices.Concat(
 				[]string{
-					listCall,
+					stateCall,
 					"ssh-keygen -q -t ed25519 -N  -C xena-automation -f " + automation,
 					"cloud-localds --network-config=" + filepath.Join(seedSources, "network-config") + " " +
 						m.SeedPath() + " " + filepath.Join(seedSources, "user-data") + " " +
 						filepath.Join(seedSources, "meta-data"),
 					strings.Replace(convertCall(disk), "/img/base.img", base, 1),
 					resizeCall(disk),
-					virsh + "define /dev/stdin",
+					lv + "define",
 				},
 				startCalls(),
 				readyCalls(),
 				[]string{agentCall(hostKeyOpen), agentCall(hostKeyRead), agentCall(hostKeyClose)},
-				[]string{virsh + "change-media xena-dev sda --eject --live --config"},
+				[]string{lv + "update-device xena-dev"},
 			)
 			require.Equal(t, want, fake.lines())
 

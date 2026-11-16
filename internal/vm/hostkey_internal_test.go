@@ -22,7 +22,7 @@ const (
 )
 
 func agentCall(command string) string {
-	return virsh + "qemu-agent-command xena-dev " + command
+	return lv + "qemu-agent-command xena-dev " + command
 }
 
 func agentRead(content string) string {

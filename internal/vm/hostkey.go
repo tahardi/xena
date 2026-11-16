@@ -123,10 +123,10 @@ func (m *Machine) agent(ctx context.Context, execute string, args, result any) e
 		return err
 	}
 
-	out, err := m.virsh(ctx, nil, "qemu-agent-command", m.config.Name, string(payload))
+	out, err := m.virt.AgentCommand(ctx, m.config.Name, string(payload))
 	if err != nil {
 		return err
 	}
 
-	return json.Unmarshal(out, &agentReply{Return: result})
+	return json.Unmarshal([]byte(out), &agentReply{Return: result})
 }

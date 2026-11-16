@@ -16,8 +16,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
-	"slices"
 	"strings"
 	"text/template"
 	"time"
@@ -28,7 +26,6 @@ import (
 const (
 	stopAttempts  = 60
 	readyAttempts = 120
-	libvirtURI    = "qemu:///system"
 	diskKeyName   = "vm-disk-key"
 	stateRunning  = "running"
 	stateShutOff  = "shut off"
@@ -42,6 +39,7 @@ const (
 	privateFile   = 0o600
 	imagePrefix   = 12
 	stderrLimit   = 200
+	progressEvery = 30 * time.Second
 
 	domainXML = `<domain type='kvm'>
   <name>{{x .Name}}</name>
@@ -98,6 +96,9 @@ const (
 
 	secretXML = `<secret ephemeral='yes' private='yes'>` +
 		`<usage type='volume'><volume>{{x .}}</volume></usage></secret>`
+
+	ejectXML = `<disk type='file' device='cdrom'><driver name='qemu' type='raw'/>` +
+		`<target dev='{{x .}}' bus='sata'/><readonly/></disk>`
 )
 
 var (
@@ -109,12 +110,11 @@ var (
 	ErrCloudInit = errors.New("cloud-init failed")
 
 	errInvalidImageSHA = errors.New("invalid image sha256")
-	errSecretUUID      = errors.New("no secret uuid in virsh output")
 
-	secretUUIDPattern = regexp.MustCompile(`^Secret ([0-9a-f-]{36}) created`)
-	xmlFuncs          = template.FuncMap{"x": xmlText}
-	domainTemplate    = template.Must(template.New("domain").Funcs(xmlFuncs).Parse(domainXML))
-	secretTemplate    = template.Must(template.New("secret").Funcs(xmlFuncs).Parse(secretXML))
+	xmlFuncs       = template.FuncMap{"x": xmlText}
+	domainTemplate = template.Must(template.New("domain").Funcs(xmlFuncs).Parse(domainXML))
+	secretTemplate = template.Must(template.New("secret").Funcs(xmlFuncs).Parse(secretXML))
+	ejectTemplate  = template.Must(template.New("eject").Funcs(xmlFuncs).Parse(ejectXML))
 )
 
 type domainData struct {
@@ -145,6 +145,7 @@ type Machine struct {
 	pollEvery      time.Duration
 	logger         *slog.Logger
 	run            execFunc
+	virt           hypervisor
 }
 
 func NewMachine(
@@ -168,25 +169,21 @@ func NewMachine(
 		pollEvery:      pollEvery,
 		logger:         logger,
 		run:            runCommand,
+		virt:           newLibvirtConn(),
 	}
 }
 
+func (m *Machine) Close() error {
+	return m.virt.Close()
+}
+
 func (m *Machine) State(ctx context.Context) (string, error) {
-	out, err := m.virsh(ctx, nil, "list", "--all", "--name")
-	if err != nil {
-		return "", fmt.Errorf("listing domains: %w", err)
-	}
-
-	if !slices.Contains(strings.Fields(string(out)), m.config.Name) {
-		return stateUndef, nil
-	}
-
-	out, err = m.virsh(ctx, nil, "domstate", m.config.Name)
+	state, err := m.virt.DomainState(ctx, m.config.Name)
 	if err != nil {
 		return "", fmt.Errorf("reading vm state: %w", err)
 	}
 
-	return strings.TrimSpace(string(out)), nil
+	return state, nil
 }
 
 func (m *Machine) SeedPath() string {
@@ -208,7 +205,7 @@ func (m *Machine) Define(ctx context.Context) error {
 		return fmt.Errorf("rendering domain: %w", err)
 	}
 
-	if _, err = m.virsh(ctx, &xml, "define", "/dev/stdin"); err != nil {
+	if err = m.virt.DefineDomain(ctx, xml.String()); err != nil {
 		return fmt.Errorf("defining vm: %w", err)
 	}
 
@@ -247,8 +244,7 @@ func (m *Machine) Start(ctx context.Context) error {
 
 	err = m.startWithSecret(ctx, uuid, key)
 
-	_, undefineErr := m.virsh(context.WithoutCancel(ctx), nil, "secret-undefine", uuid)
-	if undefineErr != nil {
+	if undefineErr := m.virt.UndefineSecret(context.WithoutCancel(ctx), uuid); undefineErr != nil {
 		return errors.Join(err, fmt.Errorf("undefining disk secret: %w", undefineErr))
 	}
 
@@ -265,17 +261,19 @@ func (m *Machine) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	if _, err = m.virsh(ctx, nil, "shutdown", m.config.Name); err != nil {
+	m.logger.Info("shutting down vm", "name", m.config.Name)
+
+	if err = m.virt.ShutdownDomain(ctx, m.config.Name); err != nil {
 		return fmt.Errorf("stopping vm: %w", err)
 	}
 
 	for range stopAttempts {
-		out, err := m.virsh(ctx, nil, "domstate", m.config.Name)
+		state, err := m.virt.DomainState(ctx, m.config.Name)
 		if err != nil {
 			return fmt.Errorf("reading vm state: %w", err)
 		}
 
-		if strings.TrimSpace(string(out)) == stateShutOff {
+		if state == stateShutOff {
 			return nil
 		}
 
@@ -286,7 +284,7 @@ func (m *Machine) Stop(ctx context.Context) error {
 
 	m.logger.Warn("vm did not shut down in time, forcing it off", "name", m.config.Name)
 
-	if _, err = m.virsh(ctx, nil, "destroy", m.config.Name); err != nil {
+	if err = m.virt.DestroyDomain(ctx, m.config.Name); err != nil {
 		return fmt.Errorf("forcing vm off: %w", err)
 	}
 
@@ -301,12 +299,12 @@ func (m *Machine) Destroy(ctx context.Context) error {
 
 	if state != stateUndef {
 		if state != stateShutOff {
-			if _, err = m.virsh(ctx, nil, "destroy", m.config.Name); err != nil {
+			if err = m.virt.DestroyDomain(ctx, m.config.Name); err != nil {
 				return fmt.Errorf("destroying vm: %w", err)
 			}
 		}
 
-		if _, err = m.virsh(ctx, nil, "undefine", m.config.Name); err != nil {
+		if err = m.virt.UndefineDomain(ctx, m.config.Name); err != nil {
 			return fmt.Errorf("undefining vm: %w", err)
 		}
 	}
@@ -321,14 +319,16 @@ func (m *Machine) Destroy(ctx context.Context) error {
 }
 
 func (m *Machine) WaitReady(ctx context.Context) error {
-	err := m.poll(ctx, func() error {
+	err := m.poll(ctx, "guest agent", func() error {
 		return m.agent(ctx, "guest-ping", nil, nil)
 	})
 	if err != nil {
 		return fmt.Errorf("waiting for guest agent: %w", err)
 	}
 
-	err = m.poll(ctx, func() error {
+	m.logger.Info("guest agent is up, waiting for cloud-init to finish", "name", m.config.Name)
+
+	err = m.poll(ctx, "cloud-init to finish", func() error {
 		handle, err := m.openGuestFile(ctx, bootFinished)
 		if err != nil {
 			return err
@@ -341,7 +341,7 @@ func (m *Machine) WaitReady(ctx context.Context) error {
 	}
 
 	var result []byte
-	err = m.poll(ctx, func() error {
+	err = m.poll(ctx, "cloud-init result", func() error {
 		result, err = m.readGuestFile(ctx, cloudResult)
 		return err
 	})
@@ -366,20 +366,41 @@ func checkCloudInit(result []byte) error {
 		return fmt.Errorf("parsing cloud-init result: %w", err)
 	}
 
-	if parsed.V1 == nil || len(parsed.V1.Errors) > 0 {
-		return ErrCloudInit
+	if parsed.V1 == nil {
+		return fmt.Errorf("%w: no v1 result", ErrCloudInit)
 	}
 
-	return nil
+	if len(parsed.V1.Errors) == 0 {
+		return nil
+	}
+
+	messages := make([]string, 0, len(parsed.V1.Errors))
+	for _, raw := range parsed.V1.Errors {
+		var message string
+		if json.Unmarshal(raw, &message) != nil {
+			message = string(raw)
+		}
+		messages = append(messages, message)
+	}
+
+	return fmt.Errorf(
+		"%w: %s; see /var/log/cloud-init-output.log in the vm",
+		ErrCloudInit,
+		strings.Join(messages, "; "),
+	)
 }
 
 func (m *Machine) EjectSeed(ctx context.Context) error {
-	_, err := m.virsh(ctx, nil, "change-media", m.config.Name, seedDevice, "--eject", "--live", "--config")
-	if err != nil {
+	var xml bytes.Buffer
+	if err := ejectTemplate.Execute(&xml, seedDevice); err != nil {
+		return fmt.Errorf("rendering eject: %w", err)
+	}
+
+	if err := m.virt.UpdateDevice(ctx, m.config.Name, xml.String()); err != nil {
 		return fmt.Errorf("ejecting seed: %w", err)
 	}
 
-	if err = removeIfExists(m.SeedPath()); err != nil {
+	if err := removeIfExists(m.SeedPath()); err != nil {
 		return fmt.Errorf("removing seed: %w", err)
 	}
 
@@ -406,6 +427,8 @@ func (m *Machine) Build(ctx context.Context, client *http.Client, now time.Time)
 		return fmt.Errorf("checking vm disk: %w", err)
 	}
 
+	m.logger.Info("fetching base image", "url", m.config.Image.URL)
+
 	base, err := m.fetchBaseImage(ctx, client)
 	if err != nil {
 		return fmt.Errorf("fetching image: %w", err)
@@ -420,21 +443,23 @@ func (m *Machine) Build(ctx context.Context, client *http.Client, now time.Time)
 		return fmt.Errorf("making seed iso: %w", err)
 	}
 
+	m.logger.Info("creating encrypted vm disk", "path", m.DiskPath())
+
 	if err = m.createEncryptedDisk(ctx, base); err != nil {
 		return err
 	}
-
-	m.logger.Info("vm disk created", "path", m.DiskPath())
 
 	if err = m.Define(ctx); err != nil {
 		return err
 	}
 
+	m.logger.Info("starting vm", "name", m.config.Name)
+
 	if err = m.Start(ctx); err != nil {
 		return err
 	}
 
-	m.logger.Info("vm started, waiting for guest agent and cloud-init", "name", m.config.Name)
+	m.logger.Info("vm started, waiting for the guest agent", "name", m.config.Name)
 
 	if err = m.WaitReady(ctx); err != nil {
 		return err
@@ -454,6 +479,8 @@ func (m *Machine) Build(ctx context.Context, client *http.Client, now time.Time)
 		return fmt.Errorf("recording build time: %w", err)
 	}
 
+	m.logger.Info("vm built", "name", m.config.Name)
+
 	return nil
 }
 
@@ -463,33 +490,15 @@ func (m *Machine) defineSecret(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	out, err := m.virsh(ctx, &xml, "secret-define", "/dev/stdin")
-	if err != nil {
-		return "", err
-	}
-
-	match := secretUUIDPattern.FindSubmatch(out)
-	if match == nil {
-		return "", errSecretUUID
-	}
-
-	return string(match[1]), nil
+	return m.virt.DefineSecret(ctx, xml.String())
 }
 
 func (m *Machine) startWithSecret(ctx context.Context, uuid string, key []byte) error {
-	_, err := m.virsh(
-		ctx,
-		bytes.NewReader(key),
-		"secret-set-value",
-		"--secret", uuid,
-		"--file", "/dev/stdin",
-		"--plain",
-	)
-	if err != nil {
+	if err := m.virt.SetSecretValue(ctx, uuid, key); err != nil {
 		return fmt.Errorf("setting disk secret: %w", err)
 	}
 
-	if _, err = m.virsh(ctx, nil, "start", m.config.Name); err != nil {
+	if err := m.virt.StartDomain(ctx, m.config.Name); err != nil {
 		return fmt.Errorf("starting vm: %w", err)
 	}
 
@@ -634,10 +643,19 @@ func removeIfExists(path string) error {
 	return nil
 }
 
-func (m *Machine) poll(ctx context.Context, attempt func() error) error {
+func (m *Machine) poll(ctx context.Context, what string, attempt func() error) error {
+	start := time.Now()
+	lastReport := start
+
+	var lastErr error
 	for range readyAttempts {
-		if attempt() == nil {
+		if lastErr = attempt(); lastErr == nil {
 			return nil
+		}
+
+		if time.Since(lastReport) >= progressEvery {
+			m.logger.Info("still waiting", "for", what, "elapsed", time.Since(start).Round(time.Second).String())
+			lastReport = time.Now()
 		}
 
 		if err := m.sleep(ctx); err != nil {
@@ -645,7 +663,7 @@ func (m *Machine) poll(ctx context.Context, attempt func() error) error {
 		}
 	}
 
-	return ErrTimeout
+	return fmt.Errorf("%w: last error: %w", ErrTimeout, lastErr)
 }
 
 func (m *Machine) sleep(ctx context.Context) error {
@@ -664,10 +682,6 @@ func xmlText(s string) (string, error) {
 	}
 
 	return out.String(), nil
-}
-
-func (m *Machine) virsh(ctx context.Context, stdin io.Reader, args ...string) ([]byte, error) {
-	return m.run(ctx, stdin, "virsh", append([]string{"-c", libvirtURI}, args...)...)
 }
 
 func runCommand(ctx context.Context, stdin io.Reader, name string, args ...string) ([]byte, error) {

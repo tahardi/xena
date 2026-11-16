@@ -120,7 +120,6 @@ func TestMachine_Snapshot(t *testing.T) {
 		name          string
 		snapshot      string
 		state         string
-		listOut       string
 		getErr        error
 		wantCalls     func(disk string) []string
 		wantGets      []string
@@ -132,16 +131,16 @@ func TestMachine_Snapshot(t *testing.T) {
 			snapshot: "before-upgrade",
 			state:    "shut off",
 			wantCalls: func(disk string) []string {
-				return []string{listCall, stateCall, snapshotCall("-c", "before-upgrade", disk)}
+				return []string{stateCall, snapshotCall("-c", "before-upgrade", disk)}
 			},
 			wantGets: []string{"vm-disk-key"},
 		},
 		{
 			name:     "happy path - domain undefined",
 			snapshot: "before-upgrade",
-			listOut:  "\n",
+			state:    "undefined",
 			wantCalls: func(disk string) []string {
-				return []string{listCall, snapshotCall("-c", "before-upgrade", disk)}
+				return []string{stateCall, snapshotCall("-c", "before-upgrade", disk)}
 			},
 			wantGets: []string{"vm-disk-key"},
 		},
@@ -150,7 +149,7 @@ func TestMachine_Snapshot(t *testing.T) {
 			snapshot:      "before-upgrade",
 			state:         "shut off",
 			getErr:        errFake,
-			wantCalls:     func(string) []string { return []string{listCall, stateCall} },
+			wantCalls:     func(string) []string { return []string{stateCall} },
 			wantGets:      []string{"vm-disk-key"},
 			wantErrPrefix: "taking snapshot before-upgrade: reading disk key: ",
 		},
@@ -158,7 +157,7 @@ func TestMachine_Snapshot(t *testing.T) {
 			name:      "error - vm running",
 			snapshot:  "before-upgrade",
 			state:     "running",
-			wantCalls: func(string) []string { return []string{listCall, stateCall} },
+			wantCalls: func(string) []string { return []string{stateCall} },
 			wantErr:   ErrRunning,
 		},
 		{
@@ -190,13 +189,7 @@ func TestMachine_Snapshot(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
-			listOut := "xena-dev\n\n"
-			if tt.listOut != "" {
-				listOut = tt.listOut
-			}
-
 			fake := newFakeExec(t, []response{
-				{Match: listCall, Out: listOut},
 				{Match: stateCall, Out: tt.state + "\n\n"},
 				{Match: "qemu-img snapshot"},
 			})
@@ -249,7 +242,6 @@ func TestMachine_Restore(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
 			fake := newFakeExec(t, []response{
-				{Match: listCall, Out: "xena-dev\n"},
 				{Match: stateCall, Out: "shut off\n"},
 				{Match: "qemu-img snapshot", Err: tt.qemuErr},
 			})
@@ -264,7 +256,7 @@ func TestMachine_Restore(t *testing.T) {
 			requireErr(t, err, nil, tt.wantErrPrefix)
 			require.Equal(
 				t,
-				[]string{listCall, stateCall, snapshotCall("-a", "before-upgrade", m.DiskPath())},
+				[]string{stateCall, snapshotCall("-a", "before-upgrade", m.DiskPath())},
 				fake.lines(),
 			)
 			require.Equal(t, []string{"vm-disk-key"}, store.gets)

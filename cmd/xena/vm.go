@@ -68,6 +68,7 @@ func runVM(ctx context.Context, args []string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	defer func() { _ = m.Close() }()
 
 	switch sub {
 	case "build":
