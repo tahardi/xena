@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -21,32 +19,9 @@ import (
 const (
 	vmPollEvery  = 5 * time.Second
 	snapshotArgs = 2
-	manualRotate = "Rotate by hand now: the Jira bot token (xena rotate jira-bot-token) and the VM Claude login " +
-		"(/logout, then /login in a VM session)."
-	snapshotWarning = "A snapshot can hold a compromise. Rebuild with make vm for a clean reset."
 )
 
 var errMissingSnapshotName = errors.New("missing snapshot name")
-
-type tokendRotator struct {
-	out io.Writer
-}
-
-func newTokendRotator(out io.Writer) *tokendRotator {
-	return &tokendRotator{out: out}
-}
-
-func (r *tokendRotator) RotateVMTokens(ctx context.Context) error {
-	if _, err := fmt.Fprintln(r.out, snapshotWarning+"\n"+manualRotate); err != nil {
-		return err
-	}
-
-	if err := exec.CommandContext(ctx, "systemctl", "--user", "restart", "xena-tokend.service").Run(); err != nil {
-		return fmt.Errorf("restarting xena-tokend: %w", err)
-	}
-
-	return nil
-}
 
 func runVM(ctx context.Context, args []string, logger *slog.Logger) error {
 	if len(args) == 0 {
