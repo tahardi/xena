@@ -51,8 +51,13 @@ if [[ ! -S "$runtime_dir/bus" ]]; then
 	exit 1
 fi
 
+rootless_bin=/usr/local/lib/xena/docker-rootless
+install -d -m 0755 "$rootless_bin"
+ln -sf /usr/share/docker.io/contrib/dockerd-rootless.sh "$rootless_bin/dockerd-rootless.sh"
+ln -sf /usr/bin/docker "$rootless_bin/docker"
+
 runuser -u dev -- env \
-	PATH=/usr/share/docker.io/contrib:/usr/sbin:/usr/bin:/sbin:/bin \
+	PATH="$rootless_bin:/usr/sbin:/usr/bin:/sbin:/bin" \
 	XDG_RUNTIME_DIR="$runtime_dir" \
 	DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" \
 	dockerd-rootless-setuptool.sh install
