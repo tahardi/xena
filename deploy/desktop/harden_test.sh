@@ -27,7 +27,7 @@ setup() {
 	touch "$fake/installed/docker-ce" "$fake/installed/containerd.io"
 	touch "$fake/enabled/ufw"
 	printf '2.1.200\n' >"$fake/claude-version"
-	printf 'version: 1\nclaude_code_version: "2.1.310"\n' >"$root/vm.yaml"
+	printf 'version: 1\nclaude_code_version: "2.1.310"\nnetwork:\n  bridge: xena0\n  vm_address: 192.168.150.10\nproxy_port: 3128\n' >"$root/vm.yaml"
 
 	cat >"$root/dotclaude/settings/desktop.json" <<'JSON'
 {"env": {"DISABLE_UPDATES": "1"}, "permissions": {"defaultMode": "default"},
@@ -407,7 +407,7 @@ test_stops_without_vm_config() {
 		return
 	fi
 
-	grep -q 'reading claude_code_version' <<<"$out" || { fail "${FUNCNAME[0]}" "wrong error: $out"; return; }
+	grep -q 'reading vm config' <<<"$out" || { fail "${FUNCNAME[0]}" "wrong error: $out"; return; }
 	if grep -q 'Traceback' <<<"$out"; then
 		fail "${FUNCNAME[0]}" "printed a traceback"
 		return
@@ -444,6 +444,107 @@ test_system_prints_progress() {
 	pass "${FUNCNAME[0]}"
 }
 
+test_system_uses_vm_config_values() {
+	setup
+	sed -i -e 's/bridge: xena0/bridge: xenatest/' -e 's/vm_address: .*/vm_address: 192.168.150.20/' \
+		-e 's/proxy_port: 3128/proxy_port: 3129/' "$root/vm.yaml"
+
+	harden >/dev/null
+
+	grep -qx '[[:space:]]*iifname "xenatest" ip saddr 192.168.150.20 tcp dport 3129 accept' "$root/etc/nftables.conf" ||
+		{ fail "${FUNCNAME[0]}" "rule does not match vm.yaml"; return; }
+	if grep -q 3128 "$root/etc/nftables.conf"; then
+		fail "${FUNCNAME[0]}" "old port kept"
+		return
+	fi
+
+	pass "${FUNCNAME[0]}"
+}
+
+test_check_fails_after_port_change() {
+	setup
+	harden >/dev/null
+	harden --user >/dev/null
+
+	sed -i 's/proxy_port: 3128/proxy_port: 3129/' "$root/vm.yaml"
+
+	local out
+
+	if out=$(harden --check); then
+		fail "${FUNCNAME[0]}" "check passed after a port change"
+		return
+	fi
+
+	grep -qx 'fail: nftables-conf' <<<"$out" || { fail "${FUNCNAME[0]}" "no nftables-conf failure: $out"; return; }
+	pass "${FUNCNAME[0]}"
+}
+
+test_stops_on_bad_network_values() {
+	local edit out
+
+	for edit in \
+		's/proxy_port: 3128/proxy_port: 0/' \
+		's/proxy_port: 3128/proxy_port: 70000/' \
+		's/proxy_port: 3128/proxy_port: "3128"/' \
+		's/proxy_port: 3128/proxy_port: true/' \
+		's/vm_address: .*/vm_address: "192.168.150.10; drop"/' \
+		"s/bridge: xena0/bridge: 'xena0\" accept'/" \
+		'/^network:/,/vm_address/d'; do
+		setup
+		sed -i "$edit" "$root/vm.yaml"
+
+		if out=$(harden 2>&1); then
+			fail "${FUNCNAME[0]}" "ran with $edit"
+			return
+		fi
+
+		grep -q 'reading vm config' <<<"$out" || { fail "${FUNCNAME[0]}" "wrong error for $edit: $out"; return; }
+		if grep -q 'Traceback' <<<"$out"; then
+			fail "${FUNCNAME[0]}" "printed a traceback for $edit"
+			return
+		fi
+
+		[[ -z "$(calls)" ]] || { fail "${FUNCNAME[0]}" "changed state for $edit: $(calls)"; return; }
+	done
+
+	pass "${FUNCNAME[0]}"
+}
+
+installed_vm_config() {
+	mkdir -p "$root/usr/local/share/xena/config"
+	sed 's/proxy_port: 3128/proxy_port: 3129/' "$root/vm.yaml" >"$root/usr/local/share/xena/config/vm.yaml"
+}
+
+test_prefers_installed_vm_config() {
+	setup
+	installed_vm_config
+
+	env -u XENA_VM_CONFIG -u GH_TOKEN -u GITHUB_TOKEN \
+		PATH="$fake/bin:$PATH" \
+		FAKE="$fake" \
+		XENA_ROOT="$root" \
+		XENA_USER=taylor \
+		XENA_HOME="$root/home/taylor" \
+		DOTCLAUDE_DIR="$root/dotclaude" \
+		"$script" >/dev/null
+
+	grep -q 'tcp dport 3129 accept' "$root/etc/nftables.conf" ||
+		{ fail "${FUNCNAME[0]}" "installed vm.yaml not used"; return; }
+	pass "${FUNCNAME[0]}"
+}
+
+test_env_vm_config_wins() {
+	setup
+	installed_vm_config
+
+	harden >/dev/null
+
+	grep -q 'tcp dport 3128 accept' "$root/etc/nftables.conf" ||
+		{ fail "${FUNCNAME[0]}" "XENA_VM_CONFIG not used"; return; }
+	pass "${FUNCNAME[0]}"
+}
+
+
 test_system_applies_every_step
 test_system_is_idempotent
 test_system_keeps_xena_table
@@ -464,4 +565,9 @@ test_rejects_unknown_flag
 test_stops_without_vm_config
 test_system_refuses_plain_root
 test_system_prints_progress
+test_system_uses_vm_config_values
+test_check_fails_after_port_change
+test_stops_on_bad_network_values
+test_prefers_installed_vm_config
+test_env_vm_config_wins
 exit "$((failures > 0))"
