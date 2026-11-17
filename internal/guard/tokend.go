@@ -116,7 +116,7 @@ func (t *TokendProxyUnlisted) Run(ctx context.Context, env Env) Result {
 
 	start := env.Now().Truncate(time.Second)
 
-	_ = probeTokend(
+	probeErr := probeTokend(
 		ctx,
 		t.cmd,
 		"--unix-socket", t.socket,
@@ -125,13 +125,19 @@ func (t *TokendProxyUnlisted) Run(ctx context.Context, env Env) Result {
 		"http://localhost/",
 	)
 
+	var probeEvidence []string
+	if probeErr != nil {
+		probeEvidence = append(probeEvidence, "probe: "+probeErr.Error())
+	}
+
 	evidence, err := awaitTokend(ctx, env, func() (string, error) { return t.findDeny(start) })
 	if err != nil {
-		return Fail(t.Name(), err.Error())
+		return Fail(t.Name(), err.Error(), probeEvidence...)
 	}
 
 	if evidence == "" {
-		return Fail(t.Name(), fmt.Errorf("finding a deny for %s: %w", unlistedHost, ErrNoTokendDeny).Error())
+		reason := fmt.Errorf("finding a deny for %s: %w", unlistedHost, ErrNoTokendDeny).Error()
+		return Fail(t.Name(), reason, probeEvidence...)
 	}
 
 	return Pass(t.Name(), evidence)
