@@ -39,7 +39,7 @@ The desktop is trusted and the VM is not. `xena-cli`, `tokend`, `prompt`, and `w
 - `prompt`: the user service that shows host questions and alerts.
 - `firewall`: the `inet xena` nftables table and its cut, resume, and reapply services.
 - `guard`: the attack suite.
-- `vault-gateway`: planned, not built.
+- `vault-gateway`: the `xena-vault` desktop user service, which serves VM vault calls over MCP on a forwarded socket, calls anchorhold, and marks every note it writes `source: xena-vm`.
 - `watch`: planned, not built.
 - `maple`: the desktop app, in its own repo, that drives VM sessions.
 - `vm-session`: everything running as `dev` in the VM.
@@ -58,7 +58,7 @@ The desktop is trusted and the VM is not. `xena-cli`, `tokend`, `prompt`, and `w
 - `tokend-to-github`: token requests. Only `api.github.com` through the proxy socket, fenced by nftables and AppArmor.
 - `vm-to-github`: pushes and PRs with the App token. No admin and required CI checks; the `main` ruleset requires no approval today.
 - `vm-to-cloud`: cloud API calls during a grant. A touch per grant, expiry, and account caps.
-- `vm-to-vault`: MCP calls to the planned gateway. Path policy, socket ownership, size and rate caps.
+- `vm-to-vault`: MCP calls to the gateway. Path policy, a mode 0600 socket with a same-user peer check, a 64 KB message cap, a 10-per-second rate limit, and a log of every call.
 - `pr-to-ci`: PR code in Actions. Read-only token and no secrets.
 
 ## What We Trust

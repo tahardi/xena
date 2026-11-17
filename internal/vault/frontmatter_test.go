@@ -33,6 +33,10 @@ func TestWithSource(t *testing.T) {
 			in:   "---\r\ntitle: x\r\nsource: desktop\r\n---\r\nbody",
 			want: "---\r\ntitle: x\r\nsource: xena-vm\r\n---\r\nbody",
 		},
+		{name: "double-quoted key", in: "---\n\"source\": desktop\n---\nb", want: "---\nsource: xena-vm\n---\nb"},
+		{name: "single-quoted key", in: "---\n'source': desktop\n---\nb", want: "---\nsource: xena-vm\n---\nb"},
+		{name: "space before colon", in: "---\nsource : desktop\n---\nb", want: "---\nsource: xena-vm\n---\nb"},
+		{name: "other key kept", in: "---\nsources: a\n---\nb", want: "---\nsources: a\nsource: xena-vm\n---\nb"},
 		{name: "indented source", in: "---\n  source: a\n---\nbody", want: "---\nsource: xena-vm\n---\nbody"},
 	}
 

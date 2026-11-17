@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -34,7 +35,9 @@ type fakeNotes struct {
 	mu          sync.Mutex
 	results     []vault.SearchResult
 	note        vault.Note
+	searchErr   error
 	getErr      error
+	writeErr    error
 	searchLimit int
 	gets        []string
 	writes      []writeCall
@@ -45,7 +48,7 @@ func (f *fakeNotes) Search(_ context.Context, _ string, limit int) ([]vault.Sear
 	defer f.mu.Unlock()
 
 	f.searchLimit = limit
-	return f.results, nil
+	return f.results, f.searchErr
 }
 
 func (f *fakeNotes) Get(_ context.Context, rel string) (vault.Note, error) {
@@ -69,7 +72,7 @@ func (f *fakeNotes) Write(_ context.Context, rel, content, mode string) error {
 	defer f.mu.Unlock()
 
 	f.writes = append(f.writes, writeCall{rel: rel, content: content, mode: mode})
-	return nil
+	return f.writeErr
 }
 
 type fakeLog struct {
@@ -131,6 +134,7 @@ func newHarness(t *testing.T) *harness {
 	root := t.TempDir()
 	files := map[string]string{
 		"Projects/A.md": "---\ntitle: a\n---\nold",
+		"Projects/C.md": "old\n",
 		"Journal/x.md":  "private",
 	}
 	for rel, body := range files {
@@ -138,6 +142,8 @@ func newHarness(t *testing.T) *harness {
 		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o700))
 		require.NoError(t, os.WriteFile(full, []byte(body), 0o600))
 	}
+
+	require.NoError(t, os.Symlink("../Journal/x.md", filepath.Join(root, "Projects", "link.md")))
 
 	now := time.Date(2026, 11, 17, 9, 0, 0, 0, time.UTC)
 	clock := func() time.Time { return now }
@@ -150,6 +156,7 @@ func newHarness(t *testing.T) *harness {
 		Limit:   vault.NewBucket(10, 10, clock),
 		Now:     clock,
 		Version: "v-test",
+		Logger:  slog.New(slog.DiscardHandler),
 	}
 
 	serverConn, client := net.Pipe()
@@ -347,6 +354,7 @@ func TestServer_Handle(t *testing.T) {
 		{name: "error - get out of scope", path: "Journal/x.md", decision: "refuse-scope"},
 		{name: "error - get traversal", path: "Projects/../Journal/x.md", decision: "refuse-traversal"},
 		{name: "error - get absolute", path: "/etc/passwd", decision: "refuse-absolute"},
+		{name: "error - get symlink", path: "Projects/link.md", decision: "refuse-symlink"},
 	}
 	for _, tt := range refusals {
 		t.Run(tt.name, func(t *testing.T) {
@@ -361,6 +369,23 @@ func TestServer_Handle(t *testing.T) {
 			require.Equal(t, "refused: "+tt.decision, result.Content[0].Text)
 			require.Empty(t, h.notes.gets)
 			require.Equal(t, []logs.GatewayEntry{entry("get_note", tt.path, tt.decision)}, h.log.decisions())
+		})
+	}
+
+	for _, tt := range refusals {
+		name := strings.Replace(tt.name, "error - get", "error - write", 1)
+		t.Run(name, func(t *testing.T) {
+			// given
+			h := newHarness(t)
+
+			// when
+			result := h.tool(t, "write_note", map[string]any{"path": tt.path, "content": "x", "mode": "overwrite"})
+
+			// then
+			require.True(t, result.IsError)
+			require.Equal(t, "refused: "+tt.decision, result.Content[0].Text)
+			require.Empty(t, h.notes.writes)
+			require.Equal(t, []logs.GatewayEntry{entry("write_note", tt.path, tt.decision)}, h.log.decisions())
 		})
 	}
 
@@ -405,6 +430,56 @@ func TestServer_Handle(t *testing.T) {
 		require.Equal(t, "anchorhold failed", result.Content[0].Text)
 	})
 
+	t.Run("error - search anchorhold failed", func(t *testing.T) {
+		// given
+		h := newHarness(t)
+		h.notes.searchErr = errAnchorhold
+
+		// when
+		result := h.tool(t, "search", map[string]any{"query": "x"})
+
+		// then
+		require.True(t, result.IsError)
+		require.Equal(t, "anchorhold failed", result.Content[0].Text)
+		require.Equal(t, []logs.GatewayEntry{entry("search", "", "allow")}, h.log.decisions())
+	})
+
+	t.Run("error - write anchorhold failed", func(t *testing.T) {
+		// given
+		h := newHarness(t)
+		h.notes.writeErr = errAnchorhold
+
+		// when
+		result := h.tool(t, "write_note", map[string]any{"path": "Projects/New.md", "content": "x"})
+
+		// then
+		require.True(t, result.IsError)
+		require.Equal(t, "anchorhold failed", result.Content[0].Text)
+		require.Equal(t, []logs.GatewayEntry{entry("write_note", "Projects/New.md", "allow")}, h.log.decisions())
+	})
+
+	searchLimits := []struct {
+		name      string
+		args      map[string]any
+		wantFetch int
+	}{
+		{name: "happy path - search default limit", args: map[string]any{"query": "x"}, wantFetch: 50},
+		{name: "happy path - search fetch cap", args: map[string]any{"query": "x", "limit": 20}, wantFetch: 100},
+	}
+	for _, tt := range searchLimits {
+		t.Run(tt.name, func(t *testing.T) {
+			// given
+			h := newHarness(t)
+
+			// when
+			result := h.tool(t, "search", tt.args)
+
+			// then
+			require.False(t, result.IsError)
+			require.Equal(t, tt.wantFetch, h.notes.searchLimit)
+		})
+	}
+
 	writes := []struct {
 		name string
 		args map[string]any
@@ -430,6 +505,11 @@ func TestServer_Handle(t *testing.T) {
 			},
 		},
 		{
+			name: "happy path - write append after newline",
+			args: map[string]any{"path": "Projects/C.md", "content": "new", "mode": "append"},
+			want: writeCall{rel: "Projects/C.md", content: "---\nsource: xena-vm\n---\nold\nnew", mode: "overwrite"},
+		},
+		{
 			name: "happy path - write append missing",
 			args: map[string]any{"path": "Projects/B.md", "content": "new", "mode": "append"},
 			want: writeCall{rel: "Projects/B.md", content: "---\nsource: xena-vm\n---\nnew", mode: "create"},
@@ -445,6 +525,7 @@ func TestServer_Handle(t *testing.T) {
 
 			// then
 			require.False(t, result.IsError)
+			require.Equal(t, "written", result.Content[0].Text)
 			require.Equal(t, []writeCall{tt.want}, h.notes.writes)
 			require.Equal(t, []logs.GatewayEntry{entry("write_note", tt.want.rel, "allow")}, h.log.decisions())
 		})
@@ -494,6 +575,40 @@ func TestServer_Handle(t *testing.T) {
 
 		_, err := h.reader.ReadBytes('\n')
 		require.Error(t, err)
+	})
+
+	t.Run("happy path - message at size cap", func(t *testing.T) {
+		// given
+		h := newHarness(t)
+		prefix := `{"jsonrpc":"2.0","id":3,"method":"ping","params":{"pad":"`
+		suffix := `"}}`
+		line := prefix + strings.Repeat("a", vault.MaxMessage-len(prefix)-len(suffix)) + suffix
+		require.Len(t, line, vault.MaxMessage)
+
+		// when
+		h.send(t, line)
+		reply := h.read(t)
+
+		// then
+		require.Nil(t, reply.Error)
+		require.JSONEq(t, "3", string(reply.ID))
+	})
+
+	t.Run("happy path - tool call without id", func(t *testing.T) {
+		// given
+		h := newHarness(t)
+		for range 11 {
+			h.send(t, `{"jsonrpc":"2.0","method":"tools/call","params":{"name":"write_note",`+
+				`"arguments":{"path":"Projects/New.md","content":"x"}}}`)
+		}
+
+		// when
+		result := h.tool(t, "get_note", map[string]any{"path": "Projects/A.md"})
+
+		// then
+		require.False(t, result.IsError)
+		require.Empty(t, h.notes.writes)
+		require.Equal(t, []logs.GatewayEntry{entry("get_note", "Projects/A.md", "allow")}, h.log.decisions())
 	})
 
 	t.Run("error - rate", func(t *testing.T) {
@@ -596,6 +711,7 @@ func TestServer_Handle(t *testing.T) {
 		{name: "error - bad arguments", tool: "get_note", args: map[string]any{"path": 7}},
 		{name: "error - search oversize query", tool: "search", args: map[string]any{"query": strings.Repeat("q", 513)}},
 		{name: "error - search missing query", tool: "search", args: map[string]any{}},
+		{name: "error - search limit zero", tool: "search", args: map[string]any{"query": "q", "limit": 0}},
 		{name: "error - search limit too high", tool: "search", args: map[string]any{"query": "q", "limit": 21}},
 		{name: "error - write missing content", tool: "write_note", args: map[string]any{"path": "Projects/A.md"}},
 	}
@@ -663,6 +779,7 @@ func TestServer_Serve(t *testing.T) {
 		Limit:   vault.NewBucket(10, 10, now),
 		Now:     now,
 		Version: "v-test",
+		Logger:  slog.New(slog.DiscardHandler),
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())

@@ -35,7 +35,6 @@ var (
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	slog.SetDefault(logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	err := run(ctx, os.Args[1:], logger)
@@ -84,6 +83,7 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 		Limit:   vault.NewBucket(rate, burst, time.Now),
 		Now:     time.Now,
 		Version: version,
+		Logger:  logger,
 	}
 
 	logger.Info("serving vault gateway", "socket", *socket)
@@ -119,7 +119,7 @@ func listen(ctx context.Context, socket string) (net.Listener, error) {
 
 	if err := os.Chmod(socket, socketMode); err != nil {
 		ln.Close()
-		return nil, fmt.Errorf("listening on socket: %w", err)
+		return nil, fmt.Errorf("setting socket mode: %w", err)
 	}
 	return ln, nil
 }

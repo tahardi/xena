@@ -1,11 +1,16 @@
 package vault
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 const (
 	fenceLine  = "---"
 	sourceLine = "source: xena-vm"
 )
+
+var sourceKey = regexp.MustCompile(`^\s*["']?source["']?\s*:`)
 
 func WithSource(content string) string {
 	lines := strings.SplitAfter(content, "\n")
@@ -22,7 +27,7 @@ func WithSource(content string) string {
 
 		kept := []string{lines[0]}
 		for _, line := range lines[1:end] {
-			if !strings.HasPrefix(strings.TrimSpace(line), "source:") {
+			if !sourceKey.MatchString(line) {
 				kept = append(kept, line)
 			}
 		}

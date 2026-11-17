@@ -69,7 +69,7 @@ components:
     trusted_with: Proving each wall holds
     limited_by: Judging from desktop proxy logs and drop counters, never from the VM's answer; the libguestfs persistence check is not built, so persistence cases still trust the VM
   - id: vault-gateway
-    what: Planned, not built; only its path policy exists. The service that serves VM vault calls over a forwarded socket
+    what: The xena-vault desktop user service, which serves VM vault calls over MCP on a forwarded socket, calls anchorhold, and marks every note it writes source xena-vm
     trusted_with: VM reads and writes in Projects, Ideas.md, and Learning/Security, except the Xena reports
     limited_by: The path policy refusing dot-dot, symlinks, and absolute paths, a socket only Taylor can open, size and rate caps, and a log of every call
   - id: watch
@@ -170,7 +170,7 @@ boundaries:
   - id: vm-to-vault
     between: [vm-session, vault-gateway]
     crosses: MCP calls over the forwarded socket
-    checks: Planned path policy, socket ownership, size and rate caps
+    checks: Path policy, a mode 0600 socket with a same-user peer check, a 64 KB message cap, a 10-per-second rate limit, and a log of every call
   - id: pr-to-ci
     between: [ci]
     crosses: PR code running in Actions

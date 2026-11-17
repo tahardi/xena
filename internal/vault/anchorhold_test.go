@@ -67,6 +67,18 @@ func TestAnchorhold_Search(t *testing.T) {
 		}, got)
 	})
 
+	t.Run("error - bad json", func(t *testing.T) {
+		// given
+		notes, _ := newFakeAnchorhold(t, "not json secret", "0")
+
+		// when
+		_, err := notes.Search(t.Context(), "q", 7)
+
+		// then
+		require.True(t, strings.HasPrefix(err.Error(), "searching notes"))
+		require.NotContains(t, err.Error(), "secret")
+	})
+
 	t.Run("error - non-zero exit", func(t *testing.T) {
 		// given
 		notes, _ := newFakeAnchorhold(t, "secret stdout", "2")
@@ -109,6 +121,18 @@ func TestAnchorhold_Get(t *testing.T) {
 
 		// then
 		require.ErrorIs(t, err, vault.ErrNoteNotFound)
+	})
+
+	t.Run("error - bad json", func(t *testing.T) {
+		// given
+		notes, _ := newFakeAnchorhold(t, "not json secret", "0")
+
+		// when
+		_, err := notes.Get(t.Context(), "Projects/a.md")
+
+		// then
+		require.True(t, strings.HasPrefix(err.Error(), "getting note"))
+		require.NotContains(t, err.Error(), "secret")
 	})
 
 	t.Run("error - other exit", func(t *testing.T) {
@@ -180,6 +204,28 @@ func TestAnchorhold_Root(t *testing.T) {
 		require.Equal(t, []string{"status", "--json"}, readFakeArgs(t, dir))
 		require.Equal(t, "/home/me/vault", got)
 	})
+
+	rootErrors := []struct {
+		name string
+		out  string
+		exit string
+	}{
+		{name: "error - bad json", out: "not json secret", exit: "0"},
+		{name: "error - non-zero exit", out: `{"vault":"/home/me/vault"}`, exit: "2"},
+	}
+	for _, tt := range rootErrors {
+		t.Run(tt.name, func(t *testing.T) {
+			// given
+			notes, _ := newFakeAnchorhold(t, tt.out, tt.exit)
+
+			// when
+			_, err := notes.Root(t.Context())
+
+			// then
+			require.True(t, strings.HasPrefix(err.Error(), "reading vault root"))
+			require.NotContains(t, err.Error(), "secret")
+		})
+	}
 
 	t.Run("error - missing vault", func(t *testing.T) {
 		// given

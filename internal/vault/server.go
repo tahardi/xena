@@ -57,41 +57,9 @@ type Server struct {
 	Limit   *Bucket
 	Now     func() time.Time
 	Version string
+	Logger  *slog.Logger
 
 	writeMu sync.Mutex
-}
-
-type request struct {
-	ID     json.RawMessage `json:"id"`
-	Method string          `json:"method"`
-	Params json.RawMessage `json:"params"`
-}
-
-type response struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id"`
-	Result  any             `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
-
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-
-type toolCall struct {
-	Name      string          `json:"name"`
-	Arguments json.RawMessage `json:"arguments"`
-}
-
-type textContent struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
-
-type toolResult struct {
-	Content []textContent `json:"content"`
-	IsError bool          `json:"isError"`
 }
 
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
@@ -110,7 +78,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 
 		if unixConn, ok := conn.(*net.UnixConn); ok {
 			if err := checkPeer(unixConn); err != nil {
-				slog.Warn("refusing connection", "error", err)
+				s.Logger.Warn("refusing connection", "error", err)
 				conn.Close()
 				continue
 			}
@@ -245,6 +213,7 @@ func (s *Server) search(ctx context.Context, raw json.RawMessage) toolResult {
 
 	results, err := s.Notes.Search(ctx, *args.Query, min(limit*overFetch, maxFetch))
 	if err != nil {
+		s.Logger.Warn("searching notes", "error", err)
 		return textResult("anchorhold failed", true)
 	}
 
@@ -276,6 +245,7 @@ func (s *Server) getNote(ctx context.Context, raw json.RawMessage) toolResult {
 	case errors.Is(err, ErrNoteNotFound):
 		return textResult("note not found", true)
 	case err != nil:
+		s.Logger.Warn("getting note", "error", err)
 		return textResult("anchorhold failed", true)
 	default:
 		return jsonResult(note)
@@ -318,6 +288,7 @@ func (s *Server) writeNote(ctx context.Context, raw json.RawMessage) toolResult 
 		case errors.Is(err, os.ErrNotExist):
 			mode = modeCreate
 		case err != nil:
+			s.Logger.Warn("reading note for append", "error", err)
 			return textResult("anchorhold failed", true)
 		default:
 			content = joinAppend(string(existing), content)
@@ -326,6 +297,7 @@ func (s *Server) writeNote(ctx context.Context, raw json.RawMessage) toolResult 
 	}
 
 	if err := s.Notes.Write(ctx, rel, WithSource(content), mode); err != nil {
+		s.Logger.Warn("writing note", "error", err)
 		return textResult("anchorhold failed", true)
 	}
 	return textResult("written", false)
@@ -344,7 +316,7 @@ func (s *Server) log(tool, rel, decision string) {
 		Decision: decision,
 	}
 	if err := s.Log.Write(entry); err != nil {
-		slog.Error("writing gateway log", "error", err)
+		s.Logger.Error("writing gateway log", "error", err)
 	}
 }
 
@@ -421,27 +393,4 @@ func clip(s string, limit int) string {
 		cut--
 	}
 	return s[:cut]
-}
-
-func resultReply(id json.RawMessage, result any) response {
-	return response{JSONRPC: "2.0", ID: id, Result: result}
-}
-
-func errorReply(id json.RawMessage, code int, message string) response {
-	if id == nil {
-		id = json.RawMessage("null")
-	}
-	return response{JSONRPC: "2.0", ID: id, Error: &rpcError{Code: code, Message: message}}
-}
-
-func textResult(text string, isError bool) toolResult {
-	return toolResult{Content: []textContent{{Type: "text", Text: text}}, IsError: isError}
-}
-
-func jsonResult(value any) toolResult {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return textResult("encoding result failed", true)
-	}
-	return textResult(string(data), false)
 }
