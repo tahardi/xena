@@ -24,6 +24,18 @@ Xena moves agentic coding into a disposable, encrypted VM behind a network wall 
 | `xena vm restore NAME` | Revert the disk to a snapshot while the VM is off, then rotate the VM's tokens. Two touches: one for the disk, one for the restarted `xena-tokend`. `make vm-restore NAME=...` |
 | `xena guard [--case NAME]` | Run the guardrail attack suite and write `~/.local/state/xena/guard/last.json`. Exits non-zero when any case fails. `--case` runs only print their results and leave the report alone. |
 
+## Services
+
+| Service | What it does |
+|---|---|
+| `xena-proxy` | Egress proxy for the VM. |
+| `xena-tokend` | Mints GitHub App tokens for the VM. |
+| `xena-prompt` | Desktop prompts and alert notifications (user unit). |
+| `xena-vault` | Vault gateway (user unit). Serves the VM narrow MCP access to notes in `Projects/`, `Learning/Security/`, and `Ideas.md` on `~/.local/state/xena/vault.sock`, marks every note it writes `source: xena-vm`, and logs each call to `/var/lib/xena-desktop/vault-<date>.jsonl`. |
+| `xena-audit` | Desktop audit, run daily at 04:00 by `xena-audit.timer`. |
+| `xena-nftables` | Loads the Xena nftables table. |
+| `xena-cut`, `xena-resume` | Cut or restore the VM's network. |
+
 ## Talking to the VM
 
 Desktop programs reach the VM through `internal/vmexec`, which runs `ssh` with the automation key and sends one short command such as `health` or `secret-put jira-token`.
