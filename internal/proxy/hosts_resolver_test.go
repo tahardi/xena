@@ -1,6 +1,7 @@
 package proxy_test
 
 import (
+	"io/fs"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -18,8 +19,8 @@ func TestHostsOnlyResolver_LookupNetIP(t *testing.T) {
 		host      string
 		next      map[string][]netip.Addr
 		want      []netip.Addr
+		nextErr   error
 		wantErr   error
-		anyErr    bool
 		wantCalls []string
 	}{
 		{
@@ -49,9 +50,9 @@ func TestHostsOnlyResolver_LookupNetIP(t *testing.T) {
 			wantCalls: []string{"api.github.com"},
 		},
 		{
-			name:   "error - hosts file missing",
-			host:   "xena-guard-rebind.test",
-			anyErr: true,
+			name:    "error - hosts file missing",
+			host:    "xena-guard-rebind.test",
+			wantErr: fs.ErrNotExist,
 		},
 		{
 			name: "happy path - comments and several names",
@@ -72,11 +73,49 @@ func TestHostsOnlyResolver_LookupNetIP(t *testing.T) {
 			want:  addrs("127.0.0.1"),
 		},
 		{
-			name:    "error - invalid and example names never reach next",
+			name:    "error - example name never reaches next",
 			hosts:   new(""),
 			host:    "a.b.example",
 			next:    map[string][]netip.Addr{"a.b.example": addrs("192.0.2.10")},
 			wantErr: proxy.ErrSpecialUseName,
+		},
+		{
+			name:    "error - invalid name never reaches next",
+			hosts:   new(""),
+			host:    "xena-guard-unlisted.invalid",
+			next:    map[string][]netip.Addr{"xena-guard-unlisted.invalid": addrs("192.0.2.10")},
+			wantErr: proxy.ErrSpecialUseName,
+		},
+		{
+			name:    "error - localhost subdomain never reaches next",
+			hosts:   new(""),
+			host:    "app.localhost",
+			next:    map[string][]netip.Addr{"app.localhost": addrs("192.0.2.10")},
+			wantErr: proxy.ErrSpecialUseName,
+		},
+		{
+			name:      "happy path - names that only contain a special-use label go to next",
+			hosts:     new("127.0.0.1 latest api.test.com\n"),
+			host:      "api.test.com",
+			next:      map[string][]netip.Addr{"api.test.com": addrs("192.0.2.10")},
+			want:      addrs("192.0.2.10"),
+			wantCalls: []string{"api.test.com"},
+		},
+		{
+			name:      "happy path - label suffix without a dot goes to next",
+			hosts:     new(""),
+			host:      "latest",
+			next:      map[string][]netip.Addr{"latest": addrs("192.0.2.11")},
+			want:      addrs("192.0.2.11"),
+			wantCalls: []string{"latest"},
+		},
+		{
+			name:      "error - next failure returned unchanged",
+			hosts:     new(""),
+			host:      "api.github.com",
+			nextErr:   errFake,
+			wantErr:   errFake,
+			wantCalls: []string{"api.github.com"},
 		},
 	}
 	for _, tt := range tests {
@@ -87,7 +126,7 @@ func TestHostsOnlyResolver_LookupNetIP(t *testing.T) {
 				require.NoError(t, os.WriteFile(path, []byte(*tt.hosts), 0o600))
 			}
 
-			next := &fakeResolver{answers: tt.next}
+			next := &fakeResolver{answers: tt.next, err: tt.nextErr}
 			if next.answers == nil {
 				next.answers = map[string][]netip.Addr{}
 			}
@@ -98,15 +137,13 @@ func TestHostsOnlyResolver_LookupNetIP(t *testing.T) {
 
 			// then
 			require.Equal(t, tt.wantCalls, next.Calls())
-			switch {
-			case tt.wantErr != nil:
+			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
-			case tt.anyErr:
-				require.Error(t, err)
-			default:
-				require.NoError(t, err)
-				require.Equal(t, tt.want, got)
+				return
 			}
+
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
