@@ -58,12 +58,10 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 		return fmt.Errorf("checking prompt timeout: %w", errInvalidPromptTimeout)
 	}
 
-	store, err := secrets.NewDefaultStore()
+	store, err := newTouchCheckStore()
 	if err != nil {
-		return fmt.Errorf("building secrets store: %w", err)
+		return err
 	}
-
-	store.KillGroup = !term.IsTerminal(int(os.Stdin.Fd()))
 
 	desktop := notify.Desktop{Run: notify.ExecRun}
 	client := notify.PromptClient{
@@ -93,4 +91,16 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 			}
 		}
 	}
+}
+
+func newTouchCheckStore() (secrets.Store, error) {
+	store, err := secrets.NewDefaultStore()
+	if err != nil {
+		return secrets.Store{}, fmt.Errorf("building secrets store: %w", err)
+	}
+
+	store.KillGroup = !term.IsTerminal(int(os.Stdin.Fd()))
+	store.Prompt = nil
+
+	return store, nil
 }
