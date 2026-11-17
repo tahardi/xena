@@ -1,6 +1,7 @@
 package secrets_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -222,6 +223,74 @@ func TestStore_Get(t *testing.T) {
 		assert.Contains(t, string(printed), "age: waiting")
 	})
 
+	t.Run("happy path - continues when the prompt write fails", func(t *testing.T) {
+		// given
+		store := newStore(t)
+		require.NoError(t, store.Put("a", strings.NewReader("made-up-value-4")))
+
+		closed, err := os.CreateTemp(t.TempDir(), "prompt")
+		require.NoError(t, err)
+		require.NoError(t, closed.Close())
+		store.Prompt = closed
+
+		// when
+		got, err := store.Get(context.Background(), "a")
+
+		// then
+		require.NoError(t, err)
+		assert.Equal(t, []byte("made-up-value-4"), got)
+	})
+
+	t.Run("error - prints touch prompt before running age", func(t *testing.T) {
+		// given
+		store := newStore(t)
+		require.NoError(t, store.Put("a", strings.NewReader("made-up")))
+
+		script := filepath.Join(t.TempDir(), "age")
+		require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nexit 1\n"), 0o700))
+		store.Age = script
+
+		var buf bytes.Buffer
+		store.Prompt = &buf
+
+		// when
+		_, err := store.Get(context.Background(), "a")
+
+		// then
+		require.Error(t, err)
+		assert.Equal(t, "touch your YubiKey to read secret a\n", buf.String())
+	})
+
+	t.Run("error - prints no touch prompt when secret is missing", func(t *testing.T) {
+		// given
+		store := newStore(t)
+
+		var buf bytes.Buffer
+		store.Prompt = &buf
+
+		// when
+		_, err := store.Get(context.Background(), "a")
+
+		// then
+		require.ErrorIs(t, err, secrets.ErrNotFound)
+		assert.Empty(t, buf.String())
+	})
+
+	t.Run("error - prints no touch prompt for an invalid name", func(t *testing.T) {
+		// given
+		store := newStore(t)
+
+		var buf bytes.Buffer
+		store.Prompt = &buf
+
+		// when
+		_, err := store.Get(context.Background(), "../a")
+
+		// then
+		require.ErrorIs(t, err, secrets.ErrInvalidName)
+		assert.Empty(t, buf.String())
+	})
+
 	t.Run("error - missing secret", func(t *testing.T) {
 		// given
 		store := newStore(t)
@@ -401,6 +470,7 @@ func TestNewDefaultStore(t *testing.T) {
 			RecipientsFile: filepath.Join(configDir, "age-recipients.txt"),
 			IdentityFile:   filepath.Join(configDir, "age-identities.txt"),
 			Age:            age,
+			Prompt:         os.Stdout,
 		}, got)
 	})
 

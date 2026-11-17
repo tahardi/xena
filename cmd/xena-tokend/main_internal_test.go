@@ -181,6 +181,35 @@ func TestUnlock(t *testing.T) {
 		assert.Equal(t, "touch your YubiKey to unlock the GitHub token service\n", buf.String())
 	})
 
+	t.Run("error - prints no second touch prompt", func(t *testing.T) {
+		// given
+		fakeAge(t, t.TempDir())
+		secretsDir := t.TempDir()
+		t.Setenv("XENA_SECRETS_DIR", secretsDir)
+		require.NoError(t, os.WriteFile(filepath.Join(secretsDir, appKeyName+".age"), nil, 0o600))
+
+		stdout, err := os.CreateTemp(t.TempDir(), "stdout")
+		require.NoError(t, err)
+
+		original := os.Stdout
+		os.Stdout = stdout
+		t.Cleanup(func() {
+			os.Stdout = original
+			_ = stdout.Close()
+		})
+
+		// when
+		_, err = unlock(context.Background(), github.AppConfig{}, io.Discard, slog.New(slog.DiscardHandler))
+
+		// then
+		require.Error(t, err)
+		assert.True(t, strings.HasPrefix(err.Error(), "decrypting secret"), err.Error())
+
+		printed, err := os.ReadFile(stdout.Name())
+		require.NoError(t, err)
+		assert.Empty(t, string(printed))
+	})
+
 	t.Run("error - prints touch prompt before notify-send", func(t *testing.T) {
 		// given
 		binDir := t.TempDir()
