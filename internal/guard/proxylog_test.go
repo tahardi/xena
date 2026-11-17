@@ -16,8 +16,14 @@ import (
 func writeProxyEntries(t *testing.T, dir string, entries ...logs.ProxyEntry) {
 	t.Helper()
 
+	writeNamedProxyEntries(t, dir, "proxy", entries...)
+}
+
+func writeNamedProxyEntries(t *testing.T, dir, name string, entries ...logs.ProxyEntry) {
+	t.Helper()
+
 	for _, entry := range entries {
-		writer := logs.Writer{Dir: dir, Name: "proxy", Now: func() time.Time { return entry.Time }}
+		writer := logs.Writer{Dir: dir, Name: name, Now: func() time.Time { return entry.Time }}
 		require.NoError(t, writer.Write(entry))
 	}
 }
@@ -79,7 +85,7 @@ func TestProxyLog_Entries(t *testing.T) {
 				require.NoError(t, os.WriteFile(path, []byte("{not json\n"), 0o600))
 			}
 
-			log := guard.NewProxyLog(dir, func() time.Time { return now })
+			log := guard.NewProxyLog(dir, "proxy", func() time.Time { return now })
 
 			// when
 			got, err := log.Entries(tt.since)
@@ -105,12 +111,28 @@ func TestProxyLog_Entries(t *testing.T) {
 		// given
 		dir := t.TempDir()
 		require.NoError(t, os.Mkdir(filepath.Join(dir, "proxy-2026-10-25.jsonl"), 0o700))
-		log := guard.NewProxyLog(dir, func() time.Time { return now })
+		log := guard.NewProxyLog(dir, "proxy", func() time.Time { return now })
 
 		// when
 		_, err := log.Entries(now.Add(-time.Hour))
 
 		// then
 		require.ErrorContains(t, err, "reading proxy log")
+	})
+
+	t.Run("happy path - reads only the named log", func(t *testing.T) {
+		// given
+		dir := t.TempDir()
+		writeProxyEntries(t, dir, first)
+		writeNamedProxyEntries(t, dir, "proxy-tokend", second)
+		log := guard.NewProxyLog(dir, "proxy-tokend", func() time.Time { return now })
+
+		// when
+		got, err := log.Entries(now.Add(-time.Hour))
+
+		// then
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, second.Host, got[0].Host)
 	})
 }
