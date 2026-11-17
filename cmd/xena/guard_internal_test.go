@@ -157,13 +157,21 @@ func TestDefaultGuardDeps(t *testing.T) {
 		"  vm_address: 192.168.150.10\nproxy_port: 3128\n"
 
 	tests := []struct {
-		name      string
-		vmYAML    string
-		noFile    bool
-		wantErrIs error
-		wantErr   string
+		name        string
+		vmYAML      string
+		noFile      bool
+		wantCases   []string
+		wantTargets []string
+		wantErrIs   error
+		wantErr     string
 	}{
-		{name: "happy path - builds the ten network cases", vmYAML: complete},
+		{name: "happy path - builds the ten network cases and two tokend cases", vmYAML: complete},
+		{
+			name:        "happy path - tokend cases are registered",
+			vmYAML:      complete,
+			wantCases:   []string{"tokend-unlisted", "tokend-proxy-unlisted"},
+			wantTargets: []string{"198.51.100.7", "xena-guard-unlisted.invalid"},
+		},
 		{name: "error - missing vm config", noFile: true, wantErr: "loading vm config"},
 		{name: "error - missing vm address", vmYAML: "version: 1\n", wantErrIs: vmexec.ErrMissingVMAddress},
 	}
@@ -195,7 +203,9 @@ func TestDefaultGuardDeps(t *testing.T) {
 				require.ErrorContains(t, err, tt.wantErr)
 			default:
 				require.NoError(t, err)
-				assert.Len(t, deps.Cases, 10)
+				assert.Len(t, deps.Cases, 12)
+				assert.Subset(t, guardCaseNames(deps.Cases), tt.wantCases)
+				assert.Subset(t, guardTargets(deps.Cases), tt.wantTargets)
 				assert.Equal(t, "192.168.150.10", deps.Env.VMAddr)
 				assert.Equal(t, filepath.Join(stateDir, "guard"), deps.ReportDir)
 				assert.Equal(t, runDir, deps.WindowDir)
@@ -210,4 +220,24 @@ func TestDefaultGuardDeps(t *testing.T) {
 			}
 		})
 	}
+}
+
+func guardCaseNames(cases []guard.Case) []string {
+	names := make([]string, 0, len(cases))
+	for _, c := range cases {
+		names = append(names, c.Name())
+	}
+
+	return names
+}
+
+func guardTargets(cases []guard.Case) []string {
+	var targets []string
+	for _, c := range cases {
+		if t, ok := c.(guard.Targeter); ok {
+			targets = append(targets, t.Targets()...)
+		}
+	}
+
+	return targets
 }

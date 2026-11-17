@@ -50,7 +50,7 @@ The desktop is trusted and the VM is not. `xena-cli`, `tokend`, `prompt`, and `w
 - `cloud-sandbox`: the AWS and GCP sandbox accounts.
 - `ci`: GitHub Actions.
 - `vm-to-desktop-net`: all VM packets. Only new TCP to the proxy port passes; everything else is dropped and logged at up to 10 a second; a cut address and broadcast or multicast are dropped without logging.
-- `vm-to-proxy`: VM web requests. Host and port checked against the allowlist, resolved only after, private and metadata ranges refused, exact address dialed.
+- `vm-to-proxy`: VM web requests. Host and port checked against the allowlist, resolved only after, names under `.test`, `.invalid`, `.localhost`, and `.example` resolved only from `/etc/hosts` and never through DNS, private and metadata ranges refused, exact address dialed.
 - `proxy-to-prompt`: questions about unknown hosts. Group-only socket and deny after 60 seconds. The prompt service asks for a touch before allow always; the proxy does not check it.
 - `desktop-to-vm-ssh`: commands and secrets into the VM. Pinned host key, root-owned keys file, only remote Unix socket forwarding, automation key forced to the agent.
 - `vm-to-desktop-data`: agent replies, hook events, transcripts, findings, and memory. Treated as untrusted; memory gets a secret scan.

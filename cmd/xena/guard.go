@@ -116,22 +116,29 @@ func defaultGuardDeps(_ context.Context, cmd audit.Commander) (guardDeps, error)
 	return guardDeps{
 		Env: guard.Env{
 			VM:       runner,
-			Proxy:    guard.NewProxyLog(config.ProxyStateDir(), time.Now),
+			Proxy:    guard.NewProxyLog(config.ProxyStateDir(), "proxy", time.Now),
 			Drops:    guard.NewJournalDrops("/usr/bin/journalctl"),
 			Firewall: firewall.NewFirewall("/usr/sbin/nft"),
 			VMAddr:   vm.Network.VMAddress,
 			Now:      time.Now,
 			Settle:   guardSettle,
 		},
-		Cases: guard.NetworkCases(guard.NetConfig{
-			BridgeAddr: vm.Network.BridgeAddress,
-			Bridge:     vm.Network.Bridge,
-			ProxyPort:  vm.ProxyPort,
-			Lookup:     net.DefaultResolver.LookupHost,
-			IP: func(ctx context.Context, args ...string) ([]byte, error) {
-				return cmd.Output(ctx, ipPath, args...)
-			},
-		}),
+		Cases: append(
+			guard.NetworkCases(guard.NetConfig{
+				BridgeAddr: vm.Network.BridgeAddress,
+				Bridge:     vm.Network.Bridge,
+				ProxyPort:  vm.ProxyPort,
+				Lookup:     net.DefaultResolver.LookupHost,
+				IP: func(ctx context.Context, args ...string) ([]byte, error) {
+					return cmd.Output(ctx, ipPath, args...)
+				},
+			}),
+			guard.NewTokendUnlisted(cmd),
+			guard.NewTokendProxyUnlisted(
+				cmd,
+				guard.NewProxyLog(config.ProxyStateDir(), "proxy-tokend", time.Now),
+			),
+		),
 		ReportDir: filepath.Join(config.StateDir(), "guard"),
 		WindowDir: config.GuardRunDir(),
 		Out:       os.Stdout,

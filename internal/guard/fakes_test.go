@@ -3,16 +3,38 @@ package guard_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/tahardi/xena/internal/guard"
 	"github.com/tahardi/xena/internal/logs"
 )
+
+var errUnexpectedCommand = errors.New("unexpected command")
+
+type fakeResult struct {
+	out string
+	err error
+}
+
+type fakeCommander map[string]fakeResult
+
+func (f fakeCommander) Output(_ context.Context, name string, args ...string) ([]byte, error) {
+	key := name + " " + strings.Join(args, " ")
+	result, ok := f[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", errUnexpectedCommand, key)
+	}
+
+	return []byte(result.out), result.err
+}
 
 type fakeCase struct {
 	name      string
