@@ -138,7 +138,7 @@ boundaries:
   - id: vm-to-proxy
     between: [vm-session, proxy]
     crosses: CONNECT and plain HTTP requests
-    checks: Host and port checked against the allowlist and overlay, name resolved only after it passes, IP literals and private, local, and metadata ranges refused, exact checked address dialed
+    checks: Host and port checked against the allowlist and overlay, name resolved only after it passes, names under .test, .invalid, .localhost, and .example resolved only from /etc/hosts and never through DNS, IP literals and private, local, and metadata ranges refused, exact checked address dialed
   - id: proxy-to-prompt
     between: [proxy, prompt]
     crosses: Questions about unknown hosts
