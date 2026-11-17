@@ -627,12 +627,14 @@ func TestNetworkCases(t *testing.T) {
 			assert.Contains(t, got.Error, tt.wantErr)
 		})
 	}
+
 	neighbor := `[{"dst":"fe80::5054:ff:fe00:1","lladdr":"52:54:00:00:00:01","state":["STALE"]}]`
 	ipv6Tests := []struct {
 		name       string
 		ip         *fakeIP
 		wantPassed bool
 		wantErr    string
+		wantNoVM   bool
 	}{
 		{
 			name:       "happy path - no neighbors and only a link-local address",
@@ -645,9 +647,10 @@ func TestNetworkCases(t *testing.T) {
 			wantPassed: true,
 		},
 		{
-			name:    "error - an IPv6 neighbor on the bridge",
-			ip:      &fakeIP{neigh: []string{neighbor}, addr: linkLocalOnly},
-			wantErr: "VM has IPv6 on xena0: fe80::5054:ff:fe00:1",
+			name:     "error - an IPv6 neighbor on the bridge",
+			ip:       &fakeIP{neigh: []string{neighbor}, addr: linkLocalOnly},
+			wantErr:  "VM has IPv6 on xena0: fe80::5054:ff:fe00:1",
+			wantNoVM: true,
 		},
 		{
 			name: "error - a global IPv6 address on the bridge",
@@ -657,17 +660,35 @@ func TestNetworkCases(t *testing.T) {
 					`{"family":"inet6","local":"fe80::1","prefixlen":64},` +
 					`{"family":"inet6","local":"2001:db8::1","prefixlen":64}]}]`,
 			},
-			wantErr: "VM has IPv6 on xena0: 2001:db8::1",
+			wantErr:  "VM has IPv6 on xena0: 2001:db8::1",
+			wantNoVM: true,
 		},
 		{
-			name:    "error - ip command fails",
-			ip:      &fakeIP{err: errFake},
-			wantErr: errFake.Error(),
+			name:     "error - neighbor command fails before the script",
+			ip:       &fakeIP{neigh: []string{`Cannot find device "xena0"`}, neighErr: errFake},
+			wantErr:  `fake failure: Cannot find device "xena0"`,
+			wantNoVM: true,
 		},
 		{
-			name:    "error - ip prints something other than JSON",
-			ip:      &fakeIP{neigh: []string{"not json"}, addr: linkLocalOnly},
-			wantErr: "parsing ip",
+			name:     "error - address command fails before the script",
+			ip:       &fakeIP{neigh: []string{"[]"}, addrErr: errFake},
+			wantErr:  "running ip -6 -j addr show dev xena0: fake failure",
+			wantNoVM: true,
+		},
+		{
+			name: "error - address that does not parse",
+			ip: &fakeIP{
+				neigh: []string{"[]"},
+				addr:  `[{"ifname":"xena0","addr_info":[{"family":"inet6","local":"not-an-address"}]}]`,
+			},
+			wantErr:  "VM has IPv6 on xena0: not-an-address",
+			wantNoVM: true,
+		},
+		{
+			name:     "error - ip prints something other than JSON",
+			ip:       &fakeIP{neigh: []string{"not json"}, addr: linkLocalOnly},
+			wantErr:  "parsing ip",
+			wantNoVM: true,
 		},
 		{
 			name:    "error - a neighbor appears only after the script",
@@ -689,12 +710,16 @@ func TestNetworkCases(t *testing.T) {
 				[]guard.ProxyExpect{{Host: "2001:db8::7", Port: 443, Decisions: literal}},
 				nil,
 			)
+			vm := &fakeVM{}
+			env := evidenceEnv(entries, nil)
+			env.VM = vm
 
 			// when
-			got := selected[0].Run(context.Background(), evidenceEnv(entries, nil))
+			got := selected[0].Run(context.Background(), env)
 
 			// then
 			assert.Equal(t, tt.wantPassed, got.Passed, got.Error)
+			assert.Equal(t, tt.wantNoVM, len(vm.calls) == 0)
 			assert.Contains(t, got.Error, tt.wantErr)
 			for _, call := range tt.ip.calls {
 				assert.Contains(t, [][]string{

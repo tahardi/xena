@@ -64,6 +64,10 @@ func readIP(
 ) error {
 	out, err := ip(ctx, args...)
 	if err != nil {
+		if reason := bytes.TrimSpace(out); len(reason) > 0 {
+			return fmt.Errorf("running ip %s: %w: %s", strings.Join(args, " "), err, reason)
+		}
+
 		return fmt.Errorf("running ip %s: %w", strings.Join(args, " "), err)
 	}
 
