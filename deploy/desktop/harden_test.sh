@@ -27,7 +27,14 @@ setup() {
 	touch "$fake/installed/docker-ce" "$fake/installed/containerd.io"
 	touch "$fake/enabled/ufw"
 	printf '2.1.200\n' >"$fake/claude-version"
-	printf 'version: 1\nclaude_code_version: "2.1.310"\nnetwork:\n  bridge: xena0\n  vm_address: 192.168.150.10\nproxy_port: 3128\n' >"$root/vm.yaml"
+	cat >"$root/vm.yaml" <<'YAML'
+version: 1
+claude_code_version: "2.1.310"
+network:
+  bridge: xena0
+  vm_address: 192.168.150.10
+proxy_port: 3128
+YAML
 
 	cat >"$root/dotclaude/settings/desktop.json" <<'JSON'
 {"env": {"DISABLE_UPDATES": "1"}, "permissions": {"defaultMode": "default"},
@@ -466,9 +473,12 @@ test_check_fails_after_port_change() {
 	harden >/dev/null
 	harden --user >/dev/null
 
-	sed -i 's/proxy_port: 3128/proxy_port: 3129/' "$root/vm.yaml"
-
 	local out
+
+	out=$(harden --check) || true
+	grep -qx 'ok: nftables-conf' <<<"$out" || { fail "${FUNCNAME[0]}" "failed before the change: $out"; return; }
+
+	sed -i 's/proxy_port: 3128/proxy_port: 3129/' "$root/vm.yaml"
 
 	if out=$(harden --check); then
 		fail "${FUNCNAME[0]}" "check passed after a port change"
@@ -489,6 +499,10 @@ test_stops_on_bad_network_values() {
 		's/proxy_port: 3128/proxy_port: true/' \
 		's/vm_address: .*/vm_address: "192.168.150.10; drop"/' \
 		"s/bridge: xena0/bridge: 'xena0\" accept'/" \
+		's/bridge: xena0/bridge: abcdefghijklmnop/' \
+		's/vm_address: .*/vm_address: "::1"/' \
+		's/claude_code_version: .*/claude_code_version: ""/' \
+		's/claude_code_version: .*/claude_code_version: "2.1.310 x"/' \
 		'/^network:/,/vm_address/d'; do
 		setup
 		sed -i "$edit" "$root/vm.yaml"
@@ -505,6 +519,25 @@ test_stops_on_bad_network_values() {
 		fi
 
 		[[ -z "$(calls)" ]] || { fail "${FUNCNAME[0]}" "changed state for $edit: $(calls)"; return; }
+	done
+
+	pass "${FUNCNAME[0]}"
+}
+
+test_accepts_boundary_values() {
+	local edit want
+
+	for edit in \
+		's/bridge: xena0/bridge: abcdefghijklmno/|iifname "abcdefghijklmno" ip saddr 192.168.150.10 tcp dport 3128 accept' \
+		's/proxy_port: 3128/proxy_port: 1/|iifname "xena0" ip saddr 192.168.150.10 tcp dport 1 accept' \
+		's/proxy_port: 3128/proxy_port: 65535/|iifname "xena0" ip saddr 192.168.150.10 tcp dport 65535 accept'; do
+		setup
+		want=${edit#*|}
+		sed -i "${edit%%|*}" "$root/vm.yaml"
+
+		harden >/dev/null 2>&1 || { fail "${FUNCNAME[0]}" "rejected ${edit%%|*}"; return; }
+		grep -qx "[[:space:]]*$want" "$root/etc/nftables.conf" ||
+			{ fail "${FUNCNAME[0]}" "rule does not match ${edit%%|*}"; return; }
 	done
 
 	pass "${FUNCNAME[0]}"
@@ -533,6 +566,26 @@ test_prefers_installed_vm_config() {
 	pass "${FUNCNAME[0]}"
 }
 
+test_falls_back_to_repo_vm_config() {
+	setup
+
+	env -u XENA_VM_CONFIG -u GH_TOKEN -u GITHUB_TOKEN \
+		PATH="$fake/bin:$PATH" \
+		FAKE="$fake" \
+		XENA_ROOT="$root" \
+		XENA_USER=taylor \
+		XENA_HOME="$root/home/taylor" \
+		DOTCLAUDE_DIR="$root/dotclaude" \
+		"$script" >/dev/null
+
+	local out
+
+	out=$(env XENA_VM_CONFIG="$(dirname "$script")/../../config/vm.yaml" PATH="$fake/bin:$PATH" FAKE="$fake" \
+		XENA_ROOT="$root" XENA_HOME="$root/home/taylor" "$script" --check) || true
+	grep -qx 'ok: nftables-conf' <<<"$out" || { fail "${FUNCNAME[0]}" "repo vm.yaml not used: $out"; return; }
+	pass "${FUNCNAME[0]}"
+}
+
 test_env_vm_config_wins() {
 	setup
 	installed_vm_config
@@ -543,7 +596,6 @@ test_env_vm_config_wins() {
 		{ fail "${FUNCNAME[0]}" "XENA_VM_CONFIG not used"; return; }
 	pass "${FUNCNAME[0]}"
 }
-
 
 test_system_applies_every_step
 test_system_is_idempotent
@@ -570,4 +622,6 @@ test_check_fails_after_port_change
 test_stops_on_bad_network_values
 test_prefers_installed_vm_config
 test_env_vm_config_wins
+test_accepts_boundary_values
+test_falls_back_to_repo_vm_config
 exit "$((failures > 0))"
