@@ -235,7 +235,7 @@ func (w DropExpect) matches(d Drop, vmAddr string) bool {
 		return false
 	}
 
-	if d.Proto == "TCP" && (!d.SYN || d.ACK) {
+	if d.Proto == "TCP" && !slices.Equal(d.Flags, []string{"SYN"}) {
 		return false
 	}
 

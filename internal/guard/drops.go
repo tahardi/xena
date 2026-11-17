@@ -21,8 +21,7 @@ type Drop struct {
 	Dst     string
 	Proto   string
 	DstPort int
-	SYN     bool
-	ACK     bool
+	Flags   []string
 }
 
 type JournalDrops struct {
@@ -115,10 +114,8 @@ func ParseDrop(message string) (Drop, bool) {
 			drop.Proto = value
 		case "DPT":
 			drop.DstPort, _ = strconv.Atoi(value)
-		case "SYN":
-			drop.SYN = true
-		case "ACK":
-			drop.ACK = true
+		case "CWR", "ECE", "URG", "ACK", "PSH", "RST", "SYN", "FIN":
+			drop.Flags = append(drop.Flags, key)
 		}
 	}
 
