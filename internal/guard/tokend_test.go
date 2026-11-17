@@ -34,6 +34,7 @@ func TestTokendUnlisted_Run(t *testing.T) {
 	journalKey := "journalctl -k -o cat --no-pager --since @" + strconv.FormatInt(now.Unix(), 10)
 	active := fakeResult{out: "active\n"}
 	blocked := fakeResult{out: "curl: (28) Connection timed out\n", err: errExit}
+	vmPrefixed := strings.Replace(tokendDrop("198.51.100.7", "443"), "xena-tokend-drop", "xena-drop", 1)
 
 	tests := []struct {
 		name         string
@@ -49,7 +50,8 @@ func TestTokendUnlisted_Run(t *testing.T) {
 				probeKey:        blocked,
 				journalKey:      {out: "xena-drop: DST=10.0.0.1 DPT=80\n" + tokendDrop("198.51.100.7", "443")},
 			},
-			wantPass: true,
+			wantPass:     true,
+			wantEvidence: "drop: 198.51.100.7:443",
 		},
 		{
 			name: "error - token daemon not active",
@@ -89,7 +91,7 @@ func TestTokendUnlisted_Run(t *testing.T) {
 			commands: fakeCommander{
 				daemonActiveKey: active,
 				probeKey:        blocked,
-				journalKey:      {out: strings.Replace(tokendDrop("198.51.100.7", "443"), "xena-tokend-drop", "xena-drop", 1)},
+				journalKey:      {out: vmPrefixed},
 			},
 			wantErr: "finding a drop for 198.51.100.7: no xena-tokend-drop entry since the case started",
 		},
@@ -163,6 +165,8 @@ func TestTokendProxyUnlisted_Run(t *testing.T) {
 		name         string
 		commands     fakeCommander
 		proxy        *fakeProxy
+		settle       time.Duration
+		cancelled    bool
 		wantPass     bool
 		wantErr      string
 		wantEvidence string
@@ -172,6 +176,21 @@ func TestTokendProxyUnlisted_Run(t *testing.T) {
 			commands: fakeCommander{daemonActiveKey: active, probeKey: {}},
 			proxy:    &fakeProxy{entries: []logs.ProxyEntry{entry(start, host, logs.DecisionDeny)}},
 			wantPass: true,
+		},
+		{
+			name:     "happy path - deny entry appears on a later poll",
+			commands: fakeCommander{daemonActiveKey: active, probeKey: {}},
+			proxy:    &fakeProxy{entries: []logs.ProxyEntry{entry(start, host, logs.DecisionDeny)}, emptyCalls: 1},
+			settle:   time.Second,
+			wantPass: true,
+		},
+		{
+			name:      "error - context ends while settling",
+			commands:  fakeCommander{daemonActiveKey: active, probeKey: {}},
+			proxy:     &fakeProxy{},
+			settle:    time.Hour,
+			cancelled: true,
+			wantErr:   "finding a deny for xena-guard-unlisted.invalid: no deny entry since the case started",
 		},
 		{
 			name:     "error - token daemon not active",
@@ -213,10 +232,15 @@ func TestTokendProxyUnlisted_Run(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
 			c := guard.NewTokendProxyUnlisted(tt.commands, tt.proxy)
-			env := guard.Env{Now: func() time.Time { return now }}
+			env := guard.Env{Now: func() time.Time { return now }, Settle: tt.settle}
+			ctx, cancel := context.WithCancel(context.Background())
+			if tt.cancelled {
+				cancel()
+			}
+			defer cancel()
 
 			// when
-			got := c.Run(context.Background(), env)
+			got := c.Run(ctx, env)
 
 			// then
 			assert.Equal(t, "tokend-proxy-unlisted", got.Case)
@@ -231,35 +255,6 @@ func TestTokendProxyUnlisted_Run(t *testing.T) {
 			assert.Contains(t, got.Error, tt.wantErr)
 		})
 	}
-	commands := fakeCommander{daemonActiveKey: {out: "active\n"}, probeKey: {}}
-	deny := logs.ProxyEntry{Time: start, Host: "xena-guard-unlisted.invalid", Port: 443, Decision: logs.DecisionDeny}
-
-	t.Run("happy path - deny entry appears on a later poll", func(t *testing.T) {
-		// given
-		c := guard.NewTokendProxyUnlisted(commands, &fakeProxy{entries: []logs.ProxyEntry{deny}, emptyCalls: 1})
-		env := guard.Env{Now: func() time.Time { return now }, Settle: time.Second}
-
-		// when
-		got := c.Run(context.Background(), env)
-
-		// then
-		assert.True(t, got.Passed)
-	})
-
-	t.Run("error - context ends while settling", func(t *testing.T) {
-		// given
-		c := guard.NewTokendProxyUnlisted(commands, &fakeProxy{})
-		env := guard.Env{Now: func() time.Time { return now }, Settle: time.Hour}
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		// when
-		got := c.Run(ctx, env)
-
-		// then
-		assert.False(t, got.Passed)
-		assert.Contains(t, got.Error, "no deny entry since the case started")
-	})
 }
 
 func TestTokendProxyUnlisted_Targets(t *testing.T) {
