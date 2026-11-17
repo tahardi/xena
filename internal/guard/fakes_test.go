@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -142,4 +143,36 @@ type fakeCut struct {
 
 func (f *fakeCut) IsCut(context.Context, string) (bool, error) {
 	return f.cut, f.err
+}
+
+type fakeIP struct {
+	mu    sync.Mutex
+	neigh []string
+	addr  string
+	err   error
+	calls [][]string
+}
+
+func (f *fakeIP) Run(_ context.Context, args ...string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.err != nil {
+		return nil, f.err
+	}
+
+	f.calls = append(f.calls, args)
+
+	if slices.Contains(args, "addr") {
+		return []byte(f.addr), nil
+	}
+
+	neighCalls := 0
+	for _, call := range f.calls {
+		if slices.Contains(call, "neigh") {
+			neighCalls++
+		}
+	}
+
+	return []byte(f.neigh[min(neighCalls, len(f.neigh))-1]), nil
 }

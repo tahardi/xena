@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +31,24 @@ func (c *guardFakeCase) Name() string {
 func (c *guardFakeCase) Run(context.Context, guard.Env) guard.Result {
 	c.ran = true
 	return c.result
+}
+
+var errGuardFake = errors.New("fake failure")
+
+type guardFakeCommander struct {
+	err   error
+	calls []string
+}
+
+func (c *guardFakeCommander) Output(_ context.Context, name string, args ...string) ([]byte, error) {
+	c.calls = append(c.calls, strings.Join(append([]string{name}, args...), " "))
+	return nil, c.err
+}
+
+type guardFakeCut struct{}
+
+func (guardFakeCut) IsCut(context.Context, string) (bool, error) {
+	return false, nil
 }
 
 func TestRunGuardWith(t *testing.T) {
@@ -133,7 +153,8 @@ func TestRunGuardWith(t *testing.T) {
 }
 
 func TestDefaultGuardDeps(t *testing.T) {
-	complete := "version: 1\nnetwork:\n  bridge_address: 192.168.150.1\n  vm_address: 192.168.150.10\nproxy_port: 3128\n"
+	complete := "version: 1\nnetwork:\n  bridge: xena9\n  bridge_address: 192.168.150.1\n" +
+		"  vm_address: 192.168.150.10\nproxy_port: 3128\n"
 
 	tests := []struct {
 		name      string
@@ -161,8 +182,10 @@ func TestDefaultGuardDeps(t *testing.T) {
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "vm.yaml"), []byte(tt.vmYAML), 0o600))
 			}
 
+			cmd := &guardFakeCommander{err: errGuardFake}
+
 			// when
-			deps, err := defaultGuardDeps(context.Background())
+			deps, err := defaultGuardDeps(context.Background(), cmd)
 
 			// then
 			switch {
@@ -176,6 +199,14 @@ func TestDefaultGuardDeps(t *testing.T) {
 				assert.Equal(t, "192.168.150.10", deps.Env.VMAddr)
 				assert.Equal(t, filepath.Join(stateDir, "guard"), deps.ReportDir)
 				assert.Equal(t, runDir, deps.WindowDir)
+
+				deps.Env.Firewall = guardFakeCut{}
+				ipv6, err := guard.Select(deps.Cases, []string{"net-ipv6"})
+				require.NoError(t, err)
+
+				got := ipv6[0].Run(context.Background(), deps.Env)
+				assert.Contains(t, got.Error, errGuardFake.Error())
+				assert.Equal(t, []string{"/usr/bin/ip -6 -j neigh show dev xena9"}, cmd.calls)
 			}
 		})
 	}
