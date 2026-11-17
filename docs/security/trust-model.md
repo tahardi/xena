@@ -30,7 +30,7 @@ Xena moves agentic coding off Taylor's desktop into a disposable, encrypted VM b
 
 ## Trust Boundaries
 
-The desktop is trusted and the VM is not. `xena-cli`, `secrets-store`, `tokend`, `prompt`, `watch`, and `vault-gateway` are reached by no attacker directly.
+The desktop is trusted and the VM is not. `xena-cli`, `tokend`, `prompt`, and `watch` are reached by no attacker directly.
 
 - `xena-cli`: the `xena` command Taylor runs.
 - `secrets-store`: age files encrypted to both YubiKeys.
@@ -51,9 +51,10 @@ The desktop is trusted and the VM is not. `xena-cli`, `secrets-store`, `tokend`,
 - `ci`: GitHub Actions.
 - `vm-to-desktop-net`: all VM packets. Only new TCP to the proxy port passes; everything else is dropped and logged.
 - `vm-to-proxy`: VM web requests. Host and port checked against the allowlist, resolved only after, private and metadata ranges refused, exact address dialed.
-- `proxy-to-prompt`: questions about unknown hosts. Group-only socket, deny after 60 seconds, touch for allow always.
-- `desktop-to-vm-ssh`: commands and secrets into the VM. Pinned host key, root-owned keys file, no forwarding but Unix sockets, automation key forced to the agent.
+- `proxy-to-prompt`: questions about unknown hosts. Group-only socket and deny after 60 seconds. The prompt service asks for a touch before allow always; the proxy does not check it.
+- `desktop-to-vm-ssh`: commands and secrets into the VM. Pinned host key, root-owned keys file, only remote Unix socket forwarding, automation key forced to the agent.
 - `vm-to-desktop-data`: agent replies, hook events, transcripts, findings, and memory. Treated as untrusted; memory gets a secret scan.
+- `vm-to-xena-cli`: the SSH host key and cloud-init result, read through the VM's qemu guest agent. Read only at build and start; the host key is pinned at first boot before repo code runs, and a VM root compromise controls later replies.
 - `tokend-to-github`: token requests. Only `api.github.com` through the proxy socket, fenced by nftables and AppArmor.
 - `vm-to-github`: pushes and PRs with the App token. No admin and required CI checks; the `main` ruleset requires no approval today.
 - `vm-to-cloud`: cloud API calls during a grant. A touch per grant, expiry, and account caps.
@@ -67,16 +68,16 @@ Any part that runs Claude can be misled, so its trust is a best effort and its l
 - `xena-cli`: trusted with Taylor's intent and the secrets store, one touch per decrypt. Nothing limits it; it is the trusted base. Firewall cut and resume need admin authentication.
 - `secrets-store`: trusted with every long-lived secret. Limited by encryption to both YubiKeys and a touch per decrypt.
 - `tokend`: trusted with the GitHub App key after a daily touch, and minting one-hour tokens. Limited by an nftables fence to VM port 22, GitHub only through the proxy socket, AppArmor, and the App's permissions.
-- `proxy`: trusted with deciding every VM connection and writing the proxy log. Limited by its own user, systemd hardening, address rules allowing only the VM and the local resolver, no write to the allowlist, and a touch for allow always.
-- `prompt`: trusted with showing host questions and alerts and returning Taylor's answer. Limited by Unix sockets only, a touch for allow always, and deny on timeout.
-- `firewall`: trusted with dropping all VM traffic but the proxy port, logging drops, and cutting the VM. Limited by root only, loading at boot before libvirt, and the audit.
+- `proxy`: trusted with deciding every VM connection and writing the proxy log. Limited by its own user, systemd hardening, address rules allowing only the VM and the local resolver, and no write to the allowlist. It trusts any answer on the prompt socket from the xena-prompt group, which includes every process running as Taylor.
+- `prompt`: trusted with showing host questions and alerts and returning Taylor's answer. Limited by Unix sockets only, asking for a touch before it answers allow always, and deny on timeout.
+- `firewall`: trusted with dropping all VM traffic but the proxy port, logging drops at up to 10 a second, and cutting the VM. Drops from a cut address and broadcast or multicast drops are not logged. Limited by root only, loading at boot before libvirt, and the audit.
 - `guard`: trusted with proving each wall holds. Limited by judging from desktop logs and counters, never the VM's answer; persistence cases still trust the VM until the libguestfs check exists.
 - `vault-gateway`: trusted with VM reads and writes in the project, ideas, and lesson notes, except Xena reports. Limited by the path policy, a socket only Taylor can open, size and rate caps, and a log of every call.
 - `watch`: trusted with spotting misbehavior and cutting the network on high alerts. Limited by its own user, read-only logs, and only the cut hook as write power.
 - `maple`: trusted with Taylor's gh login and the merge decision. Limited by its own trust model treating VM content as untrusted, and merges pinned to the head commit.
-- `vm-session`: trusted with a best-effort try at the card's task, never an honest report on its own work. Limited by the VM with no sudo, the managed sandbox and write list, the deny list, the proxy allowlist, and only short-lived tokens.
+- `vm-session`: trusted with a best-effort try at the card's task, never an honest report on its own work. Limited by the VM with no sudo, the managed sandbox and write list, the deny list, the proxy allowlist, and no desktop tokens. Its GitHub token lasts an hour and cloud grants end with the grant, but its Jira bot token rotates every 90 days and its Claude login lasts until rebuild.
 - `vm-settings`: trusted with keeping the sandbox, deny list, hooks, no connectors, and proxy settings in force. Limited by root ownership, changes only by merged dotclaude PR, and the guard; deny rules match text only.
-- `vm-sshd`: trusted with letting in only the desktop's keys. Limited by the pinned host key, root-owned keys file, no forwarding, and the firewall; a VM root compromise gets past it.
+- `vm-sshd`: trusted with letting in only the desktop's keys. Limited by the pinned host key, root-owned keys file, no forwarding except remote Unix sockets, and the firewall; a VM root compromise gets past it.
 - `xena-agent`: trusted with running its fixed automation commands. Limited by the forced command and fixed verb and name checks; its replies are untrusted.
 - `github-app`: trusted with pushing branches and opening PRs. Limited by no admin permission, one-hour tokens, required CI checks, and only Taylor's signed tags installing; the `main` ruleset requires no approval today, so the App could merge.
 - `cloud-sandbox`: trusted with whatever cloud work a grant allows. Limited by touch-gated expiring grants, the AWS SCP and GCP deny policy, quotas, and a GCP budget that cuts billing.

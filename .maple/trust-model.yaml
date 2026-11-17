@@ -55,14 +55,14 @@ components:
   - id: proxy
     what: The xena-proxy system service, the VM's only way out
     trusted_with: Deciding every outbound connection from the VM and writing the proxy log
-    limited_by: Its own system user and full systemd hardening, IPAddressDeny allowing only the VM address and the local resolver, no write access to allowlist.yaml, and a touch for every allow always
+    limited_by: Its own system user and full systemd hardening, IPAddressDeny allowing only the VM address and the local resolver, no write access to allowlist.yaml, and no prompt of its own; it trusts any answer on the prompt socket from a member of the xena-prompt group, which includes every process running as Taylor
   - id: prompt
     what: The xena-prompt user service that shows host questions and alerts
     trusted_with: Showing Taylor host questions and alerts, and returning Taylor's answer
-    limited_by: Unix sockets only with no network address families, a touch for allow always, and deny after a 60-second timeout
+    limited_by: Unix sockets only with no network address families, asking for a touch before it answers allow always, and deny after a 60-second timeout
   - id: firewall
     what: The inet xena nftables table and the root cut, resume, and reapply services
-    trusted_with: Dropping all VM traffic except to the proxy port, logging every drop, and cutting the VM on command
+    trusted_with: Dropping all VM traffic except to the proxy port, logging drops at up to 10 a second, and cutting the VM on command; drops from a cut address and broadcast or multicast drops are not logged
     limited_by: Root only, loaded at boot before libvirt and the proxy, and checked by xena audit
   - id: guard
     what: The xena guard attack suite
@@ -83,7 +83,7 @@ components:
   - id: vm-session
     what: Claude sessions and anything else running as dev in the VM
     trusted_with: A best-effort try at the card's task, never an honest report on its own work
-    limited_by: The VM with no sudo and a disposable encrypted disk, the managed sandbox with no unsandboxed retries and writes only to the code, cache, Go, and findings folders, the managed deny list, the proxy allowlist, and only short-lived tokens with no desktop tokens
+    limited_by: The VM with no sudo and a disposable encrypted disk, the managed sandbox with no unsandboxed retries and writes only to the code, cache, Go, and findings folders, the managed deny list, the proxy allowlist, and no desktop tokens; the VM holds a one-hour GitHub token and grant-length cloud credentials, plus a Jira bot token rotated every 90 days and a Claude login replaced on rebuild
   - id: vm-settings
     what: Root-owned managed Claude settings in the VM, installed from a pinned dotclaude commit
     trusted_with: Keeping the sandbox, deny list, hooks, no connectors, and proxy environment in force for every session
@@ -91,7 +91,7 @@ components:
   - id: vm-sshd
     what: The VM's SSH server
     trusted_with: Letting in only the desktop's keys
-    limited_by: Host key pinned at build, a root-owned keys file, no password, root, agent, X11, or TCP forwarding, and the firewall; a root compromise of the VM gets past it
+    limited_by: Host key pinned at build, a root-owned keys file, no password, root, agent, X11, TCP forwarding, or tunnels, with only remote Unix socket forwarding on, and the firewall; a root compromise of the VM gets past it
   - id: xena-agent
     what: The forced command for automation-key logins in the VM
     trusted_with: Running health, token-put, secret-put and secret-clear for jira-token, aws-credentials, and gcp-token, memory-export, memory-import, and guard
@@ -142,15 +142,19 @@ boundaries:
   - id: proxy-to-prompt
     between: [proxy, prompt]
     crosses: Questions about unknown hosts
-    checks: Unix socket mode 0660 for group xena-prompt, deny after 60 seconds, a touch for allow always
+    checks: Unix socket mode 0660 for group xena-prompt, deny after 60 seconds; the prompt service asks for a touch before allow always, and the proxy does not check it
   - id: desktop-to-vm-ssh
     between: [tokend, vm-sshd]
     crosses: Commands and secrets from tokend, xena-cli, and maple
-    checks: Pinned host key, keys from a root-owned file, no password, root, agent, X11, or TCP forwarding, automation key forced to xena-agent with a fixed command set
+    checks: Pinned host key, keys from a root-owned file, no password, root, agent, X11, or TCP forwarding, only remote Unix socket forwarding, automation key forced to xena-agent with a fixed command set
   - id: vm-to-desktop-data
     between: [xena-agent, maple]
     crosses: Agent replies, hook events, transcripts, findings, and memory exports
     checks: Treated as untrusted data; memory gets a secret scan and Maple applies its own checks
+  - id: vm-to-xena-cli
+    between: [vm-session, xena-cli]
+    crosses: Files read through the VM's qemu guest agent over libvirt, which are the SSH host key to pin and the cloud-init result
+    checks: Read only during build and start; the host key is pinned at first boot before any repo code runs, and the guest agent runs as root in the VM, so a VM root compromise controls later replies
   - id: tokend-to-github
     between: [tokend, proxy]
     crosses: Installation token requests to api.github.com
