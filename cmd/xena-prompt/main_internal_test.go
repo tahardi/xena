@@ -112,8 +112,19 @@ func TestNewTouchCheckStore(t *testing.T) {
 
 		stdout := tempStdout(t)
 
+		stdin, err := os.Open(filepath.Join(secretsDir, "touch-check.age"))
+		require.NoError(t, err)
+
+		original := os.Stdin
+		os.Stdin = stdin
+		t.Cleanup(func() {
+			os.Stdin = original
+			_ = stdin.Close()
+		})
+
 		store, err := newTouchCheckStore()
 		require.NoError(t, err)
+		assert.True(t, store.KillGroup)
 
 		// when
 		_, err = store.Get(t.Context(), "touch-check")

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -52,6 +53,9 @@ func TestNewDiskKeyStore(t *testing.T) {
 		// given
 		binDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(binDir, "age"), []byte("#!/bin/sh\nexit 1\n"), 0o700))
+		marker := filepath.Join(binDir, "notified")
+		notifySend := fmt.Sprintf("#!/bin/sh\necho shown >> %q\n", marker)
+		require.NoError(t, os.WriteFile(filepath.Join(binDir, "notify-send"), []byte(notifySend), 0o700))
 		t.Setenv("PATH", binDir)
 
 		secretsDir := t.TempDir()
@@ -77,6 +81,10 @@ func TestNewDiskKeyStore(t *testing.T) {
 		gotStderr, err := os.ReadFile(stderr)
 		require.NoError(t, err)
 		assert.Equal(t, "touch your YubiKey to unlock the VM disk\n", string(gotStderr))
+
+		notified, err := os.ReadFile(marker)
+		require.NoError(t, err)
+		assert.Equal(t, "shown\n", string(notified))
 	})
 
 	t.Run("error - age missing", func(t *testing.T) {
