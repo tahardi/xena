@@ -14,14 +14,50 @@ user=${XENA_USER:-${SUDO_USER:-$(id -un)}}
 home=${XENA_HOME:-$HOME}
 dotclaude=${DOTCLAUDE_DIR:-$home/Documents/code/dotclaude}
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-vm_config=${XENA_VM_CONFIG:-$here/../../config/vm.yaml}
-if ! claude_version=$(
-	python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["claude_code_version"])' \
-		"$vm_config" 2>/dev/null
-); then
-	echo "reading claude_code_version from $vm_config: check the file exists and python3-yaml is installed" >&2
+vm_config=${XENA_VM_CONFIG:-}
+if [[ -z "$vm_config" ]]; then
+	vm_config=$root/usr/local/share/xena/config/vm.yaml
+	if [[ ! -e "$vm_config" ]]; then
+		vm_config=$here/../../config/vm.yaml
+	fi
+fi
+
+read_vm_config() {
+	python3 -I - "$1" <<'PY'
+import ipaddress
+import re
+import sys
+
+import yaml
+
+with open(sys.argv[1]) as f:
+    c = yaml.safe_load(f)
+
+bridge = c["network"]["bridge"]
+vm_address = str(ipaddress.IPv4Address(c["network"]["vm_address"]))
+port = c["proxy_port"]
+version = c["claude_code_version"]
+
+if not re.fullmatch(r"[A-Za-z0-9_.-]{1,15}", bridge):
+    sys.exit(1)
+
+if not re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z.+-]*", version):
+    sys.exit(1)
+
+if not (type(port) is int and 1 <= port <= 65535):
+    sys.exit(1)
+
+print(version, bridge, vm_address, port)
+PY
+}
+
+if ! values=$(read_vm_config "$vm_config" 2>/dev/null); then
+	echo "reading vm config from $vm_config: check it sets claude_code_version, network.bridge," \
+		"network.vm_address, and proxy_port, and python3-yaml is installed" >&2
 	exit 1
 fi
+
+read -r claude_version bridge vm_address proxy_port <<<"$values"
 
 polkit_rules=$here/../polkit/50-xena.rules
 polkit_dest=usr/share/polkit-1/rules.d/50-xena.rules
@@ -53,7 +89,7 @@ settings_rule='.sandbox.enabled == true
 failed=0
 
 nftables_conf() {
-	cat <<'CONF'
+	cat <<CONF
 #!/usr/sbin/nft -f
 
 table inet host_filter
@@ -65,7 +101,7 @@ table inet host_filter {
 		iifname "lo" accept
 		ct state established,related accept
 		ct state invalid drop
-		iifname "xena0" ip saddr 192.168.150.10 tcp dport 3128 accept
+		iifname "$bridge" ip saddr $vm_address tcp dport $proxy_port accept
 		meta l4proto ipv6-icmp icmpv6 type {
 			destination-unreachable,
 			packet-too-big,
