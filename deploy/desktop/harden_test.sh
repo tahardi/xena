@@ -544,6 +544,17 @@ test_accepts_boundary_values() {
 	pass "${FUNCNAME[0]}"
 }
 
+test_ignores_python_modules_in_cwd() {
+	setup
+	mkdir -p "$root/cwd"
+	printf 'open(%s, "w").close()\n' "'$fake/planted'" >"$root/cwd/ipaddress.py"
+
+	(cd "$root/cwd" && harden >/dev/null 2>&1) || true
+
+	[[ ! -e "$fake/planted" ]] || { fail "${FUNCNAME[0]}" "loaded ipaddress.py from the current folder"; return; }
+	pass "${FUNCNAME[0]}"
+}
+
 installed_vm_config() {
 	mkdir -p "$root/usr/local/share/xena/config"
 	sed 's/proxy_port: 3128/proxy_port: 3129/' "$root/vm.yaml" >"$root/usr/local/share/xena/config/vm.yaml"
@@ -625,4 +636,5 @@ test_prefers_installed_vm_config
 test_env_vm_config_wins
 test_accepts_boundary_values
 test_falls_back_to_repo_vm_config
+test_ignores_python_modules_in_cwd
 exit "$((failures > 0))"

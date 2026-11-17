@@ -23,7 +23,7 @@ if [[ -z "$vm_config" ]]; then
 fi
 
 read_vm_config() {
-	python3 - "$1" <<'PY'
+	python3 -I - "$1" <<'PY'
 import ipaddress
 import re
 import sys
