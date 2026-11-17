@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/tahardi/xena/internal/audit"
 	"github.com/tahardi/xena/internal/config"
 	"github.com/tahardi/xena/internal/firewall"
 	"github.com/tahardi/xena/internal/guard"
@@ -112,18 +113,25 @@ func defaultGuardDeps(_ context.Context) (guardDeps, error) {
 	return guardDeps{
 		Env: guard.Env{
 			VM:       runner,
-			Proxy:    guard.NewProxyLog(config.ProxyStateDir(), time.Now),
+			Proxy:    guard.NewProxyLog(config.ProxyStateDir(), "proxy", time.Now),
 			Drops:    guard.NewJournalDrops("/usr/bin/journalctl"),
 			Firewall: firewall.NewFirewall("/usr/sbin/nft"),
 			VMAddr:   vm.Network.VMAddress,
 			Now:      time.Now,
 			Settle:   guardSettle,
 		},
-		Cases: guard.NetworkCases(guard.NetConfig{
-			BridgeAddr: vm.Network.BridgeAddress,
-			ProxyPort:  vm.ProxyPort,
-			Lookup:     net.DefaultResolver.LookupHost,
-		}),
+		Cases: append(
+			guard.NetworkCases(guard.NetConfig{
+				BridgeAddr: vm.Network.BridgeAddress,
+				ProxyPort:  vm.ProxyPort,
+				Lookup:     net.DefaultResolver.LookupHost,
+			}),
+			guard.NewTokendUnlisted(audit.OSCommander{}),
+			guard.NewTokendProxyUnlisted(
+				audit.OSCommander{},
+				guard.NewProxyLog(config.ProxyStateDir(), "proxy-tokend", time.Now),
+			),
+		),
 		ReportDir: filepath.Join(config.StateDir(), "guard"),
 		WindowDir: config.GuardRunDir(),
 		Out:       os.Stdout,
