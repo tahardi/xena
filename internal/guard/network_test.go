@@ -666,13 +666,13 @@ func TestNetworkCases(t *testing.T) {
 		{
 			name:     "error - neighbor command fails before the script",
 			ip:       &fakeIP{neigh: []string{`Cannot find device "xena0"`}, neighErr: errFake},
-			wantErr:  `fake failure: Cannot find device "xena0"`,
+			wantErr:  `reading ip -6 -j neigh show dev xena0: fake failure: Cannot find device "xena0"`,
 			wantNoVM: true,
 		},
 		{
 			name:     "error - address command fails before the script",
 			ip:       &fakeIP{neigh: []string{"[]"}, addrErr: errFake},
-			wantErr:  "running ip -6 -j addr show dev xena0: fake failure",
+			wantErr:  "reading ip -6 -j addr show dev xena0: fake failure",
 			wantNoVM: true,
 		},
 		{
