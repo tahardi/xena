@@ -1,0 +1,208 @@
+version: 1
+assets:
+  - id: desktop
+    what: Taylor's desktop account and everything it can reach, including sudo, mail, Slack, browser cookies, and claude.ai connectors
+    loss: A session acts as Taylor on the desktop, up to root
+  - id: taylor-logins
+    what: Taylor's own gh, Jira, Google, cloud root, and claude.ai logins in the desktop keyring
+    loss: Account takeover, including approving and merging PRs
+  - id: secrets-store
+    what: The YubiKey-encrypted store holding the GitHub App private key, cloud grant-issuing credentials, the VM disk key, and the Jira bot token
+    loss: Anyone can mint repo tokens and cloud credentials at will
+  - id: vm-tokens
+    what: Tokens that live in the VM, which are the one-hour GitHub App token, the Jira bot token, the VM Claude login, and cloud grants
+    loss: Repo or Jira tampering and cloud spend until the token expires or is revoked
+  - id: automation-key
+    what: The SSH key desktop services use to run the VM agent's fixed commands
+    loss: Anyone can push secrets into or pull memory out of the VM
+  - id: main-branch
+    what: Reviewed code on main and the signed v* tags of Taylor's repos, which make install runs as root on the desktop
+    loss: Unreviewed code becomes root on the desktop
+  - id: private-vault
+    what: Vault notes outside Projects, Ideas.md, and Learning/Security, such as the journal, contacts, and recipes
+    loss: Private data leaks to the VM and to Anthropic
+  - id: project-notes
+    what: Vault notes the VM may read and write through the gateway
+    loss: Forged reports or notes that steer desktop Claude
+  - id: project-data
+    what: Sensitive personal data in the projects Xena is used to build, such as Halo migraine records and Little Things people notes
+    loss: Health data or private notes about real people leak; real data is meant to stay on each project's host, which Xena does not enforce
+  - id: money
+    what: Cloud sandbox, API, and GitHub Actions billing
+    loss: A large bill
+  - id: walls
+    what: Firewall rules, proxy allowlist and overlay, VM managed Claude settings, and the network cut state
+    loss: Guardrails are off without anyone noticing
+  - id: logs
+    what: Proxy log, firewall drop log, gateway log, alerts, and guard results on the desktop, which the guard trusts over the VM
+    loss: Tampering gives a false all-clear
+  - id: memory
+    what: Claude memory and claude-mem history in the VM, and the desktop copy
+    loss: Poisoned instructions carry into future sessions
+components:
+  - id: xena-cli
+    what: The xena command Taylor runs for VM lifecycle, grants, rotation, secrets, audit, guard, and status
+    trusted_with: Taylor's intent; it runs as Taylor and reaches the secrets store and cloud issuing credentials with one touch per decrypt
+    limited_by: Nothing; it is the trusted base. Firewall cut and resume go through root services that polkit gates behind admin authentication
+  - id: secrets-store
+    what: age files encrypted to both YubiKeys
+    trusted_with: Every long-lived secret
+    limited_by: age encryption to both YubiKeys, with a touch for every decrypt
+  - id: tokend
+    what: The xena-tokend user service that mints GitHub App tokens and pushes them into the VM
+    trusted_with: The GitHub App private key in memory after the daily touch, and minting one-hour installation tokens
+    limited_by: The nftables fence allowing only VM port 22, GitHub only through the proxy socket with its own api.github.com allowlist, an AppArmor profile allowing only age, ssh, notify-send and its own files, and the App's permissions
+  - id: proxy
+    what: The xena-proxy system service, the VM's only way out
+    trusted_with: Deciding every outbound connection from the VM and writing the proxy log
+    limited_by: Its own system user and full systemd hardening, IPAddressDeny allowing only the VM address and the local resolver, no write access to allowlist.yaml, and no prompt of its own; it trusts any answer on the prompt socket from a member of the xena-prompt group, which includes every process running as Taylor
+  - id: prompt
+    what: The xena-prompt user service that shows host questions and alerts
+    trusted_with: Showing Taylor host questions and alerts, and returning Taylor's answer
+    limited_by: Unix sockets only with no network address families, asking for a touch before it answers allow always, and deny after a 60-second timeout
+  - id: firewall
+    what: The inet xena nftables table and the root cut, resume, and reapply services
+    trusted_with: Dropping all VM traffic except to the proxy port, logging drops at up to 10 a second, and cutting the VM on command; drops from a cut address and broadcast or multicast drops are not logged
+    limited_by: Root only, loaded at boot before libvirt and the proxy, and checked by xena audit
+  - id: guard
+    what: The xena guard attack suite
+    trusted_with: Proving each wall holds
+    limited_by: Judging from desktop proxy logs and drop counters, never from the VM's answer; the libguestfs persistence check is not built, so persistence cases still trust the VM
+  - id: vault-gateway
+    what: Planned, not built; only its path policy exists. The service that serves VM vault calls over a forwarded socket
+    trusted_with: VM reads and writes in Projects, Ideas.md, and Learning/Security, except the Xena reports
+    limited_by: The path policy refusing dot-dot, symlinks, and absolute paths, a socket only Taylor can open, size and rate caps, and a log of every call
+  - id: watch
+    what: Planned, not built; only alert reading exists. The service that follows logs and cuts the network on high alerts
+    trusted_with: Spotting misbehavior in the logs and cutting the network on high alerts
+    limited_by: Its own system user with read-only access to logs, and only the cut hook as write power
+  - id: maple
+    what: The desktop app, in its own repo, that drives VM sessions over SSH and approves merges
+    trusted_with: Taylor's gh login and the review and merge decision
+    limited_by: Its own trust model treating all VM content as untrusted data, and merges pinned to the head commit
+  - id: vm-session
+    what: Claude sessions and anything else running as dev in the VM
+    trusted_with: A best-effort try at the card's task, never an honest report on its own work
+    limited_by: The VM with no sudo and a disposable encrypted disk, the managed sandbox with no unsandboxed retries and writes only to the code, cache, Go, and findings folders, the managed deny list, the proxy allowlist, and no desktop tokens; the VM holds a one-hour GitHub token and grant-length cloud credentials, plus a Jira bot token rotated every 90 days and a Claude login replaced on rebuild
+  - id: vm-settings
+    what: Root-owned managed Claude settings in the VM, installed from a pinned dotclaude commit
+    trusted_with: Keeping the sandbox, deny list, hooks, no connectors, and proxy environment in force for every session
+    limited_by: Root ownership in the VM, changes only by merged dotclaude PR at a pinned commit, and the guard's settings-edit case; deny rules match text only, so the sandbox and proxy carry the weight
+  - id: vm-sshd
+    what: The VM's SSH server
+    trusted_with: Letting in only the desktop's keys
+    limited_by: Host key pinned at build, a root-owned keys file, no password, root, agent, X11, TCP forwarding, or tunnels, with only remote Unix socket forwarding on, and the firewall; a root compromise of the VM gets past it
+  - id: xena-agent
+    what: The forced command for automation-key logins in the VM
+    trusted_with: Running health, token-put, secret-put and secret-clear for jira-token, aws-credentials, and gcp-token, memory-export, memory-import, and guard
+    limited_by: The forced command on the automation key and fixed verb and name checks; its replies are VM output and the desktop trusts nothing they say
+  - id: github-app
+    what: The GitHub App installed on xena, dotclaude, and maple, used by the VM
+    trusted_with: Pushing branches and opening PRs
+    limited_by: No admin permission, one-hour tokens, required CI checks, and only Taylor's signed tags install; the main ruleset requires no approval today, so the App could merge
+  - id: cloud-sandbox
+    what: The AWS and GCP sandbox accounts the VM reaches during a grant
+    trusted_with: Running whatever cloud work a grant allows
+    limited_by: Touch-gated expiring grants, the AWS SCP and GCP deny policy, quotas, and a GCP budget that disables billing
+  - id: ci
+    what: GitHub Actions jobs on every PR, push to main, and nightly
+    trusted_with: Running checks on every PR
+    limited_by: A contents read token, no persisted credentials, actions pinned to commit SHAs, and no secrets
+attackers:
+  - id: prompt-injector
+    who: Anyone who can put text in front of a VM session, such as issue, PR, or card text, a web page, or a dependency README
+    reaches: [vm-session]
+  - id: hijacked-session
+    who: A misled or hijacked VM Claude session, or any code it runs
+    reaches: [proxy, firewall, vault-gateway, xena-agent, github-app, vm-settings, vm-sshd, cloud-sandbox, maple, guard]
+  - id: malicious-package
+    who: The author of a dependency, image package, or Claude plugin, or someone who took over a registry account
+    reaches: [vm-session, ci]
+  - id: pr-author
+    who: Anyone who can open a PR or comment on the public tahardi/xena repo
+    reaches: [ci]
+  - id: lan-device
+    who: Any device on the home network; xena expose is not built, so no VM port is open to it
+    reaches: [firewall]
+  - id: thief
+    who: Someone who steals the desktop, its disk, or a backup drive
+    reaches: [secrets-store, vm-session]
+  - id: third-party
+    who: Anthropic, GitHub, and Atlassian, as services that see session content, code, and card text
+    reaches: [vm-session]
+boundaries:
+  - id: vm-to-desktop-net
+    between: [vm-session, firewall]
+    crosses: All VM packets
+    checks: Only new TCP from the VM address to port 3128 on the bridge is accepted; everything else is dropped and logged at up to 10 a second, and a cut address and broadcast or multicast are dropped without logging
+  - id: vm-to-proxy
+    between: [vm-session, proxy]
+    crosses: CONNECT and plain HTTP requests
+    checks: Host and port checked against the allowlist and overlay, name resolved only after it passes, IP literals and private, local, and metadata ranges refused, exact checked address dialed
+  - id: proxy-to-prompt
+    between: [proxy, prompt]
+    crosses: Questions about unknown hosts
+    checks: Unix socket mode 0660 for group xena-prompt, deny after 60 seconds; the prompt service asks for a touch before allow always, and the proxy does not check it
+  - id: desktop-to-vm-ssh
+    between: [tokend, vm-sshd]
+    crosses: Commands and secrets from tokend, xena-cli, and maple
+    checks: Pinned host key, keys from a root-owned file, no password, root, agent, X11, or TCP forwarding, only remote Unix socket forwarding, automation key forced to xena-agent with a fixed command set
+  - id: vm-to-desktop-data
+    between: [xena-agent, maple]
+    crosses: Agent replies, hook events, transcripts, findings, and memory exports
+    checks: Treated as untrusted data; memory gets a secret scan and Maple applies its own checks
+  - id: vm-to-xena-cli
+    between: [vm-session, xena-cli]
+    crosses: Files read through the VM's qemu guest agent over libvirt, which are the SSH host key to pin, the cloud-init result, and on a failed build the tail of the cloud-init output log, which xena copies line by line into its own error log
+    checks: Read only during build and start; the host key is pinned at first boot before any repo code runs, and the guest agent runs as root in the VM, so a VM root compromise controls later replies
+  - id: tokend-to-github
+    between: [tokend, proxy]
+    crosses: Installation token requests to api.github.com
+    checks: Proxy socket with its own api.github.com allowlist, nftables fence allowing only VM port 22, AppArmor profile
+  - id: vm-to-github
+    between: [vm-session, github-app]
+    crosses: Pushes and PRs made with the App token
+    checks: No admin permission and required CI checks; the main ruleset does not require approval today
+  - id: vm-to-cloud
+    between: [vm-session, cloud-sandbox]
+    crosses: Cloud API calls with grant credentials
+    checks: A touch per grant, expiry, and account caps
+  - id: vm-to-vault
+    between: [vm-session, vault-gateway]
+    crosses: MCP calls over the forwarded socket
+    checks: Planned path policy, socket ownership, size and rate caps
+  - id: pr-to-ci
+    between: [ci]
+    crosses: PR code running in Actions
+    checks: Read-only token, no persisted credentials, no secrets
+users:
+  - id: taylor
+    who: Owner and only human user
+    can: Everything
+    access: Desktop login with membership in xena-proxy, xena-watch, xena-prompt, xena-tokend, and adm; YubiKey touch for secrets, VM disk, and allow always; admin password through polkit for libvirt and firewall cut and resume; GitHub owner, Jira admin, and cloud root with YubiKey second factor; touch-required ed25519-sk key into the VM
+  - id: dev
+    who: The VM user every Claude session runs as
+    can: Write its sandbox paths, push branches and open PRs with the App token, use Jira as the bot, use cloud grants while they last
+    access: Locked password, no sudo, logins only through sshd with the desktop's keys
+  - id: automation
+    who: Desktop services using the automation key, which are tokend, xena grant, and xena-cli VM commands
+    can: Only the xena-agent commands
+    access: Forced command in the VM's root-owned keys file; key is a user-only file on the desktop
+  - id: jira-bot
+    who: The Atlassian bot user whose token lives in the VM
+    can: Work cards in Taylor's software projects, no admin
+    access: API token rotated every 90 days
+  - id: github-app
+    who: The GitHub App installed on xena, dotclaude, and maple
+    can: Contents, pull requests, checks, and workflows, no administration
+    access: One-hour installation tokens minted by tokend
+  - id: service-users
+    who: System users with no login, xena-proxy and xena-watch
+    can: xena-proxy runs the proxy and owns the overlay and logs; xena-watch reads proxy logs once its service is built
+    access: nologin shell, created by sysusers
+build:
+  built: make pre-pr locally (tidy, fix, lint, unit tests, govulncheck, gitleaks, shellcheck); the same jobs in GitHub Actions on PRs, pushes to main, and nightly; Dependabot for Go modules and Actions weekly
+  deployed: Taylor signs a v* tag on origin/main; make install builds only from a tag that passes verify-tag against allowed_signers and is reachable from origin/main; make rollback reinstalls an earlier signed tag; VM built from an image pinned by SHA-256 with dotclaude and Claude Code pinned
+  monitored: Proxy JSON-lines logs and journald kept 90 days, rate-limited firewall drop logs, daily xena audit with a desktop notification on drift, xena health and status for Maple, xena guard by hand; nightly guard, weekly report, backup, memory sync, and the watch service are not built
+accepted:
+overrides:

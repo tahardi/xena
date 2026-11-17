@@ -1,0 +1,10 @@
+version: 1
+enabled: true
+tracked:
+  - {"identity": {"kind": "code", "class": "missing-review-requirement", "file": "scripts/rulesets.sh", "hash": "10cd5caabb6e37b1"}, "title": "Main branch rules need no approval, so the VM's GitHub App can merge its own PR once CI is green", "card": null}
+  - {"identity": {"kind": "code", "class": "spoofable-status-check", "file": "scripts/rulesets.sh", "hash": "0dd638f6e63391c5"}, "title": "Required CI checks are matched by name only, so the App can post its own passing checks", "card": null}
+  - {"identity": {"kind": "code", "class": "excessive-token-scope", "file": "internal/github/app.go", "hash": "6020c63b67e96a8b"}, "title": "VM GitHub tokens carry every App permission, including editing the CI workflows that judge the VM's PRs", "card": null}
+  - {"identity": {"kind": "code", "class": "unsafe-default-approval", "file": "internal/notify/notify.go", "hash": "02eb5d2b569d8c78"}, "title": "New-host prompt defaults to Allow once, and the VM can open as many prompts as it likes", "card": null}
+  - {"identity": {"kind": "code", "class": "ssrf", "file": "internal/proxy/dialer.go", "hash": "1d02a93bd1685e39"}, "title": "Proxy does not refuse the desktop's own public addresses or the home network's public IPv6 addresses", "card": null}
+  - {"identity": {"kind": "code", "class": "missing-spend-limit", "file": "deploy/cloud/aws-scp.json", "hash": "7abbc7a278d09ff3"}, "title": "AWS sandbox only limits EC2 instance size and region, with no hard spend stop", "card": null}
+  - {"identity": {"kind": "code", "class": "public-vulnerability-disclosure", "file": ".maple/security.yaml", "hash": "a9083b5bc15cdc44"}, "title": "Public repo now lists six unfixed security gaps with no card, giving injected prompts a ready attack map", "card": "XENA-127"}
