@@ -49,12 +49,12 @@ The desktop is trusted and the VM is not. `xena-cli`, `tokend`, `prompt`, and `w
 - `github-app`: the App the VM uses on GitHub.
 - `cloud-sandbox`: the AWS and GCP sandbox accounts.
 - `ci`: GitHub Actions.
-- `vm-to-desktop-net`: all VM packets. Only new TCP to the proxy port passes; everything else is dropped and logged.
+- `vm-to-desktop-net`: all VM packets. Only new TCP to the proxy port passes; everything else is dropped and logged at up to 10 a second; a cut address and broadcast or multicast are dropped without logging.
 - `vm-to-proxy`: VM web requests. Host and port checked against the allowlist, resolved only after, private and metadata ranges refused, exact address dialed.
 - `proxy-to-prompt`: questions about unknown hosts. Group-only socket and deny after 60 seconds. The prompt service asks for a touch before allow always; the proxy does not check it.
 - `desktop-to-vm-ssh`: commands and secrets into the VM. Pinned host key, root-owned keys file, only remote Unix socket forwarding, automation key forced to the agent.
 - `vm-to-desktop-data`: agent replies, hook events, transcripts, findings, and memory. Treated as untrusted; memory gets a secret scan.
-- `vm-to-xena-cli`: the SSH host key and cloud-init result, read through the VM's qemu guest agent. Read only at build and start; the host key is pinned at first boot before repo code runs, and a VM root compromise controls later replies.
+- `vm-to-xena-cli`: the SSH host key, the cloud-init result, and on a failed build the tail of the cloud-init output log, which xena copies into its own error log, read through the VM's qemu guest agent. Read only at build and start; the host key is pinned at first boot before repo code runs, and a VM root compromise controls later replies.
 - `tokend-to-github`: token requests. Only `api.github.com` through the proxy socket, fenced by nftables and AppArmor.
 - `vm-to-github`: pushes and PRs with the App token. No admin and required CI checks; the `main` ruleset requires no approval today.
 - `vm-to-cloud`: cloud API calls during a grant. A touch per grant, expiry, and account caps.

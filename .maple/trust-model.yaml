@@ -134,7 +134,7 @@ boundaries:
   - id: vm-to-desktop-net
     between: [vm-session, firewall]
     crosses: All VM packets
-    checks: Only new TCP from the VM address to port 3128 on the bridge is accepted; everything else is dropped and logged, and a cut address is dropped entirely
+    checks: Only new TCP from the VM address to port 3128 on the bridge is accepted; everything else is dropped and logged at up to 10 a second, and a cut address and broadcast or multicast are dropped without logging
   - id: vm-to-proxy
     between: [vm-session, proxy]
     crosses: CONNECT and plain HTTP requests
@@ -153,7 +153,7 @@ boundaries:
     checks: Treated as untrusted data; memory gets a secret scan and Maple applies its own checks
   - id: vm-to-xena-cli
     between: [vm-session, xena-cli]
-    crosses: Files read through the VM's qemu guest agent over libvirt, which are the SSH host key to pin and the cloud-init result
+    crosses: Files read through the VM's qemu guest agent over libvirt, which are the SSH host key to pin, the cloud-init result, and on a failed build the tail of the cloud-init output log, which xena copies line by line into its own error log
     checks: Read only during build and start; the host key is pinned at first boot before any repo code runs, and the guest agent runs as root in the VM, so a VM root compromise controls later replies
   - id: tokend-to-github
     between: [tokend, proxy]
