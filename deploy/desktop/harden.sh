@@ -41,7 +41,7 @@ version = c["claude_code_version"]
 if not re.fullmatch(r"[A-Za-z0-9_.-]{1,15}", bridge):
     sys.exit(1)
 
-if not re.fullmatch(r"[0-9A-Za-z.+-]+", version):
+if not re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z.+-]*", version):
     sys.exit(1)
 
 if not (type(port) is int and 1 <= port <= 65535):

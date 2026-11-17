@@ -503,6 +503,7 @@ test_stops_on_bad_network_values() {
 		's/vm_address: .*/vm_address: "::1"/' \
 		's/claude_code_version: .*/claude_code_version: ""/' \
 		's/claude_code_version: .*/claude_code_version: "2.1.310 x"/' \
+		's/claude_code_version: .*/claude_code_version: "--help"/' \
 		'/^network:/,/vm_address/d'; do
 		setup
 		sed -i "$edit" "$root/vm.yaml"
