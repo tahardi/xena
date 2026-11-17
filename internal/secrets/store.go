@@ -40,6 +40,7 @@ type Store struct {
 	IdentityFile   string
 	Age            string
 	KillGroup      bool
+	Prompt         io.Writer
 }
 
 func NewDefaultStore() (Store, error) {
@@ -53,6 +54,7 @@ func NewDefaultStore() (Store, error) {
 		RecipientsFile: filepath.Join(config.ConfigDir(), "age-recipients.txt"),
 		IdentityFile:   filepath.Join(config.ConfigDir(), "age-identities.txt"),
 		Age:            age,
+		Prompt:         os.Stdout,
 	}, nil
 }
 
@@ -76,6 +78,10 @@ func (s Store) Get(ctx context.Context, name string) ([]byte, error) {
 	path := s.path(name)
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("reading secret %s: %w", name, ErrNotFound)
+	}
+
+	if s.Prompt != nil {
+		_, _ = fmt.Fprintf(s.Prompt, "touch your YubiKey to read secret %s\n", name)
 	}
 
 	var out bytes.Buffer

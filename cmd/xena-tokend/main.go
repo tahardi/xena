@@ -130,6 +130,8 @@ func unlock(ctx context.Context, cfg github.AppConfig, out io.Writer, logger *sl
 		return github.App{}, fmt.Errorf("building secrets store: %w", err)
 	}
 
+	store.Prompt = nil
+
 	_, _ = fmt.Fprintln(out, "touch your YubiKey to unlock the GitHub token service")
 
 	desktop := notify.Desktop{Run: notify.ExecRun}

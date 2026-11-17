@@ -99,6 +99,56 @@ prompt_timeout_seconds: -1
 	})
 }
 
+func TestNewTouchCheckStore(t *testing.T) {
+	t.Run("error - prints no read secret line", func(t *testing.T) {
+		// given
+		binDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(binDir, "age"), []byte("#!/bin/sh\nexit 1\n"), 0o700))
+		t.Setenv("PATH", binDir)
+
+		secretsDir := t.TempDir()
+		t.Setenv("XENA_SECRETS_DIR", secretsDir)
+		require.NoError(t, os.WriteFile(filepath.Join(secretsDir, "touch-check.age"), nil, 0o600))
+
+		stdout := tempStdout(t)
+
+		stdin, err := os.Open(filepath.Join(secretsDir, "touch-check.age"))
+		require.NoError(t, err)
+
+		original := os.Stdin
+		os.Stdin = stdin
+		t.Cleanup(func() {
+			os.Stdin = original
+			_ = stdin.Close()
+		})
+
+		store, err := newTouchCheckStore()
+		require.NoError(t, err)
+		assert.True(t, store.KillGroup)
+
+		// when
+		_, err = store.Get(t.Context(), "touch-check")
+
+		// then
+		require.ErrorContains(t, err, "decrypting secret")
+
+		got, readErr := os.ReadFile(stdout)
+		require.NoError(t, readErr)
+		assert.Empty(t, string(got))
+	})
+
+	t.Run("error - age missing", func(t *testing.T) {
+		// given
+		t.Setenv("PATH", t.TempDir())
+
+		// when
+		_, err := newTouchCheckStore()
+
+		// then
+		require.ErrorContains(t, err, "building secrets store")
+	})
+}
+
 func tempStdout(t *testing.T) string {
 	t.Helper()
 

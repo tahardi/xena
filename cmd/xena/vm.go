@@ -78,9 +78,9 @@ func newMachine(logger *slog.Logger) (*vm.Machine, error) {
 		return nil, fmt.Errorf("finding home directory: %w", err)
 	}
 
-	store, err := secrets.NewDefaultStore()
+	store, err := newDiskKeyStore(logger)
 	if err != nil {
-		return nil, fmt.Errorf("building secrets store: %w", err)
+		return nil, err
 	}
 
 	return vm.NewMachine(
@@ -90,9 +90,20 @@ func newMachine(logger *slog.Logger) (*vm.Machine, error) {
 		filepath.Join(home, ".ssh", "id_ed25519_sk.pub"),
 		filepath.Join(home, ".ssh", "id_ed25519_sk_backup.pub"),
 		filepath.Join(home, ".ssh", "id_ed25519_sk_carry.pub"),
-		newTouchStore(store, notify.Desktop{Run: notify.ExecRun}, "unlock the VM disk", os.Stderr, logger),
+		store,
 		newTokendRotator(os.Stderr),
 		vmPollEvery,
 		logger,
 	), nil
+}
+
+func newDiskKeyStore(logger *slog.Logger) (*touchStore, error) {
+	store, err := secrets.NewDefaultStore()
+	if err != nil {
+		return nil, fmt.Errorf("building secrets store: %w", err)
+	}
+
+	store.Prompt = nil
+
+	return newTouchStore(store, notify.Desktop{Run: notify.ExecRun}, "unlock the VM disk", os.Stderr, logger), nil
 }
