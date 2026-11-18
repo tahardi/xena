@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 )
 
+const maxStderrBytes = 500
+
 var errOutsideDir = errors.New("finding outside scanned dir")
 
 // Finding uses the exact field names of a gitleaks report.
@@ -43,8 +45,17 @@ func Scan(ctx context.Context, gitleaks, dir string) ([]Finding, error) {
 		"--exit-code", "0",
 		dir,
 	)
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("scanning memory: %w", err)
+		msg := bytes.TrimSpace(stderr.Bytes())
+		if len(msg) > maxStderrBytes {
+			msg = msg[len(msg)-maxStderrBytes:]
+		}
+
+		return nil, fmt.Errorf("scanning memory: %w: %s", err, msg)
 	}
 
 	data, err := os.ReadFile(report)

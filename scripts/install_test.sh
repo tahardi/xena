@@ -65,6 +65,7 @@ if [[ -n "${FAKE_GO_CUT:-}" ]]; then
 	touch "$FAKE_GO_CUT"
 fi
 if [[ "${1:-}" == "build" ]]; then
+	target=${*: -1}
 	while [[ $# -gt 0 ]]; do
 		if [[ "$1" == "-o" ]]; then
 			out=$2
@@ -72,6 +73,10 @@ if [[ "${1:-}" == "build" ]]; then
 		shift
 	done
 	mkdir -p "$out"
+	if [[ "$target" == "github.com/zricethezav/gitleaks/v8" ]]; then
+		touch "$out/gitleaks"
+		exit 0
+	fi
 	for bin in xena xena-agent xena-proxy xena-prompt xena-tokend xena-vault xena-watch; do
 		touch "$out/$bin"
 	done
@@ -451,6 +456,14 @@ test_install_builds_from_tag() {
 		fail "installed config is not the tagged copy"
 }
 
+test_install_builds_pinned_gitleaks() {
+	run_install v0.1.0 >/dev/null
+
+	assert_log_match '^go-target .*build -modfile=modfiles/gitleaks/go\.mod .*github\.com/zricethezav/gitleaks/v8$'
+	assert_file "$root/usr/local/lib/xena/gitleaks"
+	assert_mode 755 "$root/usr/local/lib/xena/gitleaks"
+}
+
 test_install_refuses_unsigned_tag() {
 	git -C "$clone" tag -a v0.2.0 -m v0.2.0
 
@@ -712,6 +725,7 @@ test_uninstall_keeps_state() {
 	assert_absent "$root/etc/systemd/system/xena-proxy.service"
 	assert_absent "$root/etc/systemd/user/xena-report.timer"
 	assert_absent "$root/usr/local/share/xena"
+	assert_absent "$root/usr/local/lib/xena"
 	assert_absent "$root/usr/share/polkit-1/rules.d/50-xena.rules"
 	assert_absent "$root/etc/systemd/journald.conf.d/xena.conf"
 	assert_file "$root/var/lib/xena-proxy/keep.txt"
@@ -1196,6 +1210,7 @@ tests=(
 	test_install_warns_when_dropped_network_undefine_fails
 	test_install_stops_when_network_define_fails
 	test_install_builds_from_tag
+	test_install_builds_pinned_gitleaks
 	test_install_refuses_unsigned_tag
 	test_install_refuses_foreign_signer
 	test_install_refuses_tag_off_main

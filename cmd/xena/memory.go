@@ -51,7 +51,7 @@ func defaultMemoryDeps(logger *slog.Logger) (memoryDeps, error) {
 	return memoryDeps{
 		Runner:   runner,
 		Dir:      filepath.Join(config.StateDir(), "memory"),
-		Gitleaks: "gitleaks",
+		Gitleaks: config.GitleaksPath(),
 		Sqlite:   "sqlite3",
 		Diff:     "diff",
 		Out:      os.Stdout,

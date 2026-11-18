@@ -136,6 +136,11 @@ build() {
 			-ldflags "-X main.version=$tag" \
 			-o "$build_dir/bin/" \
 			./cmd/...
+		CGO_ENABLED=0 go build \
+			-modfile=modfiles/gitleaks/go.mod \
+			-trimpath \
+			-o "$build_dir/lib/" \
+			github.com/zricethezav/gitleaks/v8
 	)
 }
 
@@ -228,6 +233,7 @@ install_files() {
 		install_file 0644 "$file" "/usr/local/share/xena/config/$(basename "$file")"
 	done
 
+	install_file 0755 "$src/lib/gitleaks" /usr/local/lib/xena/gitleaks
 	install_file 0644 "$src/deploy/nftables/xena.nft" /etc/nftables.d/xena.nft
 	install_file 0644 "$src/deploy/polkit/50-xena.rules" /usr/share/polkit-1/rules.d/50-xena.rules
 	install_file 0644 "$src/deploy/sysusers/xena.conf" /etc/sysusers.d/xena.conf
