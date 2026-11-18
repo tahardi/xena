@@ -18,7 +18,10 @@ import (
 	"github.com/tahardi/xena/internal/vmexec"
 )
 
-const guardSettle = 5 * time.Second
+const (
+	guardSettle = 5 * time.Second
+	ipPath      = "/usr/bin/ip"
+)
 
 type guardDeps struct {
 	Env       guard.Env
@@ -29,7 +32,7 @@ type guardDeps struct {
 }
 
 func runGuard(ctx context.Context, args []string, logger *slog.Logger) error {
-	deps, err := defaultGuardDeps(ctx)
+	deps, err := defaultGuardDeps(ctx, audit.OSCommander{})
 	if err != nil {
 		return err
 	}
@@ -99,7 +102,7 @@ func printGuardReport(out io.Writer, report guard.Report) error {
 	return nil
 }
 
-func defaultGuardDeps(_ context.Context) (guardDeps, error) {
+func defaultGuardDeps(_ context.Context, cmd audit.Commander) (guardDeps, error) {
 	vm, err := config.LoadVM(filepath.Join(config.RepoConfigDir(), "vm.yaml"))
 	if err != nil {
 		return guardDeps{}, fmt.Errorf("loading vm config: %w", err)
@@ -123,12 +126,16 @@ func defaultGuardDeps(_ context.Context) (guardDeps, error) {
 		Cases: append(
 			guard.NetworkCases(guard.NetConfig{
 				BridgeAddr: vm.Network.BridgeAddress,
+				Bridge:     vm.Network.Bridge,
 				ProxyPort:  vm.ProxyPort,
 				Lookup:     net.DefaultResolver.LookupHost,
+				IP: func(ctx context.Context, args ...string) ([]byte, error) {
+					return cmd.Output(ctx, ipPath, args...)
+				},
 			}),
-			guard.NewTokendUnlisted(audit.OSCommander{}),
+			guard.NewTokendUnlisted(cmd),
 			guard.NewTokendProxyUnlisted(
-				audit.OSCommander{},
+				cmd,
 				guard.NewProxyLog(config.ProxyStateDir(), "proxy-tokend", time.Now),
 			),
 		),

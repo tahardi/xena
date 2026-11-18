@@ -67,7 +67,7 @@ components:
   - id: guard
     what: The xena guard attack suite
     trusted_with: Proving each wall holds
-    limited_by: Judging from desktop proxy logs and drop counters, never from the VM's answer; the libguestfs persistence check is not built, so persistence cases still trust the VM
+    limited_by: Judging from desktop proxy logs, drop counters, and the bridge's IPv6 address and neighbor tables read with ip, never from the VM's answer; the libguestfs persistence check is not built, so persistence cases still trust the VM
   - id: vault-gateway
     what: Planned, not built; only its path policy exists. The service that serves VM vault calls over a forwarded socket
     trusted_with: VM reads and writes in Projects, Ideas.md, and Learning/Security, except the Xena reports
