@@ -1,12 +1,14 @@
 package proxy
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"net/netip"
@@ -248,16 +250,7 @@ func (s *Server) tunnel(w http.ResponseWriter, upstream *countingConn) {
 
 func (s *Server) forward(w http.ResponseWriter, r *http.Request, upstream *countingConn) {
 	out := r.Clone(r.Context())
-	for _, value := range r.Header.Values("Connection") {
-		for name := range strings.SplitSeq(value, ",") {
-			out.Header.Del(strings.TrimSpace(name))
-		}
-	}
-
-	for _, name := range hopHeaders {
-		out.Header.Del(name)
-	}
-
+	removeHopHeaders(out.Header)
 	out.Close = true
 
 	if err := out.Write(upstream); err != nil {
@@ -266,14 +259,31 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, upstream *count
 		return
 	}
 
-	client, _, err := http.NewResponseController(w).Hijack()
+	resp, err := http.ReadResponse(bufio.NewReader(upstream), out)
 	if err != nil {
-		s.logger.Warn("hijacking connection", "error", err)
+		s.logger.Warn("reading upstream response", "host", r.URL.Hostname(), "error", err)
+		http.Error(w, "xena-proxy: bad gateway", http.StatusBadGateway)
 		return
 	}
-	defer client.Close()
+	defer resp.Body.Close()
 
-	_, _ = io.Copy(client, upstream)
+	removeHopHeaders(resp.Header)
+	maps.Copy(w.Header(), resp.Header)
+
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
+func removeHopHeaders(header http.Header) {
+	for _, value := range header.Values("Connection") {
+		for name := range strings.SplitSeq(value, ",") {
+			header.Del(strings.TrimSpace(name))
+		}
+	}
+
+	for _, name := range hopHeaders {
+		header.Del(name)
+	}
 }
 
 func (s *Server) writeEntry(entry *logs.ProxyEntry) {

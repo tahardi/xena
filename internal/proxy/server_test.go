@@ -977,6 +977,43 @@ func TestServer_ServeHTTP(t *testing.T) {
 		require.Empty(t, f.dialer.Calls())
 	})
 
+	t.Run("happy path - pipelined plain HTTP requests on one connection", func(t *testing.T) {
+		// given
+		f := newProxyFixture(t, 0)
+		f.resolver.answers["plain.example.com"] = addrs("192.0.2.10")
+		f.start(t)
+
+		conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", f.addr)
+		require.NoError(t, err)
+		defer conn.Close()
+
+		request := "GET http://plain.example.com/a HTTP/1.1\r\nHost: plain.example.com\r\n\r\n"
+		pipelined := request + strings.Replace(request, "/a", "/b", 1)
+
+		// when
+		_, err = io.WriteString(conn, pipelined)
+		require.NoError(t, err)
+
+		// then
+		reader := bufio.NewReader(conn)
+		for _, path := range []string{"/a", "/b"} {
+			require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+
+			resp, err := http.ReadResponse(reader, &http.Request{Method: http.MethodGet})
+			require.NoError(t, err)
+
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
+
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			require.Equal(t, "upstream body", string(body))
+			require.Equal(t, path, (<-f.upstream).path)
+		}
+
+		require.Eventually(t, func() bool { return len(f.entries()) == 2 }, time.Second, 5*time.Millisecond)
+	})
+
 	t.Run("error - wrong source", func(t *testing.T) {
 		// given
 		f := newProxyFixture(t, 0)
