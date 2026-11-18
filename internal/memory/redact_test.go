@@ -22,7 +22,7 @@ func writeScript(t *testing.T, dir, name, body string) string {
 	return path
 }
 
-func fakeGitleaks(t *testing.T, scanDir, report string, exit int) (string, string) {
+func fakeGitleaks(t *testing.T, scanDir, report, stderr string, exit int) (string, string) {
 	t.Helper()
 
 	binDir := t.TempDir()
@@ -37,6 +37,7 @@ echo "$6" > '` + reportPathFile + `'
 cat > "$6" <<'REPORT'
 ` + report + `
 REPORT
+printf '%s\n' '` + stderr + `' >&2
 exit ` + strconv.Itoa(exit) + "\n"
 
 	return writeScript(t, binDir, "gitleaks", body), reportPathFile
@@ -51,8 +52,10 @@ func TestScan(t *testing.T) {
 	tests := []struct {
 		name          string
 		report        string
+		stderr        string
 		exit          int
 		want          []memory.Finding
+		wantErr       string
 		wantErrPrefix string
 	}{
 		{
@@ -69,10 +72,30 @@ func TestScan(t *testing.T) {
 			want:   []memory.Finding{},
 		},
 		{
+			name:   "happy path - stderr ignored on success",
+			report: "[]",
+			stderr: "WRN something",
+			want:   []memory.Finding{},
+		},
+		{
 			name:          "error - gitleaks fails",
 			report:        "[]",
+			stderr:        "Error: unknown command \"dir\" for \"gitleaks\"",
 			exit:          1,
-			wantErrPrefix: "scanning memory",
+			wantErrPrefix: "scanning memory: exit status 1: Error: unknown command \"dir\" for \"gitleaks\"",
+		},
+		{
+			name:    "error - gitleaks fails with empty stderr",
+			report:  "[]",
+			exit:    1,
+			wantErr: "scanning memory: exit status 1",
+		},
+		{
+			name:    "error - gitleaks stderr cut to last 500 bytes",
+			report:  "[]",
+			stderr:  strings.Repeat("a", 600) + "END",
+			exit:    1,
+			wantErr: "scanning memory: exit status 1: " + strings.Repeat("a", 497) + "END",
 		},
 		{
 			name:          "error - malformed report",
@@ -85,7 +108,7 @@ func TestScan(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
 			dir := t.TempDir()
-			gitleaks, reportPathFile := fakeGitleaks(t, dir, tt.report, tt.exit)
+			gitleaks, reportPathFile := fakeGitleaks(t, dir, tt.report, tt.stderr, tt.exit)
 
 			// when
 			got, err := memory.Scan(context.Background(), gitleaks, dir)
@@ -94,6 +117,11 @@ func TestScan(t *testing.T) {
 			reportPath, readErr := os.ReadFile(reportPathFile)
 			require.NoError(t, readErr)
 			require.NoDirExists(t, filepath.Dir(strings.TrimSpace(string(reportPath))))
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
 
 			if tt.wantErrPrefix != "" {
 				require.Error(t, err)

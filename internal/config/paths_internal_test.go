@@ -123,3 +123,10 @@ func TestCutMarker(t *testing.T) {
 		{name: "happy path - default", home: "/home/test", want: "/var/lib/xena/cut"},
 	})
 }
+
+func TestGitleaksPath(t *testing.T) {
+	runPathCases(t, "XENA_GITLEAKS", GitleaksPath, []pathCase{
+		{name: "happy path - env set", env: "/tmp/gitleaks", home: "/home/test", want: "/tmp/gitleaks"},
+		{name: "happy path - default", home: "/home/test", want: "/usr/local/lib/xena/gitleaks"},
+	})
+}
