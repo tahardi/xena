@@ -402,6 +402,8 @@ func TestRenderSeed(t *testing.T) {
 		// given
 		want := []string{
 			`npm install --global "npm@11.21.2"`,
+			"hash -r",
+			`if [[ "$(npm --version)" != "11.21.2" ]]; then`,
 			"@anthropic-ai/claude-code@2.1.0",
 			`checkout --detach "` + testRef + `"`,
 			"install.sh vm",
@@ -429,12 +431,16 @@ func TestRenderSeed(t *testing.T) {
 		checkout := strings.Index(script.decoded, "checkout --detach")
 		install := strings.Index(script.decoded, "install.sh vm")
 		npm := strings.Index(script.decoded, `npm install --global "npm@11.21.2"`)
+		rehash := strings.Index(script.decoded, "hash -r")
+		check := strings.Index(script.decoded, `if [[ "$(npm --version)" != "11.21.2" ]]; then`)
 		claude := strings.Index(script.decoded, "@anthropic-ai/claude-code@2.1.0")
 		require.GreaterOrEqual(t, home, 0)
 		require.Less(t, home, install)
 		require.Less(t, checkout, install)
 		require.GreaterOrEqual(t, npm, 0)
-		require.Less(t, npm, claude)
+		require.Less(t, npm, rehash)
+		require.Less(t, rehash, check)
+		require.Less(t, check, claude)
 	})
 
 	t.Run("happy path - git and gh", func(t *testing.T) {
@@ -571,6 +577,7 @@ func TestRenderSeed(t *testing.T) {
 		{name: "error - key has leading option", mutate: func(d *vm.SeedData) { d.AutomationKey = `command="x" ` + plain }},
 		{name: "error - claude version latest", mutate: func(d *vm.SeedData) { d.ClaudeCodeVersion = "latest" }},
 		{name: "error - npm version latest", mutate: func(d *vm.SeedData) { d.NpmVersion = "latest" }},
+		{name: "error - npm version empty", mutate: func(d *vm.SeedData) { d.NpmVersion = "" }},
 		{name: "error - dotclaude ref main", mutate: func(d *vm.SeedData) { d.DotclaudeRef = "main" }},
 		{name: "error - vm address example", mutate: func(d *vm.SeedData) { d.VMAddress = "example" }},
 		{name: "error - vm address ipv6", mutate: func(d *vm.SeedData) { d.VMAddress = "fd00::1" }},
