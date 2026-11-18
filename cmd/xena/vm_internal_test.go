@@ -19,18 +19,40 @@ func TestRunVM(t *testing.T) {
 		args          []string
 		wantErr       error
 		wantErrPrefix string
+		setup         func(t *testing.T, configDir string)
 	}{
 		{name: "error - no subcommand", args: nil, wantErr: errUnknownCommand},
 		{name: "error - unknown subcommand", args: []string{"bogus"}, wantErr: errUnknownCommand},
 		{name: "error - snapshot without name", args: []string{"snapshot"}, wantErrPrefix: "checking arguments: "},
 		{name: "error - restore without name", args: []string{"restore"}, wantErrPrefix: "checking arguments: "},
 		{name: "error - start without vm config", args: []string{"start"}, wantErrPrefix: "loading vm config: "},
+		{
+			name:          "error - build with no vm dir",
+			args:          []string{"build"},
+			wantErrPrefix: "checking vm dir: ",
+			setup: func(t *testing.T, configDir string) {
+				t.Helper()
+
+				require.NoError(t, os.WriteFile(filepath.Join(configDir, "vm.yaml"), []byte("version: 1\n"), 0o600))
+
+				binDir := t.TempDir()
+				require.NoError(t, os.WriteFile(filepath.Join(binDir, "age"), []byte("#!/bin/sh\nexit 1\n"), 0o700))
+				t.Setenv("PATH", binDir)
+
+				t.Setenv("XENA_VM_DIR", filepath.Join(t.TempDir(), "missing"))
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
-			t.Setenv("XENA_REPO_CONFIG_DIR", t.TempDir())
+			configDir := t.TempDir()
+			t.Setenv("XENA_REPO_CONFIG_DIR", configDir)
+
+			if tt.setup != nil {
+				tt.setup(t, configDir)
+			}
 			logger := slog.New(slog.DiscardHandler)
 
 			// when

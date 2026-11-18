@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/tahardi/xena/internal/notify"
 	"github.com/tahardi/xena/internal/secrets"
 	"github.com/tahardi/xena/internal/vm"
+	"github.com/tahardi/xena/internal/vmexec"
 )
 
 const (
@@ -39,7 +41,12 @@ func runVM(ctx context.Context, args []string, logger *slog.Logger) error {
 		return fmt.Errorf("%w: vm %s", errUnknownCommand, sub)
 	}
 
-	m, err := newMachine(logger)
+	cfg, err := config.LoadVM(filepath.Join(config.RepoConfigDir(), "vm.yaml"))
+	if err != nil {
+		return err
+	}
+
+	m, err := newMachine(cfg, logger)
 	if err != nil {
 		return err
 	}
@@ -47,7 +54,7 @@ func runVM(ctx context.Context, args []string, logger *slog.Logger) error {
 
 	switch sub {
 	case "build":
-		err = m.Build(ctx, &http.Client{}, time.Now())
+		err = buildVM(ctx, m, cfg, logger)
 	case "start":
 		err = m.Start(ctx)
 	case "stop":
@@ -68,12 +75,7 @@ func runVM(ctx context.Context, args []string, logger *slog.Logger) error {
 	return nil
 }
 
-func newMachine(logger *slog.Logger) (*vm.Machine, error) {
-	cfg, err := config.LoadVM(filepath.Join(config.RepoConfigDir(), "vm.yaml"))
-	if err != nil {
-		return nil, err
-	}
-
+func newMachine(cfg config.VM, logger *slog.Logger) (*vm.Machine, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("finding home directory: %w", err)
@@ -98,7 +100,66 @@ func newMachine(logger *slog.Logger) (*vm.Machine, error) {
 	), nil
 }
 
+func buildVM(ctx context.Context, m *vm.Machine, cfg config.VM, logger *slog.Logger) error {
+	start := time.Now()
+
+	if err := m.Build(ctx, &http.Client{}, start); err != nil {
+		return err
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("finding home directory: %w", err)
+	}
+
+	sshConfig := filepath.Join(config.ConfigDir(), "ssh_config")
+	err = vm.WriteSSHConfig(
+		sshConfig,
+		cfg.Network.VMAddress,
+		filepath.Join(home, ".ssh", "id_ed25519_sk"),
+		filepath.Join(config.ConfigDir(), "known_hosts"),
+		config.ConfigDir(),
+	)
+	if err != nil {
+		return err
+	}
+
+	agent, err := vmexec.Default()
+	if err != nil {
+		return fmt.Errorf("building vm runner: %w", err)
+	}
+
+	var restorer vm.MemoryRestorer
+	if _, err = os.Stat(filepath.Join(config.StateDir(), "memory", "reviewed")); err == nil {
+		deps, err := defaultMemoryDeps(logger)
+		if err != nil {
+			return err
+		}
+
+		restorer = newMemorySync(deps)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("checking reviewed memory: %w", err)
+	}
+
+	jira, err := newSecretTouchStore("read the Jira bot token", logger)
+	if err != nil {
+		return err
+	}
+
+	p := vm.NewProvisioner(cfg, sshConfig, agent, jira, restorer, os.Stderr, vmPollEvery, logger)
+	if err = p.Provision(ctx); err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintf(os.Stdout, "vm ready in %s\n", time.Since(start).Round(time.Second))
+	return err
+}
+
 func newDiskKeyStore(logger *slog.Logger) (*touchStore, error) {
+	return newSecretTouchStore("unlock the VM disk", logger)
+}
+
+func newSecretTouchStore(reason string, logger *slog.Logger) (*touchStore, error) {
 	store, err := secrets.NewDefaultStore()
 	if err != nil {
 		return nil, fmt.Errorf("building secrets store: %w", err)
@@ -106,5 +167,5 @@ func newDiskKeyStore(logger *slog.Logger) (*touchStore, error) {
 
 	store.Prompt = nil
 
-	return newTouchStore(store, notify.Desktop{Run: notify.ExecRun}, "unlock the VM disk", os.Stderr, logger), nil
+	return newTouchStore(store, notify.Desktop{Run: notify.ExecRun}, reason, os.Stderr, logger), nil
 }

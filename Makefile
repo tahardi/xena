@@ -44,6 +44,10 @@ vm-restore: agent
 	$(if $(filter command line,$(origin NAME)),,$(error vm-restore needs NAME=snapshot-name))
 	XENA_REPO_CONFIG_DIR=$(CURDIR)/config go run ./cmd/xena vm restore $(NAME)
 
+.PHONY: vm
+vm: agent
+	XENA_REPO_CONFIG_DIR=$(CURDIR)/config go run ./cmd/xena vm build
+
 .PHONY: tidy
 tidy:
 	@go mod tidy
