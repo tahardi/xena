@@ -330,13 +330,58 @@ func TestRenderSeed(t *testing.T) {
 		require.NotEmpty(t, scripts)
 
 		for _, script := range scripts {
-			want, readErr := xena.VMFiles.ReadFile(script)
-			require.NoError(t, readErr)
-
-			file := files[guardDir+path.Base(script)]
+			file, found := files[guardDir+path.Base(script)]
+			require.True(t, found, script)
 			require.Equal(t, "root:root", file.Owner)
 			require.Equal(t, "0755", file.Permissions)
-			require.Equal(t, string(want), file.decoded)
+		}
+	})
+
+	t.Run("happy path - guard network values", func(t *testing.T) {
+		// given
+		data := validSeedData(t)
+		data.BridgeAddress = "192.168.77.1"
+		data.ProxyPort = 8888
+
+		scripts, globErr := fs.Glob(xena.VMFiles, "vm/guard/*.sh")
+		require.NoError(t, globErr)
+		require.NotEmpty(t, scripts)
+
+		proxyScripts := []string{
+			"net-ip-literal.sh",
+			"net-ipv6.sh",
+			"net-lan.sh",
+			"net-metadata.sh",
+			"net-odd-port.sh",
+			"net-rebind.sh",
+			"net-unlisted.sh",
+		}
+		bridgeScripts := []string{"net-desktop-ports.sh", "net-dns-tunnel.sh"}
+
+		// when
+		changed, renderErr := vm.RenderSeed(data)
+		require.NoError(t, renderErr)
+
+		_, changedFiles := parseUserData(t, changed)
+
+		// then
+		for _, script := range scripts {
+			file, found := changedFiles[guardDir+path.Base(script)]
+			require.True(t, found, script)
+			require.Equal(t, "root:root", file.Owner, script)
+			require.Equal(t, "0755", file.Permissions, script)
+
+			for _, unwanted := range []string{"{{", "<no value>", "192.168.150", "3128"} {
+				require.NotContains(t, file.decoded, unwanted, script)
+			}
+		}
+
+		for _, name := range proxyScripts {
+			require.Contains(t, changedFiles[guardDir+name].decoded, `proxy="http://192.168.77.1:8888"`, name)
+		}
+
+		for _, name := range bridgeScripts {
+			require.Contains(t, changedFiles[guardDir+name].decoded, `bridge="192.168.77.1"`, name)
 		}
 	})
 
