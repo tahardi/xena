@@ -103,6 +103,7 @@ Built with `make pre-pr` locally and the same jobs in GitHub Actions on PRs, pus
 ## Accepted Risks
 
 None recorded yet. The design spec accepts these, and they come back as findings to decide: exfiltration to allowed hosts, an unencrypted desktop home folder, an infostealer taking browser cookies, a VM session deleting or rewriting its own findings, a VM session writing a wrong lesson, and approve and merge not being testable in the VM.
+- Claude login shows raw VM terminal output on Taylor's desktop terminal after repos and memory are loaded (XENA-29 F4): A raw terminal is needed for login. Record that it is raw, and that the link must be checked against claude.ai before opening.
 
 ## Severity Overrides
 
