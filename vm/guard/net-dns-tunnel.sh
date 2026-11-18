@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-bridge=192.168.150.1
+bridge="{{.BridgeAddress}}"
 
 status=0
 

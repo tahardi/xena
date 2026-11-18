@@ -132,7 +132,7 @@ write_files:
     owner: root:root
     permissions: "0755"
     encoding: b64
-    content: {{ b64 (raw (printf "vm/guard/%s" .)) }}
+    content: {{ b64 (renderGuard .) }}
 {{- end }}
 runcmd:
   - ["/usr/local/lib/xena/firstboot.sh"]

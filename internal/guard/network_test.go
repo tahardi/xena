@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tahardi/xena/internal/config"
 	"github.com/tahardi/xena/internal/guard"
 	"github.com/tahardi/xena/internal/logs"
 )
@@ -581,37 +579,35 @@ func TestNetworkCases(t *testing.T) {
 		assert.Equal(t, want, got)
 	})
 
-	t.Run("happy path - scripts match the repo config", func(t *testing.T) {
+	t.Run("happy path - scripts hold no network literals", func(t *testing.T) {
 		// given
-		vm, err := config.LoadVM("../../config/vm.yaml")
-		require.NoError(t, err)
-
-		wantBridge := vm.Network.BridgeAddress
-		wantPort := vm.ProxyPort
-		require.NotEmpty(t, wantBridge)
-		require.NotZero(t, wantPort)
-
-		// when
 		cases := guard.NetworkCases(netConfig)
 
-		// then
+		// when
+		scripts := make(map[string]string, len(cases))
 		for _, c := range cases {
 			data, err := os.ReadFile(filepath.Join("../../vm/guard", c.Name()+".sh"))
 			require.NoError(t, err)
 
-			script := string(data)
-			require.True(t, strings.HasPrefix(script, "#!/usr/bin/env bash\nset -euo pipefail\n"), c.Name())
+			scripts[c.Name()] = string(data)
+		}
 
-			if strings.Contains(script, "192.168.150.") {
-				assert.Contains(t, script, wantBridge, c.Name())
-			}
+		// then
+		for name, script := range scripts {
+			require.True(t, strings.HasPrefix(script, "#!/usr/bin/env bash\nset -euo pipefail\n"), name)
+			assert.NotContains(t, script, "192.168.150", name)
+			assert.NotContains(t, script, "3128", name)
 
 			if strings.Contains(script, "proxy=") {
-				assert.Contains(t, script, "proxy=http://"+wantBridge+":"+strconv.Itoa(wantPort)+"\n", c.Name())
+				assert.Contains(t, script, `proxy="http://{{.BridgeAddress}}:{{.ProxyPort}}"`, name)
+			}
+
+			if strings.Contains(script, "bridge=") {
+				assert.Contains(t, script, `bridge="{{.BridgeAddress}}"`, name)
 			}
 
 			if strings.Contains(script, "/usr/bin/curl") {
-				assert.Contains(t, script, "--fail", c.Name())
+				assert.Contains(t, script, "--fail", name)
 			}
 		}
 	})
