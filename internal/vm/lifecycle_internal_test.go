@@ -236,6 +236,7 @@ func testConfig() config.VM {
 		},
 		ProxyPort:         3128,
 		ClaudeCodeVersion: "2.1.0",
+		NpmVersion:        "11.21.2",
 		DotclaudeRef:      strings.Repeat("a", 40),
 		Git:               config.VMGit{Name: "bot", Email: "bot@example.com"},
 	}

@@ -22,6 +22,7 @@ expose:
   max_hours: 8
 prompt_timeout_seconds: 60
 claude_code_version: "2.1.314"
+npm_version: "11.21.2"
 dotclaude_ref: "8ab1fdff8a7d7deebd073e3e68a967a22bcb0429"
 repos:
   - tahardi/xena
