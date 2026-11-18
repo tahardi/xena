@@ -34,7 +34,7 @@ Desktop programs reach the VM through `internal/vmexec`, which runs `ssh` with t
 
 `xena-agent` (`cmd/xena-agent`) runs inside the VM. The VM's SSH server starts it for every login with the automation key, so that key can only run the commands the agent allows. It never runs on the desktop.
 
-The VM attaches to the `xena` libvirt network on the `xena0` bridge. The bridge name, bridge address and prefix come from `config/vm.yaml`, and installing writes them into the installed copy of `deploy/libvirt/xena-net.xml`. `make install` defines the network from that copy, marks it to start at boot, and starts it; `make uninstall` removes it. An edited `deploy/libvirt/xena-net.xml` reaches the running network only after you stop the VM and run `sudo virsh -c qemu:///system net-destroy xena` then `sudo virsh -c qemu:///system net-start xena`.
+The VM attaches to the `xena` libvirt network on the `xena0` bridge. The bridge name, bridge address and prefix come from `config/vm.yaml`, and installing writes them into the installed copy of `deploy/libvirt/xena-net.xml`. `make install` defines the network from that copy, marks it to start at boot, and starts it; `make uninstall` removes it. An edited `deploy/libvirt/xena-net.xml`, or a changed bridge, bridge address or prefix in `config/vm.yaml`, reaches the running network only after you install again, stop the VM, and run `sudo virsh -c qemu:///system net-destroy xena` then `sudo virsh -c qemu:///system net-start xena`.
 
 ## Desktop hardening
 

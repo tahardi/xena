@@ -539,7 +539,9 @@ test_accepts_boundary_values() {
 	for edit in \
 		's/bridge: xena0/bridge: abcdefghijklmno/|iifname "abcdefghijklmno" ip saddr 192.168.150.10 tcp dport 3128 accept' \
 		's/proxy_port: 3128/proxy_port: 1/|iifname "xena0" ip saddr 192.168.150.10 tcp dport 1 accept' \
-		's/proxy_port: 3128/proxy_port: 65535/|iifname "xena0" ip saddr 192.168.150.10 tcp dport 65535 accept'; do
+		's/proxy_port: 3128/proxy_port: 65535/|iifname "xena0" ip saddr 192.168.150.10 tcp dport 65535 accept' \
+		's/prefix: 24/prefix: 1/|iifname "xena0" ip saddr 192.168.150.10 tcp dport 3128 accept' \
+		's/prefix: 24/prefix: 32/|iifname "xena0" ip saddr 192.168.150.10 tcp dport 3128 accept'; do
 		setup
 		want=${edit#*|}
 		sed -i "${edit%%|*}" "$root/vm.yaml"

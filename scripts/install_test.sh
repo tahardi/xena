@@ -302,6 +302,9 @@ test_install_happy_path() {
 	if grep -qE '@[A-Z_]+@' "$root/etc/nftables.d/xena.nft"; then
 		fail "placeholder left in installed table"
 	fi
+	if grep -qE '@[A-Z_]+@' "$root/usr/local/share/xena/libvirt/xena-net.xml"; then
+		fail "placeholder left in installed network"
+	fi
 	assert_file "$root/etc/sysusers.d/xena.conf"
 	assert_file "$root/etc/systemd/journald.conf.d/xena.conf"
 	assert_mode 644 "$root/etc/systemd/journald.conf.d/xena.conf"
