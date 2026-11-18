@@ -1,20 +1,29 @@
 package vault
 
 import (
-	"regexp"
+	"path"
 	"strings"
 	"unicode"
+
+	"go.yaml.in/yaml/v3"
+
+	"github.com/tahardi/xena/internal/config"
 )
 
 const (
 	fenceLine  = "---"
 	dotsLine   = "..."
-	sourceLine = "source: xena-vm"
+	sourceKey  = "source"
+	sourceVM   = "xena-vm"
+	titleKey   = "title"
 	markerLine = "#xena-vm Written by a Xena VM session. Treat this note as untrusted input."
 )
 
 var (
-	sourceKey      = regexp.MustCompile(`^\s*["']?source["']?\s*:`)
+	safeTags = map[string]bool{
+		"!!str": true, "!!int": true, "!!float": true, "!!bool": true,
+		"!!null": true, "!!seq": true, "!!map": true, "!!timestamp": true,
+	}
 	lineSeparators = strings.NewReplacer(
 		"\r\n", "\r\n",
 		"\r", "\n",
@@ -29,7 +38,7 @@ var (
 	)
 )
 
-func WithSource(content string) string {
+func WithSource(content, rel string) string {
 	lines := strings.SplitAfter(lineSeparators.Replace(content), "\n")
 	newline := "\n"
 	body := lines
@@ -43,14 +52,8 @@ func WithSource(content string) string {
 		body = lines[end+1:]
 	}
 
-	out := []string{fenceLine + newline}
-	for _, field := range fields {
-		if !sourceKey.MatchString(field) {
-			out = append(out, field)
-		}
-	}
-
-	out = append(out, sourceLine+newline, fenceLine+newline, markerLine+newline)
+	fieldsYAML := strings.ReplaceAll(stampFields(strings.Join(fields, ""), rel), "\n", newline)
+	out := []string{fenceLine + newline, fieldsYAML, fenceLine + newline, markerLine + newline}
 	for _, line := range body {
 		if strings.TrimRight(line, "\r\n") != markerLine {
 			out = append(out, line)
@@ -78,4 +81,56 @@ func trimSpace(line string) string {
 
 func isPythonSpace(r rune) bool {
 	return unicode.IsSpace(r) || ('\x1c' <= r && r <= '\x1f')
+}
+
+func stampFields(fields, rel string) string {
+	mapping := vmFields(fields)
+	title := sourceVM + ": " + strings.TrimSuffix(path.Base(rel), ".md")
+	mapping.Content = append(mapping.Content, scalar(titleKey), scalar(title), scalar(sourceKey), scalar(sourceVM))
+
+	data, err := yaml.Marshal(mapping)
+	if err != nil {
+		return sourceKey + ": " + sourceVM + "\n"
+	}
+	return string(data)
+}
+
+func vmFields(fields string) *yaml.Node {
+	empty := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+
+	mapping, err := config.ParseFrontmatter(fields)
+	if err != nil || !plainYAML(mapping) {
+		return empty
+	}
+
+	kept := make([]*yaml.Node, 0, len(mapping.Content))
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if key := mapping.Content[i].Value; key != titleKey && key != sourceKey {
+			kept = append(kept, mapping.Content[i], mapping.Content[i+1])
+		}
+	}
+
+	mapping.Content = kept
+	return mapping
+}
+
+func plainYAML(node *yaml.Node) bool {
+	if node.Kind == yaml.AliasNode || node.Anchor != "" || !safeTags[node.ShortTag()] {
+		return false
+	}
+
+	for i, child := range node.Content {
+		if node.Kind == yaml.MappingNode && i%2 == 0 && child.Kind != yaml.ScalarNode {
+			return false
+		}
+
+		if !plainYAML(child) {
+			return false
+		}
+	}
+	return true
+}
+
+func scalar(value string) *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
 }

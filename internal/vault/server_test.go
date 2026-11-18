@@ -209,6 +209,10 @@ func (h *harness) tool(t *testing.T, name string, args any) toolReply {
 	return result
 }
 
+func stampedFor(name string) string {
+	return "---\ntitle: 'xena-vm: " + name + "'\nsource: xena-vm\n---\n" + marker + "\n"
+}
+
 func entry(tool, path, decision string) logs.GatewayEntry {
 	return logs.GatewayEntry{Tool: tool, Path: path, Decision: decision}
 }
@@ -488,31 +492,31 @@ func TestServer_Handle(t *testing.T) {
 		{
 			name: "happy path - write create",
 			args: map[string]any{"path": "Projects/New.md", "content": "body"},
-			want: writeCall{rel: "Projects/New.md", content: "---\nsource: xena-vm\n---\n" + marker + "\nbody", mode: "create"},
+			want: writeCall{rel: "Projects/New.md", content: stampedFor("New") + "body", mode: "create"},
 		},
 		{
 			name: "happy path - write overwrite",
 			args: map[string]any{"path": "Projects/A.md", "content": "---\nsource: desktop\n---\nb", "mode": "overwrite"},
-			want: writeCall{rel: "Projects/A.md", content: "---\nsource: xena-vm\n---\n" + marker + "\nb", mode: "overwrite"},
+			want: writeCall{rel: "Projects/A.md", content: stampedFor("A") + "b", mode: "overwrite"},
 		},
 		{
 			name: "happy path - write append",
 			args: map[string]any{"path": "Projects/A.md", "content": "new", "mode": "append"},
 			want: writeCall{
 				rel:     "Projects/A.md",
-				content: "---\ntitle: a\nsource: xena-vm\n---\n" + marker + "\nold\nnew",
+				content: stampedFor("A") + "old\nnew",
 				mode:    "overwrite",
 			},
 		},
 		{
 			name: "happy path - write append after newline",
 			args: map[string]any{"path": "Projects/C.md", "content": "new", "mode": "append"},
-			want: writeCall{rel: "Projects/C.md", content: "---\nsource: xena-vm\n---\n" + marker + "\nold\nnew", mode: "overwrite"},
+			want: writeCall{rel: "Projects/C.md", content: stampedFor("C") + "old\nnew", mode: "overwrite"},
 		},
 		{
 			name: "happy path - write append missing",
 			args: map[string]any{"path": "Projects/B.md", "content": "new", "mode": "append"},
-			want: writeCall{rel: "Projects/B.md", content: "---\nsource: xena-vm\n---\n" + marker + "\nnew", mode: "create"},
+			want: writeCall{rel: "Projects/B.md", content: stampedFor("B") + "new", mode: "create"},
 		},
 	}
 	for _, tt := range writes {
