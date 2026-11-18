@@ -30,7 +30,7 @@ const (
 		"git clone https://github.com/tahardi/xena /home/dev/Documents/code/xena"
 	cloneMaple = sshCfg + "test -d /home/dev/Documents/code/maple || " +
 		"git clone https://github.com/tahardi/maple /home/dev/Documents/code/maple"
-	restoreCall = "memory restore false"
+	restoreCall = "memory restore true"
 	loginCall   = "interactive-ssh -F /c/ssh_config -t xena-dev -- claude"
 	credsCall   = sshCfg + "test -s /home/dev/.claude/.credentials.json"
 	exitCall    = "ssh -F /c/ssh_config -O exit xena-dev"

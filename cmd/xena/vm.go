@@ -130,7 +130,7 @@ func buildVM(ctx context.Context, m *vm.Machine, cfg config.VM, logger *slog.Log
 	}
 
 	var restorer vm.MemoryRestorer
-	if _, err = os.Stat(filepath.Join(config.StateDir(), "memory", "current")); err == nil {
+	if _, err = os.Stat(filepath.Join(config.StateDir(), "memory", "reviewed")); err == nil {
 		deps, err := defaultMemoryDeps(logger)
 		if err != nil {
 			return err
@@ -138,7 +138,7 @@ func buildVM(ctx context.Context, m *vm.Machine, cfg config.VM, logger *slog.Log
 
 		restorer = newMemorySync(deps)
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("checking synced memory: %w", err)
+		return fmt.Errorf("checking reviewed memory: %w", err)
 	}
 
 	jira, err := newSecretTouchStore("read the Jira bot token", logger)

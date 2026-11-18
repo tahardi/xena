@@ -239,11 +239,11 @@ func (p *Provisioner) cloneRepos(ctx context.Context) error {
 
 func (p *Provisioner) restoreMemory(ctx context.Context) error {
 	if p.restorer == nil {
-		p.logger.Info("no synced memory on this desktop, skipping restore")
+		p.logger.Info("no reviewed memory on this desktop, skipping restore")
 		return nil
 	}
 
-	if err := p.restorer.Restore(ctx, false); err != nil {
+	if err := p.restorer.Restore(ctx, true); err != nil {
 		return fmt.Errorf("restoring memory: %w", err)
 	}
 

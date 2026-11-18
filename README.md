@@ -16,7 +16,7 @@ Xena moves agentic coding into a disposable, encrypted VM behind a network wall 
 | `xena grant clear aws\|gcp` | Remove them from the VM. |
 | `xena health` | Check every Xena service, timer, and the VM. |
 | `xena status [--json]` | Health, cut state, alerts, and last guard and audit for Maple. |
-| `xena vm build` | Build the work VM from the pinned image with an encrypted disk, pin its host key, boot it, and provision it over SSH (Claude login, tokens, repositories, memory), then print how long it took. Refuses when the VM exists; run `xena vm destroy` first. Run it as `make vm`. |
+| `xena vm build` | Build the work VM from the pinned image with an encrypted disk, pin its host key, boot it, and provision it over SSH (Claude login, tokens, repositories, reviewed memory), then print how long it took. Refuses when the VM exists; run `xena vm destroy` first. Run it as `make vm`. |
 | `xena vm start` | Start the VM (one touch to unlock its disk) and wait until it accepts SSH logins. Refuses while the network is cut. |
 | `xena vm stop` | Shut the VM down, forcing it off after five minutes. |
 | `xena vm destroy` | Remove the VM, its disk, and its pinned host key. |
