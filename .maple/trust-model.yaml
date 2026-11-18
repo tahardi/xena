@@ -65,9 +65,9 @@ components:
     trusted_with: Dropping all VM traffic except to the proxy port, logging drops at up to 10 a second, and cutting the VM on command; drops from a cut address and broadcast or multicast drops are not logged
     limited_by: Root only, loaded at boot before libvirt and the proxy, and checked by xena audit
   - id: harden
-    what: "The deploy/desktop/harden.sh script Taylor runs by hand, which writes /etc/nftables.conf with its own inet host_filter table and does the rest of the desktop hardening: purging Docker, dropping Taylor from the docker and libvirt groups, putting libvirt behind polkit, turning on unattended upgrades, linking the desktop Claude settings, and pinning Claude Code"
+    what: "The deploy/desktop/harden.sh script Taylor runs by hand, which writes /etc/nftables.conf with its own inet host_filter table and does the rest of the desktop hardening: purging Docker, dropping Taylor from the docker and libvirt groups, enabling the nftables service, disabling ufw, putting libvirt behind polkit, turning on unattended upgrades, moving Taylor's gh login into the keyring, linking the desktop Claude settings, and pinning Claude Code"
     trusted_with: Setting the desktop's own firewall table and the rest of the desktop hardening; its system steps run as root
-    limited_by: Taylor running it by hand; the bridge name, VM address and proxy port come only from vm.yaml through read_vm_config in scripts/vm_config.sh, tried as XENA_VM_CONFIG, then the installed /usr/local/share/xena/config/vm.yaml, then the repo config/vm.yaml, which refuses before any change when a value is missing or fails its bridge-name, IPv4, port, prefix and version checks and reads the file with python3 -I; nft -c checks the rules before they are written and they load only when they changed; --check changes nothing; it never writes the inet xena table
+    limited_by: Taylor running it by hand; the bridge name, VM address, proxy port and pinned Claude Code version come only from vm.yaml through read_vm_config in scripts/vm_config.sh, tried as XENA_VM_CONFIG, then the installed /usr/local/share/xena/config/vm.yaml, then the repo config/vm.yaml, which refuses before any change when a value is missing or fails its bridge-name, IPv4, port, prefix and Claude Code version checks and reads the file with python3 -I; nft -c checks the rules before they are written and they load only when they changed; --check changes nothing; it never writes the inet xena table
   - id: guard
     what: The xena guard attack suite
     trusted_with: Proving each wall holds
@@ -146,7 +146,7 @@ boundaries:
   - id: vm-to-desktop-net
     between: [vm-session, firewall]
     crosses: All VM packets
-    checks: "Only new TCP from the VM address to the proxy port on the bridge is accepted; everything else is dropped and logged at up to 10 a second, and a cut address and broadcast or multicast are dropped without logging. The bridge name, VM address and proxy port all come from vm.yaml and apply to both tables: install.sh fills them into the inet xena table from the installed copy, and harden.sh renders them into its inet host_filter table at priority filter + 10, so editing vm.yaml changes which VM port the desktop accepts"
+    checks: "Only new TCP from the VM address to the proxy port on the bridge is accepted; everything else is dropped and logged at up to 10 a second, and a cut address and broadcast or multicast are dropped without logging. The bridge name, VM address and proxy port all come from vm.yaml and apply to both tables: install.sh fills them into the inet xena table from the signed tag's vm.yaml, the same file it then installs, and harden.sh renders them into its inet host_filter table at priority filter + 10 from the first vm.yaml it finds. A changed port takes effect only after a tag carrying it is installed and harden.sh is rerun; until both tables hold the same values, the stricter one drops the VM's proxy traffic"
   - id: vm-to-proxy
     between: [vm-session, proxy]
     crosses: CONNECT and plain HTTP requests
