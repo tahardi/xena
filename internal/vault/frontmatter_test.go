@@ -74,6 +74,26 @@ func TestWithSource(t *testing.T) {
 			want: "---\ntitle: x\nsource: xena-vm\n---\n" + marker + "\n",
 		},
 		{
+			name: "dots close frontmatter",
+			in:   "---\ntitle: x\n...\n# Plan\n---\n",
+			want: "---\ntitle: x\nsource: xena-vm\n---\n" + marker + "\n# Plan\n---\n",
+		},
+		{
+			name: "fences with trailing spaces",
+			in:   "--- \ntitle: x\n---  \nbody",
+			want: "---\ntitle: x\nsource: xena-vm\n---\n" + marker + "\nbody",
+		},
+		{
+			name: "lone carriage return splits lines",
+			in:   "---\ntitle: x\r---\rbody",
+			want: "---\ntitle: x\nsource: xena-vm\n---\n" + marker + "\nbody",
+		},
+		{
+			name: "unicode line separators split lines",
+			in:   "---\ntitle: x\u2028...\u2029# Plan\fa\vb\u0085c\x1cd\x1de\x1ef",
+			want: "---\ntitle: x\nsource: xena-vm\n---\n" + marker + "\n# Plan\na\nb\nc\nd\ne\nf",
+		},
+		{
 			name: "marker not repeated",
 			in:   "---\nsource: xena-vm\n---\n" + marker + "\nold\n" + marker + "\nnew",
 			want: "---\nsource: xena-vm\n---\n" + marker + "\nold\nnew",
