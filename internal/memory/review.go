@@ -38,8 +38,8 @@ func TreeDigest(dir string) (string, error) {
 	return hex.EncodeToString(tree.Sum(nil)), nil
 }
 
-func MarkReviewed(dir, digest string, now time.Time) error {
-	unlock, err := Lock(dir)
+func MarkReviewed(ctx context.Context, dir, digest string, now time.Time) error {
+	unlock, err := Lock(ctx, dir)
 	if err != nil {
 		return err
 	}

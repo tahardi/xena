@@ -1,6 +1,7 @@
 package memory_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,12 +17,12 @@ func TestLock(t *testing.T) {
 	t.Run("happy path - second lock waits for unlock", func(t *testing.T) {
 		// given
 		dir := t.TempDir()
-		unlock, err := memory.Lock(dir)
+		unlock, err := memory.Lock(context.Background(), dir)
 		require.NoError(t, err)
 
 		acquired := make(chan func())
 		go func() {
-			second, err := memory.Lock(dir)
+			second, err := memory.Lock(context.Background(), dir)
 			if err != nil {
 				close(acquired)
 				return
@@ -57,11 +58,30 @@ func TestLock(t *testing.T) {
 		require.NoError(t, os.WriteFile(file, nil, 0o600))
 
 		// when
-		unlock, err := memory.Lock(filepath.Join(file, "memory"))
+		unlock, err := memory.Lock(context.Background(), filepath.Join(file, "memory"))
 
 		// then
 		require.Error(t, err)
 		require.Nil(t, unlock)
+		require.True(t, strings.HasPrefix(err.Error(), "locking memory dir"), err.Error())
+	})
+
+	t.Run("error - context ends while another holds the lock", func(t *testing.T) {
+		// given
+		dir := t.TempDir()
+		unlock, err := memory.Lock(context.Background(), dir)
+		require.NoError(t, err)
+		defer unlock()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+
+		// when
+		second, err := memory.Lock(ctx, dir)
+
+		// then
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Nil(t, second)
 		require.True(t, strings.HasPrefix(err.Error(), "locking memory dir"), err.Error())
 	})
 }

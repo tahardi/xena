@@ -120,7 +120,7 @@ func TestMarkReviewed(t *testing.T) {
 			}
 
 			// when
-			err = memory.MarkReviewed(dir, digest, now)
+			err = memory.MarkReviewed(context.Background(), dir, digest, now)
 
 			// then
 			require.Equal(t, tt.wantReviewed, readTree(t, filepath.Join(dir, "reviewed")))

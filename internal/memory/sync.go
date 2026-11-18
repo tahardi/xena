@@ -49,7 +49,7 @@ func NewSync(
 }
 
 func (s *Sync) Pull(ctx context.Context, force bool) (Result, error) {
-	unlock, err := Lock(s.dir)
+	unlock, err := Lock(ctx, s.dir)
 	if err != nil {
 		return Result{}, err
 	}
@@ -108,7 +108,7 @@ func (s *Sync) Pull(ctx context.Context, force bool) (Result, error) {
 }
 
 func (s *Sync) Restore(ctx context.Context, reviewed bool) error {
-	unlock, err := Lock(s.dir)
+	unlock, err := Lock(ctx, s.dir)
 	if err != nil {
 		return err
 	}

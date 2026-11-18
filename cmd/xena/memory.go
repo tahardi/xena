@@ -79,7 +79,7 @@ func runMemoryWith(ctx context.Context, args []string, deps memoryDeps) error {
 			return fmt.Errorf("reading digest: %w", errMissingDigest)
 		}
 
-		if err := memory.MarkReviewed(deps.Dir, args[1], deps.Now()); err != nil {
+		if err := memory.MarkReviewed(ctx, deps.Dir, args[1], deps.Now()); err != nil {
 			return err
 		}
 
@@ -110,7 +110,7 @@ func memorySync(ctx context.Context, args []string, deps memoryDeps) error {
 }
 
 func memoryDiff(ctx context.Context, deps memoryDeps) error {
-	unlock, err := memory.Lock(deps.Dir)
+	unlock, err := memory.Lock(ctx, deps.Dir)
 	if err != nil {
 		return err
 	}
