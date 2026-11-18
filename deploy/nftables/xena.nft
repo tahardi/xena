@@ -26,6 +26,7 @@ table inet xena {
 		iifname != "xena0" return
 		ip saddr @cut drop
 		meta pkttype { broadcast, multicast } drop
+		ct state invalid drop
 		meta nfproto ipv4 ct state established,related accept
 		ip saddr 192.168.150.10 tcp dport 3128 ct state new accept
 		limit rate 10/second burst 50 packets log prefix "xena-drop: " level warn
@@ -38,6 +39,7 @@ table inet xena {
 		oifname "xena0" ct status dnat ip saddr . tcp dport @forwarded accept
 		iifname "xena0" ct status dnat ct state established ip daddr . tcp sport @forwarded accept
 		iifname "xena0" meta pkttype { broadcast, multicast } drop
+		iifname "xena0" ct state invalid drop
 		iifname "xena0" limit rate 10/second burst 50 packets log prefix "xena-drop: " level warn
 		iifname "xena0" drop
 		oifname "xena0" drop

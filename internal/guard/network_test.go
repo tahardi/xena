@@ -30,8 +30,9 @@ func TestNetCase_Run(t *testing.T) {
 	literal := []string{logs.DecisionRefuseIPLiteral}
 	proxyWant := []guard.ProxyExpect{{Host: "198.51.100.7", Port: 443, Decisions: literal}}
 	dropWant := []guard.DropExpect{{Dst: "198.51.100.7", Port: 443, Proto: "TCP"}}
+	syn := []string{"SYN"}
 	refusal := logs.ProxyEntry{Time: after, Host: "198.51.100.7", Port: 443, Decision: logs.DecisionRefuseIPLiteral}
-	drop := guard.Drop{Time: after, Src: "192.168.150.10", Dst: "198.51.100.7", DstPort: 443, Proto: "TCP", SYN: true}
+	drop := guard.Drop{Time: after, Src: "192.168.150.10", Dst: "198.51.100.7", DstPort: 443, Proto: "TCP", Flags: syn}
 	blocked := "blocked https://198.51.100.7/\nblocked 198.51.100.7:443\n"
 
 	tests := []struct {
@@ -158,7 +159,14 @@ func TestNetCase_Run(t *testing.T) {
 				{Time: now.Add(-time.Minute), Host: "198.51.100.7", Port: 443, Decision: logs.DecisionRefuseIPLiteral},
 			},
 			drops: []guard.Drop{
-				{Time: now.Add(-time.Minute), Src: "192.168.150.10", Dst: "198.51.100.7", DstPort: 443, Proto: "TCP", SYN: true},
+				{
+					Time:    now.Add(-time.Minute),
+					Src:     "192.168.150.10",
+					Dst:     "198.51.100.7",
+					DstPort: 443,
+					Proto:   "TCP",
+					Flags:   syn,
+				},
 			},
 			wantErr: "no proxy log entry for 198.51.100.7:443",
 		},
@@ -176,7 +184,7 @@ func TestNetCase_Run(t *testing.T) {
 			output:  blocked,
 			entries: []logs.ProxyEntry{refusal},
 			drops: []guard.Drop{
-				{Time: after, Src: "192.168.150.99", Dst: "198.51.100.7", DstPort: 443, Proto: "TCP", SYN: true},
+				{Time: after, Src: "192.168.150.99", Dst: "198.51.100.7", DstPort: 443, Proto: "TCP", Flags: syn},
 			},
 			wantErr: "no firewall drop for 198.51.100.7:443/TCP",
 		},
@@ -194,7 +202,29 @@ func TestNetCase_Run(t *testing.T) {
 			output:  blocked,
 			entries: []logs.ProxyEntry{refusal},
 			drops: []guard.Drop{
-				{Time: after, Src: "192.168.150.10", Dst: "198.51.100.7", DstPort: 443, Proto: "TCP", ACK: true},
+				{
+					Time:    after,
+					Src:     "192.168.150.10",
+					Dst:     "198.51.100.7",
+					DstPort: 443,
+					Proto:   "TCP",
+					Flags:   []string{"ACK"},
+				},
+			},
+			wantErr: "no firewall drop for 198.51.100.7:443/TCP",
+		},
+		{
+			name:    "error - tcp drop with no flags",
+			output:  blocked,
+			entries: []logs.ProxyEntry{refusal},
+			drops: []guard.Drop{
+				{
+					Time:    after,
+					Src:     "192.168.150.10",
+					Dst:     "198.51.100.7",
+					DstPort: 443,
+					Proto:   "TCP",
+				},
 			},
 			wantErr: "no firewall drop for 198.51.100.7:443/TCP",
 		},
@@ -203,7 +233,46 @@ func TestNetCase_Run(t *testing.T) {
 			output:  blocked,
 			entries: []logs.ProxyEntry{refusal},
 			drops: []guard.Drop{
-				{Time: after, Src: "192.168.150.10", Dst: "198.51.100.7", DstPort: 443, Proto: "TCP", SYN: true, ACK: true},
+				{
+					Time:    after,
+					Src:     "192.168.150.10",
+					Dst:     "198.51.100.7",
+					DstPort: 443,
+					Proto:   "TCP",
+					Flags:   []string{"ACK", "SYN"},
+				},
+			},
+			wantErr: "no firewall drop for 198.51.100.7:443/TCP",
+		},
+		{
+			name:    "error - tcp drop with syn and fin",
+			output:  blocked,
+			entries: []logs.ProxyEntry{refusal},
+			drops: []guard.Drop{
+				{
+					Time:    after,
+					Src:     "192.168.150.10",
+					Dst:     "198.51.100.7",
+					DstPort: 443,
+					Proto:   "TCP",
+					Flags:   []string{"SYN", "FIN"},
+				},
+			},
+			wantErr: "no firewall drop for 198.51.100.7:443/TCP",
+		},
+		{
+			name:    "error - tcp drop with syn and rst",
+			output:  blocked,
+			entries: []logs.ProxyEntry{refusal},
+			drops: []guard.Drop{
+				{
+					Time:    after,
+					Src:     "192.168.150.10",
+					Dst:     "198.51.100.7",
+					DstPort: 443,
+					Proto:   "TCP",
+					Flags:   []string{"RST", "SYN"},
+				},
 			},
 			wantErr: "no firewall drop for 198.51.100.7:443/TCP",
 		},
@@ -212,7 +281,7 @@ func TestNetCase_Run(t *testing.T) {
 			output:  blocked,
 			entries: []logs.ProxyEntry{refusal},
 			drops: []guard.Drop{
-				{Time: after, Src: "192.168.150.10", Dst: "198.51.100.7", DstPort: 80, Proto: "TCP", SYN: true},
+				{Time: after, Src: "192.168.150.10", Dst: "198.51.100.7", DstPort: 80, Proto: "TCP", Flags: syn},
 			},
 			wantErr: "no firewall drop for 198.51.100.7:443/TCP",
 		},
@@ -638,7 +707,7 @@ func expectedEvidence(proxy []guard.ProxyExpect, drops []guard.DropExpect) ([]lo
 			Dst:     want.Dst,
 			DstPort: want.Port,
 			Proto:   want.Proto,
-			SYN:     true,
+			Flags:   []string{"SYN"},
 		})
 	}
 
