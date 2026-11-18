@@ -3,6 +3,7 @@ package firewall_test
 import (
 	"encoding/xml"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -56,13 +57,13 @@ func TestRuleset(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "xena", network.Name)
 		assert.Regexp(t, `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, network.UUID)
-		assert.Equal(t, "xena0", network.Bridge.Name)
+		assert.Equal(t, "@BRIDGE@", network.Bridge.Name)
 		assert.Equal(t, "no", network.DNS.Enable)
 		require.Len(t, network.Forward, 1)
 		assert.Equal(t, "open", network.Forward[0].Mode)
 		require.Len(t, network.IP, 1)
-		assert.Equal(t, "192.168.150.1", network.IP[0].Address)
-		assert.Equal(t, "24", network.IP[0].Prefix)
+		assert.Equal(t, "@BRIDGE_ADDRESS@", network.IP[0].Address)
+		assert.Equal(t, "@PREFIX@", network.IP[0].Prefix)
 		assert.Empty(t, network.IP[0].DHCP)
 		assert.Empty(t, network.DHCP)
 		assert.NotContains(t, string(data), "dhcp")
@@ -80,6 +81,44 @@ func TestRuleset(t *testing.T) {
 		assert.True(t, ok)
 	})
 
+	t.Run("happy path - network values stay placeholders", func(t *testing.T) {
+		// given
+		paths := []string{"../../deploy/nftables/xena.nft", "../../deploy/libvirt/xena-net.xml"}
+
+		for _, path := range paths {
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+
+			// when
+			got := string(data)
+
+			// then
+			assert.NotContains(t, got, "xena0", path)
+			assert.NotContains(t, got, "192.168.150", path)
+			assert.NotContains(t, got, "3128", path)
+		}
+	})
+
+	t.Run("happy path - only known placeholders", func(t *testing.T) {
+		// given
+		paths := []string{"../../deploy/nftables/xena.nft", "../../deploy/libvirt/xena-net.xml"}
+		known := []string{"@BRIDGE@", "@BRIDGE_ADDRESS@", "@VM_ADDRESS@", "@PREFIX@", "@PROXY_PORT@"}
+
+		for _, path := range paths {
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+
+			// when
+			got := regexp.MustCompile(`@[A-Z_]+@`).FindAllString(string(data), -1)
+
+			// then
+			require.NotEmpty(t, got, path)
+			for _, name := range got {
+				assert.Contains(t, known, name, path)
+			}
+		}
+	})
+
 	tests := []struct {
 		name string
 		want string
@@ -92,33 +131,33 @@ func TestRuleset(t *testing.T) {
 		{name: "happy path - input chain", want: "chain input_vm"},
 		{name: "happy path - forward chain", want: "chain forward_vm"},
 		{name: "happy path - nat chain", want: "chain prerouting_nat"},
-		{name: "happy path - bridge match", want: `iifname "xena0"`},
-		{name: "happy path - proxy rule", want: "ip saddr 192.168.150.10 tcp dport 3128"},
+		{name: "happy path - bridge match", want: `iifname "@BRIDGE@"`},
+		{name: "happy path - proxy rule", want: "ip saddr @VM_ADDRESS@ tcp dport @PROXY_PORT@"},
 		{name: "happy path - drop log", want: `log prefix "xena-drop: "`},
 		{name: "happy path - silent noise", want: "meta pkttype { broadcast, multicast } drop"},
 		{name: "happy path - invalid input drops silently", want: "\t\tct state invalid drop\n"},
-		{name: "happy path - invalid forward drops silently", want: `iifname "xena0" ct state invalid drop`},
+		{name: "happy path - invalid forward drops silently", want: `iifname "@BRIDGE@" ct state invalid drop`},
 		{name: "happy path - dnat only forward", want: "ct status dnat"},
 		{name: "happy path - cut applies to input", want: "\t\tip saddr @cut drop\n"},
-		{name: "happy path - cut applies to forward", want: `iifname "xena0" ip saddr @cut drop`},
+		{name: "happy path - cut applies to forward", want: `iifname "@BRIDGE@" ip saddr @cut drop`},
 		{name: "happy path - dnat reads exposed", want: "map @exposed"},
-		{name: "happy path - proxy takes only new connections", want: "tcp dport 3128 ct state new accept"},
+		{name: "happy path - proxy takes only new connections", want: "tcp dport @PROXY_PORT@ ct state new accept"},
 		{name: "happy path - forwarded set", want: "set forwarded"},
-		{name: "happy path - dnat needs an open entry", want: `oifname "xena0" ct status dnat ip saddr . tcp dport @forwarded accept`},
+		{name: "happy path - dnat needs an open entry", want: `oifname "@BRIDGE@" ct status dnat ip saddr . tcp dport @forwarded accept`},
 		{
 			name: "happy path - dnat replies need an open entry",
 			want: "ct status dnat ct state established ip daddr . tcp sport @forwarded accept",
 		},
 		{name: "happy path - only ipv4 replies accepted", want: "meta nfproto ipv4 ct state established,related accept"},
 		{name: "happy path - drop logs are rate limited", want: `limit rate 10/second burst 50 packets log prefix "xena-drop: "`},
-		{name: "happy path - forward drops after log", want: "\t\tiifname \"xena0\" drop\n"},
-		{name: "happy path - other traffic to the bridge drops", want: `oifname "xena0" drop`},
+		{name: "happy path - forward drops after log", want: "\t\tiifname \"@BRIDGE@\" drop\n"},
+		{name: "happy path - other traffic to the bridge drops", want: `oifname "@BRIDGE@" drop`},
 		{
 			name: "happy path - tokend output chain",
 			want: "chain output_tokend {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n",
 		},
 		{name: "happy path - tokend chain", want: "chain tokend"},
-		{name: "happy path - tokend ssh rule", want: "ip daddr 192.168.150.10 tcp dport 22 accept"},
+		{name: "happy path - tokend ssh rule", want: "ip daddr @VM_ADDRESS@ tcp dport 22 accept"},
 		{name: "happy path - tokend drop log", want: `log prefix "xena-tokend-drop: " level warn`},
 		{
 			name: "happy path - tokend drop log is rate limited",
@@ -153,7 +192,7 @@ func TestRuleset(t *testing.T) {
 		{
 			name:   "happy path - cut comes before proxy accept",
 			first:  "ip saddr @cut drop",
-			second: "tcp dport 3128 ct state new accept",
+			second: "tcp dport @PROXY_PORT@ ct state new accept",
 		},
 		{
 			name:   "happy path - noise drops before input log",
@@ -162,13 +201,13 @@ func TestRuleset(t *testing.T) {
 		},
 		{
 			name:   "happy path - forward cut comes before dnat accept",
-			first:  `iifname "xena0" ip saddr @cut drop`,
-			second: `iifname "xena0" ct status dnat ct state established`,
+			first:  `iifname "@BRIDGE@" ip saddr @cut drop`,
+			second: `iifname "@BRIDGE@" ct status dnat ct state established`,
 		},
 		{
 			name:   "happy path - forward noise drops before forward log",
-			first:  `iifname "xena0" meta pkttype { broadcast, multicast } drop`,
-			second: `iifname "xena0" limit rate`,
+			first:  `iifname "@BRIDGE@" meta pkttype { broadcast, multicast } drop`,
+			second: `iifname "@BRIDGE@" limit rate`,
 		},
 		{
 			name:   "happy path - noise drops before invalid input drop",
@@ -187,17 +226,17 @@ func TestRuleset(t *testing.T) {
 		},
 		{
 			name:   "happy path - forward noise drops before invalid forward drop",
-			first:  `iifname "xena0" meta pkttype { broadcast, multicast } drop`,
-			second: `iifname "xena0" ct state invalid drop`,
+			first:  `iifname "@BRIDGE@" meta pkttype { broadcast, multicast } drop`,
+			second: `iifname "@BRIDGE@" ct state invalid drop`,
 		},
 		{
 			name:   "happy path - invalid forward drop before forward log",
-			first:  `iifname "xena0" ct state invalid drop`,
-			second: `iifname "xena0" limit rate`,
+			first:  `iifname "@BRIDGE@" ct state invalid drop`,
+			second: `iifname "@BRIDGE@" limit rate`,
 		},
 		{
 			name:   "happy path - tokend ssh before tokend log",
-			first:  "ip daddr 192.168.150.10 tcp dport 22 accept",
+			first:  "ip daddr @VM_ADDRESS@ tcp dport 22 accept",
 			second: `log prefix "xena-tokend-drop: "`,
 		},
 	}

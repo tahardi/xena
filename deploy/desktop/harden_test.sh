@@ -32,7 +32,9 @@ version: 1
 claude_code_version: "2.1.310"
 network:
   bridge: xena0
+  bridge_address: 192.168.150.1
   vm_address: 192.168.150.10
+  prefix: 24
 proxy_port: 3128
 YAML
 
@@ -504,7 +506,13 @@ test_stops_on_bad_network_values() {
 		's/claude_code_version: .*/claude_code_version: ""/' \
 		's/claude_code_version: .*/claude_code_version: "2.1.310 x"/' \
 		's/claude_code_version: .*/claude_code_version: "--help"/' \
-		'/^network:/,/vm_address/d'; do
+		'/^network:/,/vm_address/d' \
+		's/bridge_address: .*/bridge_address: "not-an-ip"/' \
+		's/bridge_address: .*/bridge_address: ""/' \
+		's/prefix: 24/prefix: 0/' \
+		's/prefix: 24/prefix: 33/' \
+		's/prefix: 24/prefix: "24"/' \
+		'/^network:/,/prefix:/d'; do
 		setup
 		sed -i "$edit" "$root/vm.yaml"
 
@@ -531,7 +539,9 @@ test_accepts_boundary_values() {
 	for edit in \
 		's/bridge: xena0/bridge: abcdefghijklmno/|iifname "abcdefghijklmno" ip saddr 192.168.150.10 tcp dport 3128 accept' \
 		's/proxy_port: 3128/proxy_port: 1/|iifname "xena0" ip saddr 192.168.150.10 tcp dport 1 accept' \
-		's/proxy_port: 3128/proxy_port: 65535/|iifname "xena0" ip saddr 192.168.150.10 tcp dport 65535 accept'; do
+		's/proxy_port: 3128/proxy_port: 65535/|iifname "xena0" ip saddr 192.168.150.10 tcp dport 65535 accept' \
+		's/prefix: 24/prefix: 1/|iifname "xena0" ip saddr 192.168.150.10 tcp dport 3128 accept' \
+		's/prefix: 24/prefix: 32/|iifname "xena0" ip saddr 192.168.150.10 tcp dport 3128 accept'; do
 		setup
 		want=${edit#*|}
 		sed -i "${edit%%|*}" "$root/vm.yaml"

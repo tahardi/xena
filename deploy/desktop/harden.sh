@@ -22,42 +22,11 @@ if [[ -z "$vm_config" ]]; then
 	fi
 fi
 
-read_vm_config() {
-	python3 -I - "$1" <<'PY'
-import ipaddress
-import re
-import sys
+# shellcheck source-path=SCRIPTDIR
+source "$here/../../scripts/vm_config.sh"
 
-import yaml
-
-with open(sys.argv[1]) as f:
-    c = yaml.safe_load(f)
-
-bridge = c["network"]["bridge"]
-vm_address = str(ipaddress.IPv4Address(c["network"]["vm_address"]))
-port = c["proxy_port"]
-version = c["claude_code_version"]
-
-if not re.fullmatch(r"[A-Za-z0-9_.-]{1,15}", bridge):
-    sys.exit(1)
-
-if not re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z.+-]*", version):
-    sys.exit(1)
-
-if not (type(port) is int and 1 <= port <= 65535):
-    sys.exit(1)
-
-print(version, bridge, vm_address, port)
-PY
-}
-
-if ! values=$(read_vm_config "$vm_config" 2>/dev/null); then
-	echo "reading vm config from $vm_config: check it sets claude_code_version, network.bridge," \
-		"network.vm_address, and proxy_port, and python3-yaml is installed" >&2
-	exit 1
-fi
-
-read -r claude_version bridge vm_address proxy_port <<<"$values"
+values=$(read_vm_config "$vm_config") || exit 1
+read -r claude_version bridge vm_address proxy_port _ _ <<<"$values"
 
 polkit_rules=$here/../polkit/50-xena.rules
 polkit_dest=usr/share/polkit-1/rules.d/50-xena.rules

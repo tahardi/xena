@@ -94,7 +94,7 @@ shellcheck:
 		'*.sh' \
 		vm/cloud-init/files/gh \
 		vm/cloud-init/files/motd-rebuild \
-		| xargs -0 -r shellcheck
+		| xargs -0 -r shellcheck -x
 
 .PHONY: test-shell
 test-shell:
