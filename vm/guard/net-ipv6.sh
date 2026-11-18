@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-proxy=http://192.168.150.1:3128
+proxy="http://{{.BridgeAddress}}:{{.ProxyPort}}"
 
 status=0
 
