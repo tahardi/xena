@@ -24,24 +24,25 @@ import (
 )
 
 const (
-	stopAttempts  = 60
-	readyAttempts = 120
-	diskKeyName   = "vm-disk-key"
-	stateRunning  = "running"
-	stateShutOff  = "shut off"
-	stateUndef    = "undefined"
-	networkName   = "xena"
-	seedDevice    = "sda"
-	bootFinished  = "/var/lib/cloud/instance/boot-finished"
-	cloudResult   = "/run/cloud-init/result.json"
-	cloudOutput   = "/var/log/cloud-init-output.log"
-	nologinPath   = "/run/nologin"
-	diskKeyBytes  = 32
-	privateDir    = 0o700
-	privateFile   = 0o600
-	imagePrefix   = 12
-	stderrLimit   = 200
-	progressEvery = 30 * time.Second
+	stopAttempts      = 60
+	readyAttempts     = 120
+	firstBootAttempts = 360
+	diskKeyName       = "vm-disk-key"
+	stateRunning      = "running"
+	stateShutOff      = "shut off"
+	stateUndef        = "undefined"
+	networkName       = "xena"
+	seedDevice        = "sda"
+	bootFinished      = "/var/lib/cloud/instance/boot-finished"
+	cloudResult       = "/run/cloud-init/result.json"
+	cloudOutput       = "/var/log/cloud-init-output.log"
+	nologinPath       = "/run/nologin"
+	diskKeyBytes      = 32
+	privateDir        = 0o700
+	privateFile       = 0o600
+	imagePrefix       = 12
+	stderrLimit       = 200
+	progressEvery     = 30 * time.Second
 
 	domainXML = `<domain type='kvm'>
   <name>{{x .Name}}</name>
@@ -293,7 +294,7 @@ func (m *Machine) Destroy(ctx context.Context) error {
 }
 
 func (m *Machine) WaitReady(ctx context.Context) error {
-	err := m.poll(ctx, "guest agent", func() error {
+	err := m.poll(ctx, "guest agent", firstBootAttempts, func() error {
 		return m.agent(ctx, "guest-ping", nil, nil)
 	})
 	if err != nil {
@@ -302,7 +303,7 @@ func (m *Machine) WaitReady(ctx context.Context) error {
 
 	m.logger.Info("guest agent is up, waiting for cloud-init to finish", "name", m.config.Name)
 
-	err = m.poll(ctx, "cloud-init to finish", func() error {
+	err = m.poll(ctx, "cloud-init to finish", firstBootAttempts, func() error {
 		handle, err := m.openGuestFile(ctx, bootFinished)
 		if err != nil {
 			return err
@@ -315,7 +316,7 @@ func (m *Machine) WaitReady(ctx context.Context) error {
 	}
 
 	var result []byte
-	err = m.poll(ctx, "cloud-init result", func() error {
+	err = m.poll(ctx, "cloud-init result", readyAttempts, func() error {
 		result, err = m.readGuestFile(ctx, cloudResult)
 		return err
 	})
@@ -430,11 +431,11 @@ func (m *Machine) Build(ctx context.Context, client *http.Client, now time.Time)
 
 	m.logger.Info("starting vm", "name", m.config.Name)
 
-	if err = m.Start(ctx); err != nil {
+	if err = m.start(ctx); err != nil {
 		return err
 	}
 
-	m.logger.Info("vm accepts logins, waiting for cloud-init", "name", m.config.Name)
+	m.logger.Info("vm is on, waiting for first-boot setup", "name", m.config.Name)
 
 	if err = m.WaitReady(ctx); err != nil {
 		return err
@@ -511,14 +512,14 @@ func (m *Machine) start(ctx context.Context) error {
 }
 
 func (m *Machine) waitLogin(ctx context.Context) error {
-	err := m.poll(ctx, "guest agent", func() error {
+	err := m.poll(ctx, "guest agent", readyAttempts, func() error {
 		return m.agent(ctx, "guest-ping", nil, nil)
 	})
 	if err != nil {
 		return fmt.Errorf("waiting for guest agent: %w", err)
 	}
 
-	err = m.poll(ctx, "boot to allow logins", func() error {
+	err = m.poll(ctx, "boot to allow logins", readyAttempts, func() error {
 		handle, err := m.openGuestFile(ctx, nologinPath)
 		if err != nil {
 			return nil
@@ -694,12 +695,12 @@ func removeIfExists(path string) error {
 	return nil
 }
 
-func (m *Machine) poll(ctx context.Context, what string, attempt func() error) error {
+func (m *Machine) poll(ctx context.Context, what string, attempts int, attempt func() error) error {
 	start := time.Now()
 	lastReport := start
 
 	var lastErr error
-	for range readyAttempts {
+	for range attempts {
 		if lastErr = attempt(); lastErr == nil {
 			return nil
 		}
