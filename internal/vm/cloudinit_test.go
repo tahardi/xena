@@ -270,6 +270,21 @@ func TestRenderSeed(t *testing.T) {
 		}
 	})
 
+	t.Run("happy path - wait online", func(t *testing.T) {
+		// given
+		want := "[Service]\n" +
+			"ExecStart=\n" +
+			"ExecStart=/usr/lib/systemd/systemd-networkd-wait-online --any --ipv4 --timeout=30\n"
+
+		// when
+		file := files["/etc/systemd/system/systemd-networkd-wait-online.service.d/xena.conf"]
+
+		// then
+		require.Equal(t, "root:root", file.Owner)
+		require.Equal(t, "0644", file.Permissions)
+		require.Equal(t, want, file.decoded)
+	})
+
 	t.Run("happy path - keys", func(t *testing.T) {
 		// given
 		file := files["/etc/ssh/authorized_keys/dev"]

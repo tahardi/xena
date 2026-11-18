@@ -81,6 +81,11 @@ write_files:
     permissions: "0644"
     encoding: b64
     content: {{ b64 (render "xena-package-age.timer") }}
+  - path: /etc/systemd/system/systemd-networkd-wait-online.service.d/xena.conf
+    owner: root:root
+    permissions: "0644"
+    encoding: b64
+    content: {{ b64 (render "wait-online-xena.conf") }}
   - path: /etc/systemd/resolved.conf.d/xena.conf
     owner: root:root
     permissions: "0644"
