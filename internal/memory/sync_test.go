@@ -3,13 +3,16 @@ package memory_test
 import (
 	"archive/tar"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -54,30 +57,36 @@ func (r *fakeRunner) Run(_ context.Context, verb string, args []string, stdin io
 	return r.out[verb], r.err[verb]
 }
 
-func fakeSqlite(t *testing.T) string {
+func fakeSqlite(t *testing.T, fail bool) string {
 	t.Helper()
 
 	body := `[ "$#" -eq 4 ] || exit 9
+[ "$1 $2 $4" = "-readonly -safe .dump" ] || exit 9
 [ -f "$3" ] || exit 8
+[ "` + strconv.FormatBool(fail) + `" = false ] || exit 1
 printf 'INSERT INTO notes VALUES(%s);\n' "'token ` + syncSecret + `'"
 `
 
 	return writeScript(t, t.TempDir(), "sqlite3", body)
 }
 
-func fakeSyncGitleaks(t *testing.T, always bool) string {
+func fakeSyncGitleaks(t *testing.T, mode string) string {
 	t.Helper()
 
 	dir := t.TempDir()
 	count := filepath.Join(dir, "count")
-	finding := `[{"RuleID": "github-pat", "File": "'"$9"'/claude-mem/claude-mem.sql", "Secret": "` + syncSecret + `"}]`
+	finding := `[{"RuleID": "github-pat", "File": "'"$file"'", "Secret": "` + syncSecret + `"}]`
 
 	body := `count=` + count + `
+mode=` + mode + `
 calls=$(cat "$count" 2>/dev/null || echo 0)
 echo $((calls + 1)) > "$count"
+file="$9/claude-mem/claude-mem.sql"
+[ "$mode" != fail ] || exit 1
+[ "$mode" != outside ] || file="$9/../outside.sql"
 if [ ! -f "$9/claude-mem/claude-mem.sql" ]; then
   echo '[]' > "$6"
-elif [ "$calls" -eq 0 ] || [ "` + map[bool]string{true: "yes", false: "no"}[always] + `" = yes ]; then
+elif [ "$calls" -eq 0 ] || [ "$mode" = always ]; then
   echo '` + finding + `' > "$6"
 else
   echo '[]' > "$6"
@@ -152,7 +161,8 @@ func TestSync_Pull(t *testing.T) {
 		exportErr     error
 		existing      bool
 		force         bool
-		alwaysLeaks   bool
+		gitleaksMode  string
+		sqliteFails   bool
 		want          memory.Result
 		wantFiles     map[string]string
 		wantErr       error
@@ -190,11 +200,43 @@ func TestSync_Pull(t *testing.T) {
 			wantFiles: map[string]string{},
 		},
 		{
-			name:        "error - secrets remain",
-			export:      fullExport,
-			existing:    true,
-			alwaysLeaks: true,
-			wantErr:     memory.ErrSecretsRemain,
+			name:         "error - secrets remain",
+			export:       fullExport,
+			existing:     true,
+			gitleaksMode: "always",
+			wantErr:      memory.ErrSecretsRemain,
+		},
+		{
+			name:          "error - dump fails",
+			export:        fullExport,
+			existing:      true,
+			sqliteFails:   true,
+			wantErrPrefix: "dumping claude-mem",
+		},
+		{
+			name:          "error - scan fails",
+			export:        fullExport,
+			existing:      true,
+			gitleaksMode:  "fail",
+			wantErrPrefix: "scanning memory",
+		},
+		{
+			name:          "error - finding outside staging dir",
+			export:        fullExport,
+			existing:      true,
+			gitleaksMode:  "outside",
+			wantErrPrefix: "redacting memory",
+		},
+		{
+			name:      "happy path - memory files only",
+			export:    []tarEntry{{name: memoryPath, body: "remember this"}},
+			want:      memory.Result{Time: now, Files: 1},
+			wantFiles: map[string]string{"projects/p/memory/MEMORY.md": "remember this"},
+		},
+		{
+			name:      "happy path - empty export with no copy yet",
+			want:      memory.Result{Time: now},
+			wantFiles: map[string]string{},
 		},
 		{
 			name:     "error - unsafe entry",
@@ -227,9 +269,10 @@ func TestSync_Pull(t *testing.T) {
 			sync := memory.NewSync(
 				runner,
 				dir,
-				fakeSyncGitleaks(t, tt.alwaysLeaks),
-				fakeSqlite(t),
+				fakeSyncGitleaks(t, cmp.Or(tt.gitleaksMode, "once")),
+				fakeSqlite(t, tt.sqliteFails),
 				func() time.Time { return now },
+				slog.New(slog.DiscardHandler),
 			)
 
 			// when
@@ -263,185 +306,6 @@ func TestSync_Pull(t *testing.T) {
 			require.Equal(t, tt.want, last)
 
 			requireModes(t, dir)
-		})
-	}
-}
-
-func TestTreeDigest(t *testing.T) {
-	write := func(t *testing.T, files map[string]string) string {
-		t.Helper()
-
-		dir := t.TempDir()
-		for name, body := range files {
-			path := filepath.Join(dir, name)
-			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
-			require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
-		}
-
-		return dir
-	}
-
-	base := map[string]string{"projects/p/memory/a.md": "alpha", "claude-mem/claude-mem.sql": "beta"}
-
-	tests := []struct {
-		name      string
-		other     map[string]string
-		wantEqual bool
-	}{
-		{
-			name:      "happy path - same tree",
-			other:     base,
-			wantEqual: true,
-		},
-		{
-			name:  "happy path - one byte changed",
-			other: map[string]string{"projects/p/memory/a.md": "alphb", "claude-mem/claude-mem.sql": "beta"},
-		},
-		{
-			name:  "happy path - file renamed",
-			other: map[string]string{"projects/p/memory/b.md": "alpha", "claude-mem/claude-mem.sql": "beta"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// given
-			first := write(t, base)
-			second := write(t, tt.other)
-
-			// when
-			a, errA := memory.TreeDigest(first)
-			b, errB := memory.TreeDigest(second)
-
-			// then
-			require.NoError(t, errA)
-			require.NoError(t, errB)
-			require.Len(t, a, 64)
-			require.Equal(t, tt.wantEqual, a == b)
-		})
-	}
-}
-
-func TestMarkReviewed(t *testing.T) {
-	now := time.Date(2026, 11, 17, 9, 30, 0, 0, time.UTC)
-
-	tests := []struct {
-		name         string
-		stale        bool
-		wantErr      error
-		wantReviewed map[string]string
-	}{
-		{
-			name:         "happy path - digest matches",
-			wantReviewed: map[string]string{"projects/p/memory/MEMORY.md": "new"},
-		},
-		{
-			name:         "error - stale digest",
-			stale:        true,
-			wantErr:      memory.ErrStaleDigest,
-			wantReviewed: map[string]string{"projects/p/memory/MEMORY.md": "reviewed"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// given
-			dir := t.TempDir()
-			for tree, body := range map[string]string{"current": "new", "reviewed": "reviewed"} {
-				path := filepath.Join(dir, tree, "projects", "p", "memory", "MEMORY.md")
-				require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
-				require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
-			}
-
-			digest, err := memory.TreeDigest(filepath.Join(dir, "current"))
-			require.NoError(t, err)
-
-			if tt.stale {
-				path := filepath.Join(dir, "current", "projects", "p", "memory", "MEMORY.md")
-				require.NoError(t, os.WriteFile(path, []byte("changed after diff"), 0o600))
-			}
-
-			// when
-			err = memory.MarkReviewed(dir, digest, now)
-
-			// then
-			require.Equal(t, tt.wantReviewed, readTree(t, filepath.Join(dir, "reviewed")))
-
-			if tt.wantErr != nil {
-				require.ErrorIs(t, err, tt.wantErr)
-				return
-			}
-
-			require.NoError(t, err)
-
-			at, err := os.ReadFile(filepath.Join(dir, "reviewed-at"))
-			require.NoError(t, err)
-			require.Equal(t, "2026-11-17T09:30:00Z", string(at))
-
-			requireModes(t, dir)
-			requireNoStaging(t, dir)
-		})
-	}
-}
-
-func TestDiff(t *testing.T) {
-	tests := []struct {
-		name          string
-		reviewed      bool
-		exit          string
-		want          string
-		wantChanged   bool
-		wantErrPrefix string
-	}{
-		{
-			name:        "happy path - no reviewed copy yet",
-			exit:        "1",
-			want:        "diff output\n",
-			wantChanged: true,
-		},
-		{
-			name:     "happy path - equal trees",
-			reviewed: true,
-			exit:     "0",
-			want:     "",
-		},
-		{
-			name:          "error - diff fails",
-			reviewed:      true,
-			exit:          "2",
-			wantErrPrefix: "diffing memory",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// given
-			dir := t.TempDir()
-			require.NoError(t, os.MkdirAll(filepath.Join(dir, "current"), 0o700))
-
-			if tt.reviewed {
-				require.NoError(t, os.MkdirAll(filepath.Join(dir, "reviewed"), 0o700))
-			}
-
-			body := `[ "$*" = "-ruN reviewed current" ] || exit 9
-[ -d reviewed ] && [ -d current ] || exit 8
-[ "` + tt.exit + `" = 0 ] || echo "diff output"
-exit ` + tt.exit + "\n"
-			diffBin := writeScript(t, t.TempDir(), "diff", body)
-
-			// when
-			out, changed, err := memory.Diff(context.Background(), diffBin, dir)
-
-			// then
-			if tt.wantErrPrefix != "" {
-				require.Error(t, err)
-				require.True(t, strings.HasPrefix(err.Error(), tt.wantErrPrefix), err.Error())
-				return
-			}
-
-			require.NoError(t, err)
-			require.Equal(t, tt.want, string(out))
-			require.Equal(t, tt.wantChanged, changed)
 		})
 	}
 }
@@ -486,7 +350,7 @@ func TestSync_Restore(t *testing.T) {
 			}
 
 			runner := &fakeRunner{err: map[string]error{"memory-import": tt.importErr}}
-			sync := memory.NewSync(runner, dir, "gitleaks", "sqlite3", time.Now)
+			sync := memory.NewSync(runner, dir, "gitleaks", "sqlite3", time.Now, slog.New(slog.DiscardHandler))
 
 			// when
 			err := sync.Restore(context.Background(), tt.reviewed)

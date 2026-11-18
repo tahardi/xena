@@ -3,6 +3,7 @@ package memory_test
 import (
 	"archive/tar"
 	"bytes"
+	"io"
 	"io/fs"
 	"os"
 	"testing"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/tahardi/xena/internal/memory"
 )
+
+const tarHeaderSize = 512
 
 type tarEntry struct {
 	name     string
@@ -78,6 +81,7 @@ func TestExtract(t *testing.T) {
 		name      string
 		entries   []tarEntry
 		lim       memory.Limits
+		truncate  bool
 		wantN     int
 		wantFiles map[string]string
 		wantErr   error
@@ -113,6 +117,20 @@ func TestExtract(t *testing.T) {
 			lim:       memory.DefaultLimits,
 			wantN:     0,
 			wantFiles: map[string]string{},
+		},
+		{
+			name:      "happy path - nested memory file",
+			entries:   []tarEntry{{name: ".claude/projects/p/memory/sub/b.md", body: "deep"}},
+			lim:       memory.DefaultLimits,
+			wantN:     1,
+			wantFiles: map[string]string{"projects/p/memory/sub/b.md": "deep"},
+		},
+		{
+			name:     "error - truncated body",
+			entries:  []tarEntry{{name: ".claude/projects/p/memory/a.md", body: "12345678"}},
+			lim:      memory.DefaultLimits,
+			truncate: true,
+			wantErr:  io.ErrUnexpectedEOF,
 		},
 		{
 			name:      "happy path - leading ./",
@@ -195,6 +213,9 @@ func TestExtract(t *testing.T) {
 			// given
 			dst := t.TempDir()
 			archive := buildTar(t, tt.entries)
+			if tt.truncate {
+				archive.Truncate(tarHeaderSize + 3)
+			}
 
 			// when
 			n, err := memory.Extract(archive, dst, tt.lim)

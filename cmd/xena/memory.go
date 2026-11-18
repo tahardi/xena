@@ -1,14 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
+	"unicode"
 
 	"github.com/tahardi/xena/internal/config"
 	"github.com/tahardi/xena/internal/memory"
@@ -27,10 +30,19 @@ type memoryDeps struct {
 	Diff     string
 	Out      io.Writer
 	Now      func() time.Time
+	Logger   *slog.Logger
 }
 
-func runMemory(ctx context.Context, args []string) error {
-	deps, err := defaultMemoryDeps()
+type memoryPuller interface {
+	Pull(ctx context.Context, force bool) (memory.Result, error)
+}
+
+type vmStater interface {
+	State(ctx context.Context) (string, error)
+}
+
+func runMemory(ctx context.Context, args []string, logger *slog.Logger) error {
+	deps, err := defaultMemoryDeps(logger)
 	if err != nil {
 		return err
 	}
@@ -38,7 +50,7 @@ func runMemory(ctx context.Context, args []string) error {
 	return runMemoryWith(ctx, args, deps)
 }
 
-func defaultMemoryDeps() (memoryDeps, error) {
+func defaultMemoryDeps(logger *slog.Logger) (memoryDeps, error) {
 	runner, err := vmexec.Default()
 	if err != nil {
 		return memoryDeps{}, fmt.Errorf("building vm runner: %w", err)
@@ -52,11 +64,12 @@ func defaultMemoryDeps() (memoryDeps, error) {
 		Diff:     "diff",
 		Out:      os.Stdout,
 		Now:      time.Now,
+		Logger:   logger,
 	}, nil
 }
 
 func newMemorySync(deps memoryDeps) *memory.Sync {
-	return memory.NewSync(deps.Runner, deps.Dir, deps.Gitleaks, deps.Sqlite, deps.Now)
+	return memory.NewSync(deps.Runner, deps.Dir, deps.Gitleaks, deps.Sqlite, deps.Now, deps.Logger)
 }
 
 func runMemoryWith(ctx context.Context, args []string, deps memoryDeps) error {
@@ -121,7 +134,7 @@ func memoryDiff(ctx context.Context, deps memoryDeps) error {
 		return err
 	}
 
-	if _, err := deps.Out.Write(out); err != nil {
+	if _, err := deps.Out.Write(escapeControl(out)); err != nil {
 		return err
 	}
 
@@ -145,13 +158,48 @@ func memoryRestore(ctx context.Context, args []string, deps memoryDeps) error {
 	return err
 }
 
-func syncBeforeStop(ctx context.Context, warn io.Writer) {
-	deps, err := defaultMemoryDeps()
+func escapeControl(text []byte) []byte {
+	var out bytes.Buffer
+	for _, r := range string(text) {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			fmt.Fprintf(&out, "\\x%02x", r)
+			continue
+		}
+
+		out.WriteRune(r)
+	}
+
+	return out.Bytes()
+}
+
+func syncBeforeStop(
+	ctx context.Context,
+	vm vmStater,
+	newPuller func() (memoryPuller, error),
+	warn io.Writer,
+) {
+	state, err := vm.State(ctx)
+	if err == nil && state != "running" {
+		return
+	}
+
+	puller, err := newPuller()
 	if err == nil {
-		_, err = newMemorySync(deps).Pull(ctx, false)
+		_, err = puller.Pull(ctx, false)
 	}
 
 	if err != nil {
 		_, _ = fmt.Fprintf(warn, "warning: memory sync failed: %v\n", err)
+	}
+}
+
+func newStopPuller(logger *slog.Logger) func() (memoryPuller, error) {
+	return func() (memoryPuller, error) {
+		deps, err := defaultMemoryDeps(logger)
+		if err != nil {
+			return nil, err
+		}
+
+		return newMemorySync(deps), nil
 	}
 }

@@ -34,10 +34,18 @@ type Sync struct {
 	gitleaks string
 	sqlite   string
 	now      func() time.Time
+	logger   *slog.Logger
 }
 
-func NewSync(runner vmexec.Runner, dir, gitleaks, sqlite string, now func() time.Time) *Sync {
-	return &Sync{runner: runner, dir: dir, gitleaks: gitleaks, sqlite: sqlite, now: now}
+func NewSync(
+	runner vmexec.Runner,
+	dir string,
+	gitleaks string,
+	sqlite string,
+	now func() time.Time,
+	logger *slog.Logger,
+) *Sync {
+	return &Sync{runner: runner, dir: dir, gitleaks: gitleaks, sqlite: sqlite, now: now, logger: logger}
 }
 
 func (s *Sync) Pull(ctx context.Context, force bool) (Result, error) {
@@ -94,7 +102,7 @@ func (s *Sync) Pull(ctx context.Context, force bool) (Result, error) {
 		return Result{}, fmt.Errorf("writing last sync: %w", err)
 	}
 
-	slog.Info("pulled memory", "files", result.Files, "redactions", result.Redactions)
+	s.logger.Info("pulled memory", "files", result.Files, "redactions", result.Redactions)
 
 	return result, nil
 }
@@ -165,7 +173,10 @@ func (s *Sync) checkNotEmpty(files int, force bool) error {
 	}
 
 	if len(existing) > 0 {
-		return fmt.Errorf("checking memory export: %w", ErrEmptyExport)
+		return fmt.Errorf(
+			"checking memory export: %w; run xena memory restore, or xena memory sync --force to accept it",
+			ErrEmptyExport,
+		)
 	}
 
 	return nil

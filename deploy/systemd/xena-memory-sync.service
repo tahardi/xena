@@ -5,6 +5,7 @@ Description=Pull Claude memory out of the Xena VM
 Type=oneshot
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/local/bin/xena memory sync
+TimeoutStartSec=30min
 UMask=0077
 NoNewPrivileges=yes
 LockPersonality=yes
