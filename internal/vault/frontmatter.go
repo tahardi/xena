@@ -73,5 +73,9 @@ func closingFence(lines []string) int {
 }
 
 func trimSpace(line string) string {
-	return strings.TrimRightFunc(line, unicode.IsSpace)
+	return strings.TrimRightFunc(line, isPythonSpace)
+}
+
+func isPythonSpace(r rune) bool {
+	return unicode.IsSpace(r) || ('\x1c' <= r && r <= '\x1f')
 }

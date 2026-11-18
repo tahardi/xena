@@ -84,6 +84,11 @@ func TestWithSource(t *testing.T) {
 			want: "---\ntitle: x\nsource: xena-vm\n---\n" + marker + "\nbody",
 		},
 		{
+			name: "unit separator pads fence",
+			in:   "---\ntitle: x\n---\x1f\nVM text\n---\nbody",
+			want: "---\ntitle: x\nsource: xena-vm\n---\n" + marker + "\nVM text\n---\nbody",
+		},
+		{
 			name: "lone carriage return splits lines",
 			in:   "---\ntitle: x\r---\rbody",
 			want: "---\ntitle: x\nsource: xena-vm\n---\n" + marker + "\nbody",
