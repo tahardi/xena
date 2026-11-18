@@ -26,6 +26,7 @@ const (
 	socketMode   = 0o600
 	rate         = 10
 	burst        = 10
+	slots        = 2
 )
 
 var (
@@ -60,7 +61,7 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 		return fmt.Errorf("parsing flags: %w", err)
 	}
 
-	notes := vault.Anchorhold{Bin: *bin}
+	notes := vault.Anchorhold{Bin: *bin, Slots: make(chan struct{}, slots)}
 	root, err := notes.Root(ctx)
 	if err != nil {
 		return err

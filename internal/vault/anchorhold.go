@@ -26,7 +26,8 @@ var (
 )
 
 type Anchorhold struct {
-	Bin string
+	Bin   string
+	Slots chan struct{}
 }
 
 func (a Anchorhold) Search(ctx context.Context, query string, limit int) ([]SearchResult, error) {
@@ -97,6 +98,15 @@ func (a Anchorhold) Root(ctx context.Context) (string, error) {
 func (a Anchorhold) run(ctx context.Context, stdin string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
+
+	if a.Slots != nil {
+		select {
+		case a.Slots <- struct{}{}:
+			defer func() { <-a.Slots }()
+		case <-ctx.Done():
+			return nil, fmt.Errorf("waiting for anchorhold: %w", ctx.Err())
+		}
+	}
 
 	// The binary comes from the service's own flag, and arguments are passed without a shell.
 	cmd := exec.CommandContext(ctx, a.Bin, args...) //nolint:gosec

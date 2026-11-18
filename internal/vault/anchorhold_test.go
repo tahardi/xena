@@ -1,10 +1,12 @@
 package vault_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -237,5 +239,40 @@ func TestAnchorhold_Root(t *testing.T) {
 		// then
 		require.Error(t, err)
 		require.True(t, strings.HasPrefix(err.Error(), "reading vault root"))
+	})
+}
+
+func TestAnchorhold_Slots(t *testing.T) {
+	t.Run("error - waits for a free slot until the context ends", func(t *testing.T) {
+		// given
+		notes, dir := newFakeAnchorhold(t, "[]", "0")
+		notes.Slots = make(chan struct{}, 1)
+		notes.Slots <- struct{}{}
+
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		defer cancel()
+
+		// when
+		_, err := notes.Search(ctx, "q", 7)
+
+		// then
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.True(t, strings.HasPrefix(err.Error(), "searching notes"))
+		require.NoFileExists(t, filepath.Join(dir, "args"))
+	})
+
+	t.Run("happy path - frees the slot after each call", func(t *testing.T) {
+		// given
+		notes, _ := newFakeAnchorhold(t, "[]", "0")
+		notes.Slots = make(chan struct{}, 1)
+
+		// when
+		_, first := notes.Search(t.Context(), "q", 7)
+		_, second := notes.Search(t.Context(), "q", 7)
+
+		// then
+		require.NoError(t, first)
+		require.NoError(t, second)
+		require.Empty(t, notes.Slots)
 	})
 }
