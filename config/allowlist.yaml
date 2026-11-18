@@ -15,6 +15,7 @@ hosts:
   - host: index.crates.io
   - host: static.crates.io
   - host: taylorantoniohardin.atlassian.net
+  - host: api.media.atlassian.com
   - host: archive.ubuntu.com
     ports: [80, 443]
   - host: security.ubuntu.com

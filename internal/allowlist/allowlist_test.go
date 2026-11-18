@@ -624,6 +624,9 @@ func TestRepoAllowlist(t *testing.T) {
 		{host: "xena-guard-rebind.test", port: 443, want: true},
 		{host: "xena-guard-rebind.test", port: 80, want: false},
 		{host: "other.atlassian.net", port: 443, want: false},
+		{host: "api.media.atlassian.com", port: 443, want: true},
+		{host: "api.media.atlassian.com", port: 80, want: false},
+		{host: "media.atlassian.com", port: 443, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(net.JoinHostPort(tt.host, strconv.Itoa(tt.port)), func(t *testing.T) {
