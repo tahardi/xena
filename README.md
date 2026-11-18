@@ -23,6 +23,10 @@ Xena moves agentic coding into a disposable, encrypted VM behind a network wall 
 | `xena vm snapshot NAME` | Take a disk snapshot while the VM is off (one touch). `make vm-snapshot` names it by date. |
 | `xena vm restore NAME` | Revert the disk to a snapshot while the VM is off, then rotate the VM's tokens. Two touches: one for the disk, one for the restarted `xena-tokend`. `make vm-restore NAME=...` |
 | `xena guard [--case NAME]` | Run the guardrail attack suite and write `~/.local/state/xena/guard/last.json`. Exits non-zero when any case fails. `--case` runs only print their results and leave the report alone. |
+| `xena memory sync [--force]` | Pull Claude memory and claude-mem history out of the VM, redact every secret gitleaks finds, and keep the copy in `~/.local/state/xena/memory/current`. Runs hourly and before `xena vm stop`; skips when the VM is down. `--force` accepts an empty export. |
+| `xena memory diff` | Show what changed in memory since the last review, ending with a `digest:` line. |
+| `xena memory reviewed DIGEST` | Mark the copy shown by `xena memory diff` as reviewed; refuses if memory changed since. |
+| `xena memory restore [--reviewed]` | Load the desktop copy (or the reviewed one, after an incident) into a fresh VM. Refuses when the VM already has memory. |
 
 ## Talking to the VM
 

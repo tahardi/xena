@@ -67,6 +67,8 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 		return runStatus(ctx, logger, args[1:], os.Stdout, defaultChecks(logger))
 	case "vm":
 		return runVM(ctx, args[1:], logger)
+	case "memory":
+		return runMemory(ctx, args[1:], logger)
 	default:
 		return fmt.Errorf("%w: %s", errUnknownCommand, args[0])
 	}

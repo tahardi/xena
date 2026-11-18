@@ -21,7 +21,7 @@ Xena moves agentic coding off Taylor's desktop into a disposable, encrypted VM b
 ## Who Might Attack
 
 - `prompt-injector`: anyone who can put text in front of a VM session, such as issue, PR, or card text, a web page, or a dependency README. Reaches the VM session.
-- `hijacked-session`: a misled or hijacked VM session, or any code it runs. Taylor assumes this happens at some point. Reaches the proxy, firewall, vault gateway, VM agent replies, GitHub App, VM settings, VM SSH server, cloud sandboxes, Maple through VM output, and the guard.
+- `hijacked-session`: a misled or hijacked VM session, or any code it runs. Taylor assumes this happens at some point. Reaches the proxy, firewall, vault gateway, VM agent replies, GitHub App, VM settings, VM SSH server, cloud sandboxes, Maple through VM output, the guard, and memory sync through memory exports.
 - `malicious-package`: the author of a dependency, image package, or plugin, or someone who took over a registry account. Reaches the VM session and CI.
 - `pr-author`: anyone who can open a PR or comment on the public repo. Reaches CI.
 - `lan-device`: any device on the home network. Reaches the firewall only; `xena expose` is not built.
@@ -46,6 +46,7 @@ The desktop is trusted and the VM is not. `xena-cli`, `tokend`, `prompt`, and `w
 - `vm-settings`: root-owned managed Claude settings in the VM.
 - `vm-sshd`: the VM's SSH server.
 - `xena-agent`: the forced command for automation-key logins.
+- `memory-sync`: the `xena memory` commands and hourly timer that pull Claude memory out of the VM, keep a redacted copy on the desktop, and restore it into a fresh VM.
 - `github-app`: the App the VM uses on GitHub.
 - `cloud-sandbox`: the AWS and GCP sandbox accounts.
 - `ci`: GitHub Actions.
@@ -53,7 +54,7 @@ The desktop is trusted and the VM is not. `xena-cli`, `tokend`, `prompt`, and `w
 - `vm-to-proxy`: VM web requests. Host and port checked against the allowlist, resolved only after, names under `.test`, `.invalid`, `.localhost`, and `.example` resolved only from `/etc/hosts` and never through DNS, private and metadata ranges refused, exact address dialed.
 - `proxy-to-prompt`: questions about unknown hosts. Group-only socket and deny after 60 seconds. The prompt service asks for a touch before allow always; the proxy does not check it.
 - `desktop-to-vm-ssh`: commands and secrets into the VM. Pinned host key, root-owned keys file, only remote Unix socket forwarding, automation key forced to the agent.
-- `vm-to-desktop-data`: agent replies, hook events, transcripts, findings, and memory. Treated as untrusted; memory gets a secret scan.
+- `vm-to-desktop-data`: agent replies, hook events, transcripts, findings, and memory. Treated as untrusted; memory exports are unpacked by memory sync, parsed by the desktop's sqlite3, and scanned and redacted with gitleaks.
 - `vm-to-xena-cli`: the SSH host key, the cloud-init result, and on a failed build the tail of the cloud-init output log, which xena copies into its own error log, read through the VM's qemu guest agent. Read only at build and start; the host key is pinned at first boot before repo code runs, and a VM root compromise controls later replies.
 - `tokend-to-github`: token requests. Only `api.github.com` through the proxy socket, fenced by nftables and AppArmor.
 - `vm-to-github`: pushes and PRs with the App token. No admin and required CI checks; the `main` ruleset requires no approval today.
@@ -79,6 +80,7 @@ Any part that runs Claude can be misled, so its trust is a best effort and its l
 - `vm-settings`: trusted with keeping the sandbox, deny list, hooks, no connectors, and proxy settings in force. Limited by root ownership, changes only by merged dotclaude PR, and the guard; deny rules match text only.
 - `vm-sshd`: trusted with letting in only the desktop's keys. Limited by the pinned host key, root-owned keys file, no forwarding except remote Unix sockets, and the firewall; a VM root compromise gets past it.
 - `xena-agent`: trusted with running its fixed automation commands. Limited by the forced command and fixed verb and name checks; its replies are untrusted.
+- `memory-sync`: trusted with VM memory exports, which it unpacks, dumps to SQL with sqlite3, redacts with gitleaks, and can load back into a fresh VM. Limited by keeping only memory notes and the claude-mem database, refusing links and paths that climb out, caps of 10,000 files and 1 GiB (applied after the whole export is in memory), sqlite3 read-only safe mode with no sandbox, refusing a copy that still has secrets, escaping hidden characters in the diff, and accepting a review only for the digest Taylor saw. It runs as Taylor.
 - `github-app`: trusted with pushing branches and opening PRs. Limited by no admin permission, one-hour tokens, required CI checks, and only Taylor's signed tags installing; the `main` ruleset requires no approval today, so the App could merge.
 - `cloud-sandbox`: trusted with whatever cloud work a grant allows. Limited by touch-gated expiring grants, the AWS SCP and GCP deny policy, quotas, and a GCP budget that cuts billing.
 - `ci`: trusted with running checks on every PR. Limited by a read-only token, no persisted credentials, SHA-pinned actions, and no secrets.
@@ -94,7 +96,7 @@ Any part that runs Claude can be misled, so its trust is a best effort and its l
 
 ## Build, Deploy, and Monitor
 
-Built with `make pre-pr` locally and the same jobs in GitHub Actions on PRs, pushes to `main`, and nightly, with Dependabot weekly. Taylor signs a `v*` tag on `main`, and `make install` builds only from a verified signed tag reachable from `main`; `make rollback` reinstalls an earlier one. The VM image, dotclaude, and Claude Code are pinned. Watched through proxy logs and journald kept 90 days, firewall drop logs, a daily audit, `xena health` and `xena status`, and `xena guard` by hand. Nightly guard, weekly report, backups, memory sync, and the watch service are not built yet.
+Built with `make pre-pr` locally and the same jobs in GitHub Actions on PRs, pushes to `main`, and nightly, with Dependabot weekly. Taylor signs a `v*` tag on `main`, and `make install` builds only from a verified signed tag reachable from `main`; `make rollback` reinstalls an earlier one. The VM image, dotclaude, and Claude Code are pinned. Watched through proxy logs and journald kept 90 days, firewall drop logs, a daily audit, an hourly memory sync that records `last-sync.json`, `xena health` and `xena status`, and `xena guard` by hand. Nightly guard, weekly report, backups, and the watch service are not built yet.
 
 ## Accepted Risks
 
