@@ -150,7 +150,7 @@ render_vm_config() {
 	values=$(read_vm_config "$build_dir/config/vm.yaml") || exit 1
 	read -r _ bridge vm_address port bridge_address prefix <<<"$values"
 
-	for file in deploy/nftables/xena.nft deploy/libvirt/xena-net.xml; do
+	for file in deploy/nftables/xena.nft deploy/libvirt/xena-net.xml deploy/systemd/xena-proxy.service; do
 		if [[ -f "$build_dir/$file" ]]; then
 			files+=("$file")
 		fi
