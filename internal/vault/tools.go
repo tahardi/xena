@@ -38,8 +38,7 @@ var toolList = []map[string]any{
 		"name": logs.ToolWriteNote,
 		"description": "Write one note by its exact vault-relative path. Allowed: Projects/**/*.md except Projects/Xena/Reports/, " +
 			"Learning/Security/<name>.md, and Ideas.md. Any other path is refused and logged as a security alert. " +
-			"Every written note gets source: xena-vm and the title xena-vm: <file name> in its frontmatter, " +
-			"and a #xena-vm line at the top of its body. Frontmatter that is not a plain YAML mapping is dropped.",
+			"Every written note gets source: xena-vm in its frontmatter and a #xena-vm line at the top of its body.",
 		"inputSchema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
