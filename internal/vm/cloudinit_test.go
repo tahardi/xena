@@ -10,7 +10,6 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -270,21 +269,17 @@ func TestRenderSeed(t *testing.T) {
 
 	t.Run("happy path - wait online", func(t *testing.T) {
 		// given
-		want := []string{
-			"ExecStart=",
-			"ExecStart=/usr/lib/systemd/systemd-networkd-wait-online --any --ipv4 --timeout=30",
-		}
+		want := "[Service]\n" +
+			"ExecStart=\n" +
+			"ExecStart=/usr/lib/systemd/systemd-networkd-wait-online --any --ipv4 --timeout=30\n"
 
 		// when
 		file := files["/etc/systemd/system/systemd-networkd-wait-online.service.d/xena.conf"]
-		lines := strings.Split(file.decoded, "\n")
 
 		// then
 		require.Equal(t, "root:root", file.Owner)
 		require.Equal(t, "0644", file.Permissions)
-		require.Equal(t, "[Service]", lines[0])
-		require.Subset(t, lines, want)
-		require.Less(t, slices.Index(lines, want[0]), slices.Index(lines, want[1]))
+		require.Equal(t, want, file.decoded)
 	})
 
 	t.Run("happy path - keys", func(t *testing.T) {
