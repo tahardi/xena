@@ -51,6 +51,7 @@ func runVM(ctx context.Context, args []string, logger *slog.Logger) error {
 	case "start":
 		err = m.Start(ctx)
 	case "stop":
+		syncBeforeStop(ctx, os.Stderr)
 		err = m.Stop(ctx)
 	case "destroy":
 		err = m.Destroy(ctx)
