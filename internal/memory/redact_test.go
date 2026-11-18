@@ -55,6 +55,7 @@ func TestScan(t *testing.T) {
 		stderr        string
 		exit          int
 		want          []memory.Finding
+		wantErr       string
 		wantErrPrefix string
 	}{
 		{
@@ -84,6 +85,19 @@ func TestScan(t *testing.T) {
 			wantErrPrefix: "scanning memory: exit status 1: Error: unknown command \"dir\" for \"gitleaks\"",
 		},
 		{
+			name:    "error - gitleaks fails with empty stderr",
+			report:  "[]",
+			exit:    1,
+			wantErr: "scanning memory: exit status 1",
+		},
+		{
+			name:    "error - gitleaks stderr cut to last 500 bytes",
+			report:  "[]",
+			stderr:  strings.Repeat("a", 600) + "END",
+			exit:    1,
+			wantErr: "scanning memory: exit status 1: " + strings.Repeat("a", 497) + "END",
+		},
+		{
 			name:          "error - malformed report",
 			report:        "not json",
 			wantErrPrefix: "scanning memory: decoding report",
@@ -103,6 +117,11 @@ func TestScan(t *testing.T) {
 			reportPath, readErr := os.ReadFile(reportPathFile)
 			require.NoError(t, readErr)
 			require.NoDirExists(t, filepath.Dir(strings.TrimSpace(string(reportPath))))
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
 
 			if tt.wantErrPrefix != "" {
 				require.Error(t, err)
