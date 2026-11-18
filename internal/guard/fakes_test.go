@@ -3,15 +3,38 @@ package guard_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/tahardi/xena/internal/guard"
 	"github.com/tahardi/xena/internal/logs"
 )
+
+var errUnexpectedCommand = errors.New("unexpected command")
+
+type fakeResult struct {
+	out string
+	err error
+}
+
+type fakeCommander map[string]fakeResult
+
+func (f fakeCommander) Output(_ context.Context, name string, args ...string) ([]byte, error) {
+	key := name + " " + strings.Join(args, " ")
+	result, ok := f[key]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", errUnexpectedCommand, key)
+	}
+
+	return []byte(result.out), result.err
+}
 
 type fakeCase struct {
 	name      string
@@ -142,4 +165,33 @@ type fakeCut struct {
 
 func (f *fakeCut) IsCut(context.Context, string) (bool, error) {
 	return f.cut, f.err
+}
+
+type fakeIP struct {
+	mu       sync.Mutex
+	neigh    []string
+	addr     string
+	neighErr error
+	addrErr  error
+	calls    [][]string
+}
+
+func (f *fakeIP) Run(_ context.Context, args ...string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.calls = append(f.calls, args)
+
+	if slices.Contains(args, "addr") {
+		return []byte(f.addr), f.addrErr
+	}
+
+	neighCalls := 0
+	for _, call := range f.calls {
+		if slices.Contains(call, "neigh") {
+			neighCalls++
+		}
+	}
+
+	return []byte(f.neigh[min(neighCalls, len(f.neigh))-1]), f.neighErr
 }

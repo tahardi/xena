@@ -32,6 +32,7 @@ hosts:
   - host: plain.example.com
     ports: [80]
   - host: "*.example.org"
+  - host: xena-guard-rebind.test
 `
 
 var (
@@ -219,11 +220,14 @@ func (f *proxyFixture) start(t *testing.T) {
 	base, err := allowlist.Load(path)
 	require.NoError(t, err)
 
+	hostsPath := filepath.Join(t.TempDir(), "hosts")
+	require.NoError(t, os.WriteFile(hostsPath, nil, 0o600))
+
 	s := proxy.NewServer(
 		netip.MustParseAddr("127.0.0.1"),
 		base,
 		filepath.Join(f.stateDir, "overlay.yaml"),
-		f.resolver,
+		proxy.NewHostsOnlyResolver(f.resolver, hostsPath),
 		f.dialer,
 		f.prompter,
 		f.log,
@@ -615,6 +619,17 @@ func TestServer_ServeHTTP(t *testing.T) {
 			want:       logs.ProxyEntry{Host: "example.com", Port: 443, Decision: logs.DecisionErrorResolve},
 		},
 		{
+			name:       "special-use name not in hosts file",
+			connect:    "xena-guard-rebind.test:443",
+			resolve:    addrs("192.0.2.10"),
+			wantStatus: http.StatusBadGateway,
+			want:       logs.ProxyEntry{Host: "xena-guard-rebind.test", Port: 443, Decision: logs.DecisionErrorResolve},
+			check: func(r *require.Assertions, f *proxyFixture) {
+				r.Empty(f.resolver.Calls())
+				r.Empty(f.dialer.Calls())
+			},
+		},
+		{
 			name:       "no addresses",
 			connect:    "example.com:443",
 			resolve:    addrs(),
@@ -777,6 +792,7 @@ func TestServer_ServeHTTP(t *testing.T) {
 			f.resolver.answers["a.b.example.org"] = tt.resolve
 			f.resolver.answers["new.example.net"] = tt.resolve
 			f.resolver.answers["plain.example.com"] = tt.resolve
+			f.resolver.answers["xena-guard-rebind.test"] = tt.resolve
 			f.resolver.sequence = tt.sequence
 			f.resolver.err = tt.resolveErr
 			f.prompter.answer = tt.answer

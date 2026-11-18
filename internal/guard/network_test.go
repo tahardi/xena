@@ -30,8 +30,9 @@ func TestNetCase_Run(t *testing.T) {
 	literal := []string{logs.DecisionRefuseIPLiteral}
 	proxyWant := []guard.ProxyExpect{{Host: "198.51.100.7", Port: 443, Decisions: literal}}
 	dropWant := []guard.DropExpect{{Dst: "198.51.100.7", Port: 443, Proto: "TCP"}}
+	syn := []string{"SYN"}
 	refusal := logs.ProxyEntry{Time: after, Host: "198.51.100.7", Port: 443, Decision: logs.DecisionRefuseIPLiteral}
-	drop := guard.Drop{Time: after, Src: "192.168.150.10", Dst: "198.51.100.7", DstPort: 443, Proto: "TCP", SYN: true}
+	drop := guard.Drop{Time: after, Src: "192.168.150.10", Dst: "198.51.100.7", DstPort: 443, Proto: "TCP", Flags: syn}
 	blocked := "blocked https://198.51.100.7/\nblocked 198.51.100.7:443\n"
 
 	tests := []struct {
@@ -46,7 +47,7 @@ func TestNetCase_Run(t *testing.T) {
 		dropsErr        error
 		cut             bool
 		cutErr          error
-		precheck        func(ctx context.Context) error
+		desktopCheck    func(ctx context.Context) error
 		wantErr         string
 		wantEvidence    []string
 		wantEvidenceLen int
@@ -158,7 +159,14 @@ func TestNetCase_Run(t *testing.T) {
 				{Time: now.Add(-time.Minute), Host: "198.51.100.7", Port: 443, Decision: logs.DecisionRefuseIPLiteral},
 			},
 			drops: []guard.Drop{
-				{Time: now.Add(-time.Minute), Src: "192.168.150.10", Dst: "198.51.100.7", DstPort: 443, Proto: "TCP", SYN: true},
+				{
+					Time:    now.Add(-time.Minute),
+					Src:     "192.168.150.10",
+					Dst:     "198.51.100.7",
+					DstPort: 443,
+					Proto:   "TCP",
+					Flags:   syn,
+				},
 			},
 			wantErr: "no proxy log entry for 198.51.100.7:443",
 		},
@@ -176,7 +184,7 @@ func TestNetCase_Run(t *testing.T) {
 			output:  blocked,
 			entries: []logs.ProxyEntry{refusal},
 			drops: []guard.Drop{
-				{Time: after, Src: "192.168.150.99", Dst: "198.51.100.7", DstPort: 443, Proto: "TCP", SYN: true},
+				{Time: after, Src: "192.168.150.99", Dst: "198.51.100.7", DstPort: 443, Proto: "TCP", Flags: syn},
 			},
 			wantErr: "no firewall drop for 198.51.100.7:443/TCP",
 		},
@@ -194,7 +202,29 @@ func TestNetCase_Run(t *testing.T) {
 			output:  blocked,
 			entries: []logs.ProxyEntry{refusal},
 			drops: []guard.Drop{
-				{Time: after, Src: "192.168.150.10", Dst: "198.51.100.7", DstPort: 443, Proto: "TCP", ACK: true},
+				{
+					Time:    after,
+					Src:     "192.168.150.10",
+					Dst:     "198.51.100.7",
+					DstPort: 443,
+					Proto:   "TCP",
+					Flags:   []string{"ACK"},
+				},
+			},
+			wantErr: "no firewall drop for 198.51.100.7:443/TCP",
+		},
+		{
+			name:    "error - tcp drop with no flags",
+			output:  blocked,
+			entries: []logs.ProxyEntry{refusal},
+			drops: []guard.Drop{
+				{
+					Time:    after,
+					Src:     "192.168.150.10",
+					Dst:     "198.51.100.7",
+					DstPort: 443,
+					Proto:   "TCP",
+				},
 			},
 			wantErr: "no firewall drop for 198.51.100.7:443/TCP",
 		},
@@ -203,7 +233,46 @@ func TestNetCase_Run(t *testing.T) {
 			output:  blocked,
 			entries: []logs.ProxyEntry{refusal},
 			drops: []guard.Drop{
-				{Time: after, Src: "192.168.150.10", Dst: "198.51.100.7", DstPort: 443, Proto: "TCP", SYN: true, ACK: true},
+				{
+					Time:    after,
+					Src:     "192.168.150.10",
+					Dst:     "198.51.100.7",
+					DstPort: 443,
+					Proto:   "TCP",
+					Flags:   []string{"ACK", "SYN"},
+				},
+			},
+			wantErr: "no firewall drop for 198.51.100.7:443/TCP",
+		},
+		{
+			name:    "error - tcp drop with syn and fin",
+			output:  blocked,
+			entries: []logs.ProxyEntry{refusal},
+			drops: []guard.Drop{
+				{
+					Time:    after,
+					Src:     "192.168.150.10",
+					Dst:     "198.51.100.7",
+					DstPort: 443,
+					Proto:   "TCP",
+					Flags:   []string{"SYN", "FIN"},
+				},
+			},
+			wantErr: "no firewall drop for 198.51.100.7:443/TCP",
+		},
+		{
+			name:    "error - tcp drop with syn and rst",
+			output:  blocked,
+			entries: []logs.ProxyEntry{refusal},
+			drops: []guard.Drop{
+				{
+					Time:    after,
+					Src:     "192.168.150.10",
+					Dst:     "198.51.100.7",
+					DstPort: 443,
+					Proto:   "TCP",
+					Flags:   []string{"RST", "SYN"},
+				},
 			},
 			wantErr: "no firewall drop for 198.51.100.7:443/TCP",
 		},
@@ -212,7 +281,7 @@ func TestNetCase_Run(t *testing.T) {
 			output:  blocked,
 			entries: []logs.ProxyEntry{refusal},
 			drops: []guard.Drop{
-				{Time: after, Src: "192.168.150.10", Dst: "198.51.100.7", DstPort: 80, Proto: "TCP", SYN: true},
+				{Time: after, Src: "192.168.150.10", Dst: "198.51.100.7", DstPort: 80, Proto: "TCP", Flags: syn},
 			},
 			wantErr: "no firewall drop for 198.51.100.7:443/TCP",
 		},
@@ -243,12 +312,21 @@ func TestNetCase_Run(t *testing.T) {
 			wantNoVM: true,
 		},
 		{
-			name: "error - precheck fails",
-			precheck: func(context.Context) error {
+			name: "error - desktop check fails before the script",
+			desktopCheck: func(context.Context) error {
 				return guard.ErrRebindHost
 			},
 			wantErr:  "rebind host not configured",
 			wantNoVM: true,
+		},
+		{
+			name:         "error - desktop check fails after the script",
+			output:       blocked,
+			entries:      []logs.ProxyEntry{refusal},
+			drops:        []guard.Drop{drop},
+			desktopCheck: failAfterFirstCall(),
+			wantErr:      errFake.Error(),
+			wantEvidence: []string{"vm: blocked https://198.51.100.7/", "vm: blocked 198.51.100.7:443"},
 		},
 		{
 			name:     "error - proxy log unreadable",
@@ -285,7 +363,7 @@ func TestNetCase_Run(t *testing.T) {
 				VMAddr:   "192.168.150.10",
 				Now:      func() time.Time { return now },
 			}
-			netCase := guard.NewNetCase("net-test", "net-test", tt.proxyWant, tt.dropWant, tt.precheck)
+			netCase := guard.NewNetCase("net-test", "net-test", tt.proxyWant, tt.dropWant, tt.desktopCheck)
 
 			// when
 			got := netCase.Run(context.Background(), env)
@@ -398,12 +476,15 @@ func TestNetworkCases(t *testing.T) {
 	literal := []string{logs.DecisionRefuseIPLiteral}
 	asked := []string{logs.DecisionDeny, logs.DecisionTimeout}
 	oddPort := []string{logs.DecisionRefusePort, logs.DecisionDeny, logs.DecisionTimeout}
+	linkLocalOnly := `[{"ifname":"xena0","addr_info":[{"family":"inet6","local":"fe80::1","prefixlen":64}]}]`
 	netConfig := guard.NetConfig{
 		BridgeAddr: bridge,
+		Bridge:     "xena0",
 		ProxyPort:  3128,
 		Lookup: func(context.Context, string) ([]string, error) {
 			return []string{"127.0.0.1"}, nil
 		},
+		IP: (&fakeIP{neigh: []string{"[]"}, addr: linkLocalOnly}).Run,
 	}
 
 	expected := []struct {
@@ -615,6 +696,125 @@ func TestNetworkCases(t *testing.T) {
 			assert.Contains(t, got.Error, tt.wantErr)
 		})
 	}
+
+	neighbor := `[{"dst":"fe80::5054:ff:fe00:1","lladdr":"52:54:00:00:00:01","state":["STALE"]}]`
+	ipv6Tests := []struct {
+		name       string
+		ip         *fakeIP
+		wantPassed bool
+		wantErr    string
+		wantNoVM   bool
+	}{
+		{
+			name:       "happy path - no neighbors and only a link-local address",
+			ip:         &fakeIP{neigh: []string{"[]"}, addr: linkLocalOnly},
+			wantPassed: true,
+		},
+		{
+			name:       "happy path - empty ip output",
+			ip:         &fakeIP{neigh: []string{""}, addr: ""},
+			wantPassed: true,
+		},
+		{
+			name:     "error - an IPv6 neighbor on the bridge",
+			ip:       &fakeIP{neigh: []string{neighbor}, addr: linkLocalOnly},
+			wantErr:  "VM has IPv6 on xena0: fe80::5054:ff:fe00:1",
+			wantNoVM: true,
+		},
+		{
+			name: "error - a global IPv6 address on the bridge",
+			ip: &fakeIP{
+				neigh: []string{"[]"},
+				addr: `[{"ifname":"xena0","addr_info":[` +
+					`{"family":"inet6","local":"fe80::1","prefixlen":64},` +
+					`{"family":"inet6","local":"2001:db8::1","prefixlen":64}]}]`,
+			},
+			wantErr:  "VM has IPv6 on xena0: 2001:db8::1",
+			wantNoVM: true,
+		},
+		{
+			name:     "error - neighbor command fails before the script",
+			ip:       &fakeIP{neigh: []string{`Cannot find device "xena0"`}, neighErr: errFake},
+			wantErr:  `reading ip -6 -j neigh show dev xena0: fake failure: Cannot find device "xena0"`,
+			wantNoVM: true,
+		},
+		{
+			name:     "error - address command fails before the script",
+			ip:       &fakeIP{neigh: []string{"[]"}, addrErr: errFake},
+			wantErr:  "reading ip -6 -j addr show dev xena0: fake failure",
+			wantNoVM: true,
+		},
+		{
+			name: "error - address that does not parse",
+			ip: &fakeIP{
+				neigh: []string{"[]"},
+				addr:  `[{"ifname":"xena0","addr_info":[{"family":"inet6","local":"not-an-address"}]}]`,
+			},
+			wantErr:  "VM has IPv6 on xena0: not-an-address",
+			wantNoVM: true,
+		},
+		{
+			name:     "error - ip prints something other than JSON",
+			ip:       &fakeIP{neigh: []string{"not json"}, addr: linkLocalOnly},
+			wantErr:  "parsing ip",
+			wantNoVM: true,
+		},
+		{
+			name:    "error - a neighbor appears only after the script",
+			ip:      &fakeIP{neigh: []string{"[]", neighbor}, addr: linkLocalOnly},
+			wantErr: "VM has IPv6 on xena0: fe80::5054:ff:fe00:1",
+		},
+	}
+
+	for _, tt := range ipv6Tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// given
+			cfg := netConfig
+			cfg.IP = tt.ip.Run
+
+			selected, err := guard.Select(guard.NetworkCases(cfg), []string{"net-ipv6"})
+			require.NoError(t, err)
+
+			entries, _ := expectedEvidence(
+				[]guard.ProxyExpect{{Host: "2001:db8::7", Port: 443, Decisions: literal}},
+				nil,
+			)
+			vm := &fakeVM{}
+			env := evidenceEnv(entries, nil)
+			env.VM = vm
+
+			// when
+			got := selected[0].Run(context.Background(), env)
+
+			// then
+			assert.Equal(t, tt.wantPassed, got.Passed, got.Error)
+			assert.Equal(t, tt.wantNoVM, len(vm.calls) == 0)
+			assert.Contains(t, got.Error, tt.wantErr)
+			for _, call := range tt.ip.calls {
+				assert.Contains(t, [][]string{
+					{"-6", "-j", "neigh", "show", "dev", "xena0"},
+					{"-6", "-j", "addr", "show", "dev", "xena0"},
+				}, call)
+			}
+
+			if tt.wantPassed {
+				assert.Len(t, tt.ip.calls, 4)
+			}
+		})
+	}
+}
+
+func failAfterFirstCall() func(context.Context) error {
+	calls := 0
+
+	return func(context.Context) error {
+		calls++
+		if calls > 1 {
+			return errFake
+		}
+
+		return nil
+	}
 }
 
 func expectedEvidence(proxy []guard.ProxyExpect, drops []guard.DropExpect) ([]logs.ProxyEntry, []guard.Drop) {
@@ -638,7 +838,7 @@ func expectedEvidence(proxy []guard.ProxyExpect, drops []guard.DropExpect) ([]lo
 			Dst:     want.Dst,
 			DstPort: want.Port,
 			Proto:   want.Proto,
-			SYN:     true,
+			Flags:   []string{"SYN"},
 		})
 	}
 

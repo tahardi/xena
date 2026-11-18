@@ -14,12 +14,13 @@ import (
 )
 
 type ProxyLog struct {
-	dir string
-	now func() time.Time
+	dir  string
+	name string
+	now  func() time.Time
 }
 
-func NewProxyLog(dir string, now func() time.Time) *ProxyLog {
-	return &ProxyLog{dir: dir, now: now}
+func NewProxyLog(dir, name string, now func() time.Time) *ProxyLog {
+	return &ProxyLog{dir: dir, name: name, now: now}
 }
 
 func (p *ProxyLog) Entries(since time.Time) ([]logs.ProxyEntry, error) {
@@ -27,7 +28,7 @@ func (p *ProxyLog) Entries(since time.Time) ([]logs.ProxyEntry, error) {
 	last := p.now().UTC().Format(time.DateOnly)
 
 	for day := since.UTC().AddDate(0, 0, -1); day.Format(time.DateOnly) <= last; day = day.AddDate(0, 0, 1) {
-		found, err := readProxyDay(filepath.Join(p.dir, "proxy-"+day.Format(time.DateOnly)+".jsonl"), since)
+		found, err := readProxyDay(filepath.Join(p.dir, p.name+"-"+day.Format(time.DateOnly)+".jsonl"), since)
 		if err != nil {
 			return nil, err
 		}

@@ -49,8 +49,10 @@ type DropExpect struct {
 
 type NetConfig struct {
 	BridgeAddr string
+	Bridge     string
 	ProxyPort  int
 	Lookup     func(ctx context.Context, host string) ([]string, error)
+	IP         func(ctx context.Context, args ...string) ([]byte, error)
 }
 
 type NetCase struct {
@@ -58,7 +60,7 @@ type NetCase struct {
 	script   string
 	proxy    []ProxyExpect
 	drops    []DropExpect
-	precheck func(ctx context.Context) error
+	desktop  func(ctx context.Context) error
 }
 
 type verdict struct {
@@ -72,9 +74,9 @@ func NewNetCase(
 	script string,
 	proxy []ProxyExpect,
 	drops []DropExpect,
-	precheck func(ctx context.Context) error,
+	desktop func(ctx context.Context) error,
 ) *NetCase {
-	return &NetCase{caseName: caseName, script: script, proxy: proxy, drops: drops, precheck: precheck}
+	return &NetCase{caseName: caseName, script: script, proxy: proxy, drops: drops, desktop: desktop}
 }
 
 func (c *NetCase) Name() string {
@@ -106,10 +108,8 @@ func (c *NetCase) Run(ctx context.Context, env Env) Result {
 		return Fail(c.caseName, "VM network is cut; run xena resume before xena guard")
 	}
 
-	if c.precheck != nil {
-		if err := c.precheck(ctx); err != nil {
-			return Fail(c.caseName, err.Error())
-		}
+	if err := c.checkDesktop(ctx); err != nil {
+		return Fail(c.caseName, err.Error())
 	}
 
 	start := env.Now().Truncate(time.Second)
@@ -125,7 +125,19 @@ func (c *NetCase) Run(ctx context.Context, env Env) Result {
 		return Fail(c.caseName, "running VM script: "+err.Error(), evidence...)
 	}
 
+	if err := c.checkDesktop(ctx); err != nil {
+		return Fail(c.caseName, err.Error(), evidence...)
+	}
+
 	return c.confirm(ctx, env, start, evidence)
+}
+
+func (c *NetCase) checkDesktop(ctx context.Context) error {
+	if c.desktop == nil {
+		return nil
+	}
+
+	return c.desktop(ctx)
 }
 
 func (c *NetCase) confirm(ctx context.Context, env Env, start time.Time, vmEvidence []string) Result {
@@ -235,7 +247,7 @@ func (w DropExpect) matches(d Drop, vmAddr string) bool {
 		return false
 	}
 
-	if d.Proto == "TCP" && (!d.SYN || d.ACK) {
+	if d.Proto == "TCP" && !slices.Equal(d.Flags, []string{"SYN"}) {
 		return false
 	}
 
@@ -293,6 +305,10 @@ func NetworkCases(cfg NetConfig) []Case {
 		}
 
 		return nil
+	}
+
+	ipv6 := func(ctx context.Context) error {
+		return bridgeIPv6(ctx, cfg.IP, cfg.Bridge)
 	}
 
 	return []Case{
@@ -361,7 +377,7 @@ func NetworkCases(cfg NetConfig) []Case {
 			"net-ipv6",
 			[]ProxyExpect{{Host: "2001:db8::7", Port: portHTTPS, Decisions: literal}},
 			nil,
-			nil,
+			ipv6,
 		),
 		NewNetCase(
 			"net-odd-port",

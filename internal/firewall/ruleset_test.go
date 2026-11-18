@@ -96,6 +96,8 @@ func TestRuleset(t *testing.T) {
 		{name: "happy path - proxy rule", want: "ip saddr 192.168.150.10 tcp dport 3128"},
 		{name: "happy path - drop log", want: `log prefix "xena-drop: "`},
 		{name: "happy path - silent noise", want: "meta pkttype { broadcast, multicast } drop"},
+		{name: "happy path - invalid input drops silently", want: "\t\tct state invalid drop\n"},
+		{name: "happy path - invalid forward drops silently", want: `iifname "xena0" ct state invalid drop`},
 		{name: "happy path - dnat only forward", want: "ct status dnat"},
 		{name: "happy path - cut applies to input", want: "\t\tip saddr @cut drop\n"},
 		{name: "happy path - cut applies to forward", want: `iifname "xena0" ip saddr @cut drop`},
@@ -166,6 +168,31 @@ func TestRuleset(t *testing.T) {
 		{
 			name:   "happy path - forward noise drops before forward log",
 			first:  `iifname "xena0" meta pkttype { broadcast, multicast } drop`,
+			second: `iifname "xena0" limit rate`,
+		},
+		{
+			name:   "happy path - noise drops before invalid input drop",
+			first:  "meta pkttype { broadcast, multicast } drop",
+			second: "\t\tct state invalid drop\n",
+		},
+		{
+			name:   "happy path - invalid input drop before established replies",
+			first:  "\t\tct state invalid drop\n",
+			second: "meta nfproto ipv4 ct state established,related accept",
+		},
+		{
+			name:   "happy path - invalid input drop before input log",
+			first:  "\t\tct state invalid drop\n",
+			second: `log prefix "xena-drop: "`,
+		},
+		{
+			name:   "happy path - forward noise drops before invalid forward drop",
+			first:  `iifname "xena0" meta pkttype { broadcast, multicast } drop`,
+			second: `iifname "xena0" ct state invalid drop`,
+		},
+		{
+			name:   "happy path - invalid forward drop before forward log",
+			first:  `iifname "xena0" ct state invalid drop`,
 			second: `iifname "xena0" limit rate`,
 		},
 		{
