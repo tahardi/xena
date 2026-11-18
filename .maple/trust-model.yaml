@@ -67,7 +67,7 @@ components:
   - id: harden
     what: "The deploy/desktop/harden.sh script Taylor runs by hand, which writes /etc/nftables.conf with its own inet host_filter table and does the rest of the desktop hardening: purging Docker, dropping Taylor from the docker and libvirt groups, enabling the nftables service, disabling ufw, putting libvirt behind polkit, turning on unattended upgrades, moving Taylor's gh login into the keyring, linking the desktop Claude settings, and pinning Claude Code"
     trusted_with: Setting the desktop's own firewall table and the rest of the desktop hardening; its system steps run as root
-    limited_by: Taylor running it by hand, only from a clean checkout of reviewed main, because it is never installed from a signed tag, so the script, its polkit rules and its fallback config/vm.yaml come from whatever checkout it runs in, outside the signed-tag check, and its system steps run that code as root; the bridge name, VM address, proxy port and pinned Claude Code version come only from vm.yaml through read_vm_config in scripts/vm_config.sh, tried as XENA_VM_CONFIG, then the installed /usr/local/share/xena/config/vm.yaml, then the checkout's config/vm.yaml, which refuses before any change when a value is missing or fails its bridge-name, IPv4, port, prefix and Claude Code version checks and reads the file with python3 -I; nft -c checks the rules before they are written and they load only when they changed; --check changes nothing; it never writes the inet xena table
+    limited_by: Taylor running it by hand, only from a clean checkout of reviewed main, because it is never installed from a signed tag, so the script, its polkit rules and its fallback config/vm.yaml come from whatever checkout it runs in, outside the signed-tag check, and its system steps run that code as root; the bridge name, VM address, proxy port and pinned Claude Code version come only from vm.yaml through read_vm_config in scripts/vm_config.sh, tried as XENA_VM_CONFIG, then the installed /usr/local/share/xena/config/vm.yaml, then the checkout's config/vm.yaml, which refuses before any change when a value is missing or fails its bridge-name, IPv4, port, prefix and Claude Code version checks and reads the file with python3 -I; nft -c checks the rules before they are written and they load only when they changed; --check changes nothing; it never writes the inet xena table; its inet host_filter table is the desktop's only filter against home-network devices, and the daily xena audit and --check read only /etc/nftables.conf and whether the nftables service is enabled, never the live table, so a flushed table or a failed load at boot leaves desktop services open to the LAN with no alert
   - id: guard
     what: The xena guard attack suite
     trusted_with: Proving each wall holds
@@ -135,7 +135,7 @@ attackers:
     reaches: [ci]
   - id: lan-device
     who: Any device on the home network; xena expose is not built, so no VM port is open to it
-    reaches: [firewall]
+    reaches: [firewall, harden]
   - id: thief
     who: Someone who steals the desktop, its disk, or a backup drive
     reaches: [secrets-store, vm-session]
