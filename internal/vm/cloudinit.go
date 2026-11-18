@@ -19,7 +19,8 @@ import (
 const (
 	cloudInitDir = "vm/cloud-init"
 	filesDir     = cloudInitDir + "/files"
-	guardGlob    = "vm/guard/*.sh"
+	guardDir     = "vm/guard"
+	guardGlob    = guardDir + "/*.sh"
 	dateLayout   = "2006-01-02"
 	rebuildDays  = 30
 )
@@ -148,6 +149,9 @@ func seedFuncs(d SeedData) template.FuncMap {
 	return template.FuncMap{
 		"render": func(name string) (string, error) {
 			return execute(filesDir+"/"+name, d, nil)
+		},
+		"renderGuard": func(name string) (string, error) {
+			return execute(guardDir+"/"+name, d, nil)
 		},
 		"raw": func(file string) (string, error) {
 			content, err := xena.VMFiles.ReadFile(file)
