@@ -9,6 +9,9 @@ sudo_cmd=${SUDO-sudo}
 signers=${XENA_ALLOWED_SIGNERS:-$HOME/.config/xena/allowed_signers}
 user=$(id -un)
 
+# shellcheck source-path=SCRIPTDIR
+source "$script_dir/vm_config.sh"
+
 binaries=(
 	xena
 	xena-proxy
@@ -136,6 +139,42 @@ build() {
 	)
 }
 
+render_vm_config() {
+	local values bridge vm_address port bridge_address prefix file left files=()
+
+	values=$(read_vm_config "$build_dir/config/vm.yaml") || exit 1
+	read -r _ bridge vm_address port bridge_address prefix <<<"$values"
+
+	for file in deploy/nftables/xena.nft deploy/libvirt/xena-net.xml; do
+		if [[ -f "$build_dir/$file" ]]; then
+			files+=("$file")
+		fi
+	done
+
+	if [[ ${#files[@]} -eq 0 ]]; then
+		return
+	fi
+
+	(
+		cd "$build_dir"
+		sed -i \
+			-e "s/@BRIDGE@/$bridge/g" \
+			-e "s/@BRIDGE_ADDRESS@/$bridge_address/g" \
+			-e "s/@VM_ADDRESS@/$vm_address/g" \
+			-e "s/@PREFIX@/$prefix/g" \
+			-e "s/@PROXY_PORT@/$port/g" \
+			"${files[@]}"
+	)
+
+	for file in "${files[@]}"; do
+		left=$(grep -oE '@[A-Z_]+@' "$build_dir/$file" | head -n 1 || true)
+
+		if [[ -n "$left" ]]; then
+			refuse "rendering $file: $left has no value"
+		fi
+	done
+}
+
 install_file() {
 	local mode=$1 src=$2 dst=$3
 
@@ -186,10 +225,6 @@ install_files() {
 	done
 
 	for file in "$src"/config/*.yaml; do
-		if [[ $(basename "$file") == vm.yaml ]] && ! grep -q '^network:' "$file"; then
-			continue
-		fi
-
 		install_file 0644 "$file" "/usr/local/share/xena/config/$(basename "$file")"
 	done
 
@@ -322,6 +357,7 @@ install_tag() {
 
 	echo "building xena $tag"
 	build "$tag"
+	render_vm_config
 
 	echo "installing xena $tag system files (sudo may ask for your password)"
 	install_files

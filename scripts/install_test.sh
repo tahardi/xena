@@ -87,6 +87,20 @@ commit_file() {
 	git -C "$clone" add "$path"
 }
 
+vm_yaml() {
+	local bridge=$1 bridge_address=$2 vm_address=$3 prefix=$4 port=$5
+
+	printf '%s\n' \
+		'version: 1' \
+		'claude_code_version: "2.1.314"' \
+		'network:' \
+		"  bridge: $bridge" \
+		"  bridge_address: $bridge_address" \
+		"  vm_address: $vm_address" \
+		"  prefix: $prefix" \
+		"proxy_port: $port"
+}
+
 signed_tag() {
 	local key=$1 tag=$2
 
@@ -119,11 +133,14 @@ setup() {
 
 	commit_file go.mod "module example.com/xena"
 	commit_file config/watch.yaml "interval: 5s"
-	commit_file deploy/nftables/xena.nft "table inet xena {}"
+	commit_file config/vm.yaml "$(vm_yaml xena0 192.168.150.1 192.168.150.10 24 3128)"
+	commit_file deploy/nftables/xena.nft \
+		$'table inet xena {\n\tchain input_vm {\n\t\tiifname "@BRIDGE@" ip saddr @VM_ADDRESS@ tcp dport @PROXY_PORT@ accept\n\t}\n}'
 	commit_file deploy/polkit/50-xena.rules "polkit.addRule(function () {});"
 	commit_file deploy/sysusers/xena.conf "u xena-proxy -"
 	commit_file deploy/libvirt/hooks/qemu "#!/bin/sh"
-	commit_file deploy/libvirt/xena-net.xml "<network><name>xena</name></network>"
+	commit_file deploy/libvirt/xena-net.xml \
+		"<network><name>xena</name><bridge name='@BRIDGE@'/><ip address='@BRIDGE_ADDRESS@' prefix='@PREFIX@'/></network>"
 	commit_file deploy/apparmor/usr.local.bin.xena-tokend "profile xena-tokend {}"
 	commit_file deploy/apparmor/usr.local.bin.xena-vault "profile xena-vault {}"
 	commit_file deploy/journald/xena.conf $'[Journal]\nMaxRetentionSec=90day'
@@ -282,6 +299,9 @@ test_install_happy_path() {
 	assert_file "$root/etc/systemd/user/xena-report.timer"
 	assert_file "$root/usr/share/polkit-1/rules.d/50-xena.rules"
 	assert_file "$root/etc/nftables.d/xena.nft"
+	if grep -qE '@[A-Z_]+@' "$root/etc/nftables.d/xena.nft"; then
+		fail "placeholder left in installed table"
+	fi
 	assert_file "$root/etc/sysusers.d/xena.conf"
 	assert_file "$root/etc/systemd/journald.conf.d/xena.conf"
 	assert_mode 644 "$root/etc/systemd/journald.conf.d/xena.conf"
@@ -580,24 +600,38 @@ test_install_refuses_unpushed_main_tag() {
 	assert_refused "refusing tag v0.5.0: not reachable from origin/main" v0.5.0
 }
 
-test_install_skips_incomplete_vm_config() {
+test_install_refuses_incomplete_vm_config() {
 	commit_file config/vm.yaml "version: 1"
 	git -C "$clone" commit -q -m partial
 	git -C "$clone" push -q origin main
 	signed_tag "$work/key" v0.5.0
 
+	assert_refused "reading vm config" v0.5.0
+}
+
+test_install_renders_vm_config_values() {
+	local table="$root/etc/nftables.d/xena.nft" xml="$root/usr/local/share/xena/libvirt/xena-net.xml"
+
+	commit_file config/vm.yaml "$(vm_yaml xenatest 192.168.151.1 192.168.151.20 25 3129)"
+	git -C "$clone" commit -q -m values
+	git -C "$clone" push -q origin main
+	signed_tag "$work/key" v0.5.0
+
 	run_install v0.5.0 >/dev/null
 
-	assert_absent "$root/usr/local/share/xena/config/vm.yaml"
+	grep -qF 'iifname "xenatest"' "$table" || fail "table missing bridge"
+	grep -qF 'ip saddr 192.168.151.20 tcp dport 3129' "$table" || fail "table missing vm address or port"
+	grep -qF "name='xenatest'" "$xml" || fail "network missing bridge"
+	grep -qF "address='192.168.151.1' prefix='25'" "$xml" || fail "network missing address or prefix"
+}
 
-	commit_file config/vm.yaml "network:"
-	git -C "$clone" commit -q -m complete
+test_install_refuses_unknown_placeholder() {
+	commit_file deploy/nftables/xena.nft $'table inet xena {\n\tchain input_vm {\n\t\tiifname "@MYSTERY@" drop\n\t}\n}'
+	git -C "$clone" commit -q -m mystery
 	git -C "$clone" push -q origin main
-	signed_tag "$work/key" v0.6.0
+	signed_tag "$work/key" v0.5.0
 
-	run_install v0.6.0 >/dev/null
-
-	assert_file "$root/usr/local/share/xena/config/vm.yaml"
+	assert_refused "rendering" v0.5.0
 }
 
 test_install_builds_agent_first() {
@@ -1177,7 +1211,9 @@ tests=(
 	test_install_refuses_missing_signers_file
 	test_install_refuses_unpushed_main_tag
 	test_install_build_failure_cleans_up
-	test_install_skips_incomplete_vm_config
+	test_install_refuses_incomplete_vm_config
+	test_install_renders_vm_config_values
+	test_install_refuses_unknown_placeholder
 	test_install_builds_agent_first
 	test_install_clears_go_environment
 	test_install_usage

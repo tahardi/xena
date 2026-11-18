@@ -32,7 +32,9 @@ version: 1
 claude_code_version: "2.1.310"
 network:
   bridge: xena0
+  bridge_address: 192.168.150.1
   vm_address: 192.168.150.10
+  prefix: 24
 proxy_port: 3128
 YAML
 
@@ -504,7 +506,13 @@ test_stops_on_bad_network_values() {
 		's/claude_code_version: .*/claude_code_version: ""/' \
 		's/claude_code_version: .*/claude_code_version: "2.1.310 x"/' \
 		's/claude_code_version: .*/claude_code_version: "--help"/' \
-		'/^network:/,/vm_address/d'; do
+		'/^network:/,/vm_address/d' \
+		's/bridge_address: .*/bridge_address: "not-an-ip"/' \
+		's/bridge_address: .*/bridge_address: ""/' \
+		's/prefix: 24/prefix: 0/' \
+		's/prefix: 24/prefix: 33/' \
+		's/prefix: 24/prefix: "24"/' \
+		'/^network:/,/prefix:/d'; do
 		setup
 		sed -i "$edit" "$root/vm.yaml"
 

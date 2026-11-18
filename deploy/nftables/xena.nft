@@ -23,26 +23,26 @@ table inet xena {
 
 	chain input_vm {
 		type filter hook input priority filter; policy accept;
-		iifname != "xena0" return
+		iifname != "@BRIDGE@" return
 		ip saddr @cut drop
 		meta pkttype { broadcast, multicast } drop
 		ct state invalid drop
 		meta nfproto ipv4 ct state established,related accept
-		ip saddr 192.168.150.10 tcp dport 3128 ct state new accept
+		ip saddr @VM_ADDRESS@ tcp dport @PROXY_PORT@ ct state new accept
 		limit rate 10/second burst 50 packets log prefix "xena-drop: " level warn
 		drop
 	}
 
 	chain forward_vm {
 		type filter hook forward priority filter; policy accept;
-		iifname "xena0" ip saddr @cut drop
-		oifname "xena0" ct status dnat ip saddr . tcp dport @forwarded accept
-		iifname "xena0" ct status dnat ct state established ip daddr . tcp sport @forwarded accept
-		iifname "xena0" meta pkttype { broadcast, multicast } drop
-		iifname "xena0" ct state invalid drop
-		iifname "xena0" limit rate 10/second burst 50 packets log prefix "xena-drop: " level warn
-		iifname "xena0" drop
-		oifname "xena0" drop
+		iifname "@BRIDGE@" ip saddr @cut drop
+		oifname "@BRIDGE@" ct status dnat ip saddr . tcp dport @forwarded accept
+		iifname "@BRIDGE@" ct status dnat ct state established ip daddr . tcp sport @forwarded accept
+		iifname "@BRIDGE@" meta pkttype { broadcast, multicast } drop
+		iifname "@BRIDGE@" ct state invalid drop
+		iifname "@BRIDGE@" limit rate 10/second burst 50 packets log prefix "xena-drop: " level warn
+		iifname "@BRIDGE@" drop
+		oifname "@BRIDGE@" drop
 	}
 
 	chain output_tokend {
@@ -50,7 +50,7 @@ table inet xena {
 	}
 
 	chain tokend {
-		ip daddr 192.168.150.10 tcp dport 22 accept
+		ip daddr @VM_ADDRESS@ tcp dport 22 accept
 		limit rate 10/second burst 50 packets log prefix "xena-tokend-drop: " level warn
 		drop
 	}
