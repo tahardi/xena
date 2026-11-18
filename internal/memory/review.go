@@ -83,7 +83,7 @@ func Diff(ctx context.Context, diffBin, dir string) ([]byte, bool, error) {
 	}
 
 	// #nosec G204 -- diffBin is a fixed binary name from the caller and the arguments are constant.
-	cmd := exec.CommandContext(ctx, diffBin, "-ruN", "reviewed", "current")
+	cmd := exec.CommandContext(ctx, diffBin, "-ruNa", "reviewed", "current")
 	cmd.Dir = dir
 
 	out, err := cmd.Output()

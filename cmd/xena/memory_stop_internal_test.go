@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -19,11 +20,17 @@ var (
 
 type memoryFakePuller struct {
 	err    error
+	hang   bool
 	pulled bool
 }
 
-func (p *memoryFakePuller) Pull(context.Context, bool) (memory.Result, error) {
+func (p *memoryFakePuller) Pull(ctx context.Context, _ bool) (memory.Result, error) {
 	p.pulled = true
+	if p.hang {
+		<-ctx.Done()
+		return memory.Result{}, ctx.Err()
+	}
+
 	return memory.Result{}, p.err
 }
 
@@ -42,6 +49,7 @@ func TestSyncBeforeStop(t *testing.T) {
 		vm         memoryFakeVM
 		pullErr    error
 		builderErr error
+		hang       bool
 		wantPulled bool
 		wantWarn   string
 	}{
@@ -67,6 +75,13 @@ func TestSyncBeforeStop(t *testing.T) {
 			wantPulled: true,
 		},
 		{
+			name:       "error - stalled pull times out and warns",
+			vm:         memoryFakeVM{state: "running"},
+			hang:       true,
+			wantPulled: true,
+			wantWarn:   "warning: memory sync failed: context deadline exceeded\n",
+		},
+		{
 			name:       "error - building puller fails warns",
 			vm:         memoryFakeVM{state: "running"},
 			builderErr: errMemoryFakeBuilder,
@@ -77,7 +92,7 @@ func TestSyncBeforeStop(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
-			puller := &memoryFakePuller{err: tt.pullErr}
+			puller := &memoryFakePuller{err: tt.pullErr, hang: tt.hang}
 			newPuller := func() (memoryPuller, error) {
 				if tt.builderErr != nil {
 					return nil, tt.builderErr
@@ -88,7 +103,7 @@ func TestSyncBeforeStop(t *testing.T) {
 			var warn bytes.Buffer
 
 			// when
-			syncBeforeStop(context.Background(), tt.vm, newPuller, &warn)
+			syncBeforeStop(context.Background(), tt.vm, newPuller, &warn, 10*time.Millisecond)
 
 			// then
 			require.Equal(t, tt.wantPulled, puller.pulled)

@@ -181,7 +181,7 @@ func TestDiff(t *testing.T) {
 				require.NoError(t, os.MkdirAll(filepath.Join(dir, "reviewed"), 0o700))
 			}
 
-			body := `[ "$*" = "-ruN reviewed current" ] || exit 9
+			body := `[ "$*" = "-ruNa reviewed current" ] || exit 9
 [ -d reviewed ] && [ -d current ] || exit 8
 [ "` + tt.exit + `" = 0 ] || echo "diff output"
 exit ` + tt.exit + "\n"

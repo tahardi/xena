@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"time"
 
 	"github.com/tahardi/xena/internal/memory"
 )
+
+const stopSyncTimeout = 2 * time.Minute
 
 type memoryPuller interface {
 	Pull(ctx context.Context, force bool) (memory.Result, error)
@@ -22,15 +25,19 @@ func syncBeforeStop(
 	vm vmStater,
 	newPuller func() (memoryPuller, error),
 	warn io.Writer,
+	timeout time.Duration,
 ) {
 	state, err := vm.State(ctx)
 	if err == nil && state != "running" {
 		return
 	}
 
+	pullCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	puller, err := newPuller()
 	if err == nil {
-		_, err = puller.Pull(ctx, false)
+		_, err = puller.Pull(pullCtx, false)
 	}
 
 	if err != nil {
