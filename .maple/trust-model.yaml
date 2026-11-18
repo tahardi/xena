@@ -72,6 +72,10 @@ components:
     what: The xena-vault desktop user service, which serves VM vault calls over MCP on a forwarded socket, calls anchorhold, and marks every note it writes source xena-vm
     trusted_with: VM reads and writes in Projects, Ideas.md, and Learning/Security, except the Xena reports
     limited_by: The path policy refusing dot-dot, symlinks, and absolute paths, a socket only Taylor can open, size and rate caps, and a log of every call
+  - id: anchorhold
+    what: The anchorhold CLI the vault gateway runs as Taylor to search, read, write, and reindex vault notes, including the local embedding model
+    trusted_with: Note paths the gateway's path policy already passed, and VM-written note text and search queries to parse, store, and embed
+    limited_by: The gateway's path policy and its own refusal of dot-dot, hidden, and symlinked paths, safe YAML loading, no network through the gateway unit's AF_UNIX-only rule and HF_HUB_OFFLINE, and a 60-second timeout per call; it runs as Taylor with no file confinement
   - id: watch
     what: Planned, not built; only alert reading exists. The service that follows logs and cuts the network on high alerts
     trusted_with: Spotting misbehavior in the logs and cutting the network on high alerts
@@ -114,7 +118,7 @@ attackers:
     reaches: [vm-session]
   - id: hijacked-session
     who: A misled or hijacked VM Claude session, or any code it runs
-    reaches: [proxy, firewall, vault-gateway, xena-agent, github-app, vm-settings, vm-sshd, cloud-sandbox, maple, guard]
+    reaches: [proxy, firewall, vault-gateway, anchorhold, xena-agent, github-app, vm-settings, vm-sshd, cloud-sandbox, maple, guard]
   - id: malicious-package
     who: The author of a dependency, image package, or Claude plugin, or someone who took over a registry account
     reaches: [vm-session, ci]

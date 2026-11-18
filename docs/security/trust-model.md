@@ -21,7 +21,7 @@ Xena moves agentic coding off Taylor's desktop into a disposable, encrypted VM b
 ## Who Might Attack
 
 - `prompt-injector`: anyone who can put text in front of a VM session, such as issue, PR, or card text, a web page, or a dependency README. Reaches the VM session.
-- `hijacked-session`: a misled or hijacked VM session, or any code it runs. Taylor assumes this happens at some point. Reaches the proxy, firewall, vault gateway, VM agent replies, GitHub App, VM settings, VM SSH server, cloud sandboxes, Maple through VM output, and the guard.
+- `hijacked-session`: a misled or hijacked VM session, or any code it runs. Taylor assumes this happens at some point. Reaches the proxy, firewall, vault gateway, anchorhold through the gateway, VM agent replies, GitHub App, VM settings, VM SSH server, cloud sandboxes, Maple through VM output, and the guard.
 - `malicious-package`: the author of a dependency, image package, or plugin, or someone who took over a registry account. Reaches the VM session and CI.
 - `pr-author`: anyone who can open a PR or comment on the public repo. Reaches CI.
 - `lan-device`: any device on the home network. Reaches the firewall only; `xena expose` is not built.
@@ -40,6 +40,7 @@ The desktop is trusted and the VM is not. `xena-cli`, `tokend`, `prompt`, and `w
 - `firewall`: the `inet xena` nftables table and its cut, resume, and reapply services.
 - `guard`: the attack suite.
 - `vault-gateway`: the `xena-vault` desktop user service, which serves VM vault calls over MCP on a forwarded socket, calls anchorhold, and marks every note it writes `source: xena-vm`.
+- `anchorhold`: the anchorhold CLI the gateway runs as Taylor to search, read, write, and reindex vault notes, including the local embedding model.
 - `watch`: planned, not built.
 - `maple`: the desktop app, in its own repo, that drives VM sessions.
 - `vm-session`: everything running as `dev` in the VM.
@@ -73,6 +74,7 @@ Any part that runs Claude can be misled, so its trust is a best effort and its l
 - `firewall`: trusted with dropping all VM traffic but the proxy port, logging drops at up to 10 a second, and cutting the VM. Drops from a cut address and broadcast or multicast drops are not logged. Limited by root only, loading at boot before libvirt, and the audit.
 - `guard`: trusted with proving each wall holds. Limited by judging from desktop logs and counters, never the VM's answer; persistence cases still trust the VM until the libguestfs check exists.
 - `vault-gateway`: trusted with VM reads and writes in the project, ideas, and lesson notes, except Xena reports. Limited by the path policy, a socket only Taylor can open, size and rate caps, and a log of every call.
+- `anchorhold`: trusted with note paths the gateway already checked, and VM-written note text and search queries to parse, store, and embed. Limited by the gateway's path policy, its own refusal of dot-dot, hidden, and symlinked paths, safe YAML loading, no network (the unit allows only Unix sockets and sets `HF_HUB_OFFLINE`), and a 60-second timeout per call. It runs as Taylor with no file confinement.
 - `watch`: trusted with spotting misbehavior and cutting the network on high alerts. Limited by its own user, read-only logs, and only the cut hook as write power.
 - `maple`: trusted with Taylor's gh login and the merge decision. Limited by its own trust model treating VM content as untrusted, and merges pinned to the head commit.
 - `vm-session`: trusted with a best-effort try at the card's task, never an honest report on its own work. Limited by the VM with no sudo, the managed sandbox and write list, the deny list, the proxy allowlist, and no desktop tokens. Its GitHub token lasts an hour and cloud grants end with the grant, but its Jira bot token rotates every 90 days and its Claude login lasts until rebuild.
