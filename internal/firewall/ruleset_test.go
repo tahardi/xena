@@ -11,6 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var placeholderFiles = []string{
+	"../../deploy/nftables/xena.nft",
+	"../../deploy/libvirt/xena-net.xml",
+	"../../deploy/systemd/xena-proxy.service",
+}
+
 var hardening = []string{
 	"PrivateDevices=yes\n",
 	"ProtectKernelTunables=yes\n",
@@ -83,7 +89,7 @@ func TestRuleset(t *testing.T) {
 
 	t.Run("happy path - network values stay placeholders", func(t *testing.T) {
 		// given
-		paths := []string{"../../deploy/nftables/xena.nft", "../../deploy/libvirt/xena-net.xml"}
+		paths := placeholderFiles
 
 		for _, path := range paths {
 			data, err := os.ReadFile(path)
@@ -101,7 +107,7 @@ func TestRuleset(t *testing.T) {
 
 	t.Run("happy path - only known placeholders", func(t *testing.T) {
 		// given
-		paths := []string{"../../deploy/nftables/xena.nft", "../../deploy/libvirt/xena-net.xml"}
+		paths := placeholderFiles
 		known := []string{"@BRIDGE@", "@BRIDGE_ADDRESS@", "@VM_ADDRESS@", "@PREFIX@", "@PROXY_PORT@"}
 
 		for _, path := range paths {

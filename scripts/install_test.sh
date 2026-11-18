@@ -149,7 +149,8 @@ setup() {
 	commit_file deploy/apparmor/usr.local.bin.xena-tokend "profile xena-tokend {}"
 	commit_file deploy/apparmor/usr.local.bin.xena-vault "profile xena-vault {}"
 	commit_file deploy/journald/xena.conf $'[Journal]\nMaxRetentionSec=90day'
-	commit_file deploy/systemd/xena-proxy.service $'[Service]\nExecStart=/bin/true\n\n[Install]\nWantedBy=multi-user.target'
+	commit_file deploy/systemd/xena-proxy.service \
+		$'[Service]\nExecStart=/bin/true\nIPAddressAllow=@VM_ADDRESS@/32 127.0.0.53/32\n\n[Install]\nWantedBy=multi-user.target'
 	commit_file deploy/systemd/xena-cut.service $'[Service]\nType=oneshot\nExecStart=/bin/true'
 	commit_file 'deploy/systemd/xena-tokend-fence@.service' $'[Service]\nType=oneshot\nExecStart=/bin/true'
 	commit_file deploy/systemd/xena-nftables.service $'[Service]\nExecStart=/bin/true\n\n[Install]\nWantedBy=multi-user.target'
@@ -627,6 +628,7 @@ test_install_refuses_incomplete_vm_config() {
 
 test_install_renders_vm_config_values() {
 	local table="$root/etc/nftables.d/xena.nft" xml="$root/usr/local/share/xena/libvirt/xena-net.xml"
+	local unit="$root/etc/systemd/system/xena-proxy.service"
 
 	commit_file config/vm.yaml "$(vm_yaml xenatest 192.168.151.1 192.168.151.20 25 3129)"
 	git -C "$clone" commit -q -m values
@@ -639,6 +641,7 @@ test_install_renders_vm_config_values() {
 	grep -qF 'ip saddr 192.168.151.20 tcp dport 3129' "$table" || fail "table missing vm address or port"
 	grep -qF "name='xenatest'" "$xml" || fail "network missing bridge"
 	grep -qF "address='192.168.151.1' prefix='25'" "$xml" || fail "network missing address or prefix"
+	grep -qF 'IPAddressAllow=192.168.151.20/32' "$unit" || fail "proxy unit missing vm address"
 }
 
 test_install_refuses_unknown_placeholder() {
