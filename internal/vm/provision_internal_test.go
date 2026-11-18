@@ -35,6 +35,7 @@ const (
 	credsCall   = sshCfg + "test -s /home/dev/.claude/.credentials.json"
 	exitCall    = "ssh -F /c/ssh_config -O exit xena-dev"
 	wantTouch   = "touch your YubiKey to open the SSH session to the VM"
+	wantDaemon  = "touch your YubiKey to unlock the GitHub token service"
 	wantLogin   = "Log in to Claude in the VM: type /login, choose your Claude subscription, open the link on this " +
 		"desktop, check that the consent screen names Claude Code, paste the code, then type /exit."
 )
@@ -94,6 +95,33 @@ func TestWriteSSHConfig(t *testing.T) {
 		}, strings.Split(strings.TrimSuffix(string(content), "\n"), "\n"))
 	})
 
+	t.Run("happy path - creates a missing parent directory", func(t *testing.T) {
+		// given
+		dir := filepath.Join(t.TempDir(), "nested")
+
+		// when
+		err := WriteSSHConfig(filepath.Join(dir, "ssh_config"), "192.168.150.10", "/h/key", "/c/known_hosts", "/c")
+
+		// then
+		require.NoError(t, err)
+
+		info, err := os.Stat(dir)
+		require.NoError(t, err)
+		require.Equal(t, fs.FileMode(0o700), info.Mode().Perm())
+	})
+
+	t.Run("error - parent is a file", func(t *testing.T) {
+		// given
+		parent := filepath.Join(t.TempDir(), "file")
+		require.NoError(t, os.WriteFile(parent, nil, 0o600))
+
+		// when
+		err := WriteSSHConfig(filepath.Join(parent, "ssh_config"), "192.168.150.10", "/h/key", "/c/known_hosts", "/c")
+
+		// then
+		require.True(t, strings.HasPrefix(err.Error(), "writing ssh config: "), err.Error())
+	})
+
 	t.Run("error - not an address", func(t *testing.T) {
 		// given
 		path := filepath.Join(t.TempDir(), "ssh_config")
@@ -112,6 +140,7 @@ func TestWriteSSHConfig(t *testing.T) {
 func TestProvisioner_Provision(t *testing.T) {
 	happy := func() []response {
 		return []response{
+			{Match: exitCall},
 			{Match: healthCall, Out: "ok\n"},
 			{Match: versionCall, Out: "2.1.0 (Claude Code)\n"},
 			{Match: settingCall},
@@ -141,19 +170,23 @@ func TestProvisioner_Provision(t *testing.T) {
 		return rs
 	}
 
-	tokenNever := make([]response, 0, tokenAttempts+5)
+	tokenNever := make([]response, 0, tokenAttempts+6)
 	tokenNever = append(tokenNever,
+		response{Match: exitCall},
 		response{Match: healthCall, Out: "ok\n"},
 		response{Match: versionCall, Out: "2.1.0 (Claude Code)\n"},
 		response{Match: settingCall},
 		response{Match: daemonCall},
 	)
+
 	for range tokenAttempts {
 		tokenNever = append(tokenNever, response{Match: tokenCall, Err: errFake})
 	}
+
 	tokenNever = append(tokenNever, response{Match: exitCall})
 
 	allLines := []string{
+		exitCall,
 		healthCall,
 		versionCall,
 		settingCall,
@@ -171,7 +204,7 @@ func TestProvisioner_Provision(t *testing.T) {
 	}
 
 	upTo := func(last string) []string {
-		i := slices.Index(allLines, last)
+		i := slices.Index(allLines[1:], last) + 1
 		return append(slices.Clone(allLines[:i+1]), exitCall)
 	}
 
@@ -225,7 +258,7 @@ func TestProvisioner_Provision(t *testing.T) {
 			name:       "error - jira token unreadable",
 			responses:  happy(),
 			getErr:     errFake,
-			wantLines:  append(slices.Clone(allLines[:6]), exitCall),
+			wantLines:  append(slices.Clone(allLines[:7]), exitCall),
 			wantPrefix: "reading jira bot token: ",
 		},
 		{
@@ -234,6 +267,43 @@ func TestProvisioner_Provision(t *testing.T) {
 			repos:       []string{"tahardi/xena", "tahardi/x;rm"},
 			wantErr:     ErrInvalidRepo,
 			wantNoCalls: true,
+		},
+		{
+			name:        "error - repo name is a dot path",
+			responses:   happy(),
+			repos:       []string{"tahardi/.."},
+			wantErr:     ErrInvalidRepo,
+			wantNoCalls: true,
+		},
+		{
+			name:       "error - claude version check fails",
+			responses:  replace(versionCall, response{Match: versionCall, Err: errFake}),
+			wantLines:  upTo(versionCall),
+			wantPrefix: "checking claude code: ",
+		},
+		{
+			name:       "error - token daemon restart fails",
+			responses:  replace(daemonCall, response{Match: daemonCall, Err: errFake}),
+			wantLines:  upTo(daemonCall),
+			wantPrefix: "pushing github token: ",
+		},
+		{
+			name:       "error - jira token push fails",
+			responses:  replace(jiraPut, response{Match: jiraPut, Err: errFake}),
+			wantLines:  upTo(jiraPut),
+			wantPrefix: "pushing jira token: ",
+		},
+		{
+			name:       "error - jira env link fails",
+			responses:  replace(linkCall, response{Match: linkCall, Err: errFake}),
+			wantLines:  upTo(linkCall),
+			wantPrefix: "linking jira env: ",
+		},
+		{
+			name:       "error - login session fails",
+			responses:  replace(loginCall, response{Match: loginCall, Err: errFake}),
+			wantLines:  upTo(loginCall),
+			wantPrefix: "logging in to claude: ",
 		},
 		{
 			name:       "error - clone fails",
@@ -263,10 +333,11 @@ func TestProvisioner_Provision(t *testing.T) {
 			outAt := map[string]string{}
 			responses := slices.Clone(tt.responses)
 			for i, r := range responses {
-				if r.Match == versionCall || r.Match == loginCall {
+				if r.Match == versionCall || r.Match == loginCall || r.Match == daemonCall {
 					responses[i].Effect = func([]string) { outAt[r.Match] = out.String() }
 				}
 			}
+
 			fake := newFakeExec(t, responses)
 
 			cfg := testConfig()
@@ -325,6 +396,10 @@ func TestProvisioner_Provision(t *testing.T) {
 
 			if slices.Contains(lines, versionCall) {
 				require.Contains(t, outAt[versionCall], wantTouch)
+			}
+
+			if slices.Contains(lines, daemonCall) {
+				require.Contains(t, outAt[daemonCall], wantDaemon)
 			}
 
 			if slices.Contains(lines, loginCall) {

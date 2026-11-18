@@ -38,7 +38,7 @@ var (
 
 	errAgentNotOK = errors.New("vm agent did not answer ok")
 
-	repoPattern = regexp.MustCompile(`^tahardi/[A-Za-z0-9._-]+$`)
+	repoPattern = regexp.MustCompile(`^tahardi/[A-Za-z0-9_-][A-Za-z0-9._-]*$`)
 )
 
 type MemoryRestorer interface {
@@ -123,9 +123,8 @@ func (p *Provisioner) Provision(ctx context.Context) error {
 		}
 	}
 
-	defer func() {
-		_, _ = p.run(context.WithoutCancel(ctx), nil, "ssh", "-F", p.sshConfig, "-O", "exit", sshHost)
-	}()
+	p.closeMaster(ctx)
+	defer p.closeMaster(ctx)
 
 	reply, err := p.agent.Run(ctx, "health", nil, nil)
 	if err != nil {
@@ -181,6 +180,8 @@ func (p *Provisioner) checkClaudeCode(ctx context.Context) error {
 func (p *Provisioner) pushGitHubToken(ctx context.Context) error {
 	p.logger.Info("restarting the token daemon to push a fresh github token")
 
+	_, _ = fmt.Fprintln(p.out, "touch your YubiKey to unlock the GitHub token service")
+
 	if _, err := p.run(ctx, nil, "systemctl", "--user", "restart", "xena-tokend.service"); err != nil {
 		return fmt.Errorf("pushing github token: %w", err)
 	}
@@ -206,6 +207,7 @@ func (p *Provisioner) pushJiraToken(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("reading jira bot token: %w", err)
 	}
+
 	defer clear(env)
 
 	if _, err = p.agent.Run(ctx, "secret-put", []string{jiraVMSecret}, bytes.NewReader(env)); err != nil {
@@ -260,6 +262,10 @@ func (p *Provisioner) login(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (p *Provisioner) closeMaster(ctx context.Context) {
+	_, _ = p.run(context.WithoutCancel(ctx), nil, "ssh", "-F", p.sshConfig, "-O", "exit", sshHost)
 }
 
 func (p *Provisioner) remote(ctx context.Context, command string) ([]byte, error) {

@@ -49,6 +49,7 @@ func TestRunVM(t *testing.T) {
 			// given
 			configDir := t.TempDir()
 			t.Setenv("XENA_REPO_CONFIG_DIR", configDir)
+
 			if tt.setup != nil {
 				tt.setup(t, configDir)
 			}
