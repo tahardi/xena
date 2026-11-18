@@ -102,7 +102,7 @@ components:
     limited_by: The forced command on the automation key and fixed verb and name checks; its replies are VM output and the desktop trusts nothing they say
   - id: memory-sync
     what: The xena memory sync, diff, reviewed, and restore commands and the hourly xena-memory-sync user timer, which pull Claude memory and claude-mem history out of the VM
-    trusted_with: VM memory exports, which it unpacks under ~/.local/state/xena/memory, dumps to SQL with sqlite3, redacts with gitleaks, and can load back into a fresh VM
+    trusted_with: VM memory exports, which it unpacks under ~/.local/state/xena/memory, dumps to SQL with sqlite3, redacts with the pinned gitleaks at /usr/local/lib/xena/gitleaks (XENA_GITLEAKS overrides), and can load back into a fresh VM
     limited_by: Runs as Taylor; unpacks only memory notes and the claude-mem database into a folder it controls, refuses links and paths that climb out, caps files at 10000 and size at 1 GiB after buffering the whole export, opens the database read-only in sqlite3 safe mode with no sandbox, refuses a copy that still has secrets after redaction, escapes control, direction, and zero-width characters in diff output, accepts a review only for the digest Taylor saw, and restores the reviewed copy when asked
   - id: github-app
     what: The GitHub App installed on xena, dotclaude, and maple, used by the VM
@@ -209,8 +209,8 @@ users:
     can: xena-proxy runs the proxy and owns the overlay and logs; xena-watch reads proxy logs once its service is built
     access: nologin shell, created by sysusers
 build:
-  built: make pre-pr locally (tidy, fix, lint, unit tests, govulncheck, gitleaks, shellcheck); the same jobs in GitHub Actions on PRs, pushes to main, and nightly; Dependabot for Go modules and Actions weekly
-  deployed: Taylor signs a v* tag on origin/main; make install builds only from a tag that passes verify-tag against allowed_signers and is reachable from origin/main; make rollback reinstalls an earlier signed tag; VM built from an image pinned by SHA-256 with dotclaude and Claude Code pinned
+  built: make pre-pr locally (tidy, fix, lint, unit tests, govulncheck on the main module only, gitleaks, shellcheck); the same jobs in GitHub Actions on PRs, pushes to main, and nightly; Dependabot for Go modules and Actions weekly, excluding modfiles
+  deployed: Taylor signs a v* tag on origin/main; make install builds only from a tag that passes verify-tag against allowed_signers and is reachable from origin/main, including gitleaks built from modfiles/gitleaks pinned by go.sum and installed root-owned to /usr/local/lib/xena; make rollback reinstalls an earlier signed tag; VM built from an image pinned by SHA-256 with dotclaude and Claude Code pinned
   monitored: Proxy JSON-lines logs and journald kept 90 days, rate-limited firewall drop logs, daily xena audit with a desktop notification on drift, hourly memory sync with last-sync.json, xena health and status for Maple, xena guard by hand; nightly guard, weekly report, backup, and the watch service are not built
 accepted:
 overrides:
