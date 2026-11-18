@@ -1,6 +1,9 @@
 package memory_test
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -45,6 +48,20 @@ func TestLock(t *testing.T) {
 			t.Fatal("second lock never acquired")
 		}
 
-		require.FileExists(t, dir+"/.lock")
+		require.FileExists(t, filepath.Join(dir, ".lock"))
+	})
+
+	t.Run("error - lock dir cannot be created", func(t *testing.T) {
+		// given
+		file := filepath.Join(t.TempDir(), "file")
+		require.NoError(t, os.WriteFile(file, nil, 0o600))
+
+		// when
+		unlock, err := memory.Lock(filepath.Join(file, "memory"))
+
+		// then
+		require.Error(t, err)
+		require.Nil(t, unlock)
+		require.True(t, strings.HasPrefix(err.Error(), "locking memory dir"), err.Error())
 	})
 }

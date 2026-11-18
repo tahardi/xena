@@ -33,14 +33,6 @@ type memoryDeps struct {
 	Logger   *slog.Logger
 }
 
-type memoryPuller interface {
-	Pull(ctx context.Context, force bool) (memory.Result, error)
-}
-
-type vmStater interface {
-	State(ctx context.Context) (string, error)
-}
-
 func runMemory(ctx context.Context, args []string, logger *slog.Logger) error {
 	deps, err := defaultMemoryDeps(logger)
 	if err != nil {
@@ -161,45 +153,18 @@ func memoryRestore(ctx context.Context, args []string, deps memoryDeps) error {
 func escapeControl(text []byte) []byte {
 	var out bytes.Buffer
 	for _, r := range string(text) {
-		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+		if r == '\n' || r == '\t' || (!unicode.IsControl(r) && !unicode.Is(unicode.Cf, r)) {
+			out.WriteRune(r)
+			continue
+		}
+
+		if r <= unicode.MaxLatin1 {
 			fmt.Fprintf(&out, "\\x%02x", r)
 			continue
 		}
 
-		out.WriteRune(r)
+		fmt.Fprintf(&out, "\\u%04x", r)
 	}
 
 	return out.Bytes()
-}
-
-func syncBeforeStop(
-	ctx context.Context,
-	vm vmStater,
-	newPuller func() (memoryPuller, error),
-	warn io.Writer,
-) {
-	state, err := vm.State(ctx)
-	if err == nil && state != "running" {
-		return
-	}
-
-	puller, err := newPuller()
-	if err == nil {
-		_, err = puller.Pull(ctx, false)
-	}
-
-	if err != nil {
-		_, _ = fmt.Fprintf(warn, "warning: memory sync failed: %v\n", err)
-	}
-}
-
-func newStopPuller(logger *slog.Logger) func() (memoryPuller, error) {
-	return func() (memoryPuller, error) {
-		deps, err := defaultMemoryDeps(logger)
-		if err != nil {
-			return nil, err
-		}
-
-		return newMemorySync(deps), nil
-	}
 }

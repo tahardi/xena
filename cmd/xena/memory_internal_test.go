@@ -21,8 +21,6 @@ import (
 
 var (
 	errMemoryFakeHealth = errors.New("vm unreachable")
-	errMemoryFakePull   = errors.New("exporting memory: vm gone")
-	errMemoryFakeState  = errors.New("reading vm state: no libvirt")
 )
 
 type memoryFakeRunner struct {
@@ -34,25 +32,6 @@ type memoryFakeRunner struct {
 func (r *memoryFakeRunner) Run(_ context.Context, verb string, _ []string, _ io.Reader) ([]byte, error) {
 	r.verbs = append(r.verbs, verb)
 	return r.out[verb], r.err[verb]
-}
-
-type memoryFakePuller struct {
-	err    error
-	pulled bool
-}
-
-func (p *memoryFakePuller) Pull(context.Context, bool) (memory.Result, error) {
-	p.pulled = true
-	return memory.Result{}, p.err
-}
-
-type memoryFakeVM struct {
-	state string
-	err   error
-}
-
-func (v memoryFakeVM) State(context.Context) (string, error) {
-	return v.state, v.err
 }
 
 func memoryExport(t *testing.T) []byte {
@@ -156,6 +135,12 @@ func TestRunMemoryWith(t *testing.T) {
 			wantOut: regexp.MustCompile(`^\\x1b\[2K\\x0dhidden\\x9b\ndigest: [0-9a-f]{64}\n$`),
 		},
 		{
+			name:    "happy path - diff escapes direction and zero-width characters",
+			args:    func(*testing.T, string) []string { return []string{"diff"} },
+			diffOut: "a\u202eb\u200bc",
+			wantOut: regexp.MustCompile(`^a\\u202eb\\u200bc\ndigest: [0-9a-f]{64}\n$`),
+		},
+		{
 			name:      "happy path - restore reviewed copy",
 			args:      func(*testing.T, string) []string { return []string{"restore", "--reviewed"} },
 			seed:      []string{"reviewed"},
@@ -220,67 +205,6 @@ func TestRunMemoryWith(t *testing.T) {
 			require.NoError(t, err)
 			require.Regexp(t, tt.wantOut, out.String())
 			require.Equal(t, tt.wantVerbs, runner.verbs)
-		})
-	}
-}
-
-func TestSyncBeforeStop(t *testing.T) {
-	tests := []struct {
-		name       string
-		vm         memoryFakeVM
-		pullErr    error
-		builderErr error
-		wantPulled bool
-		wantWarn   string
-	}{
-		{
-			name:       "happy path - running vm pulls",
-			vm:         memoryFakeVM{state: "running"},
-			wantPulled: true,
-		},
-		{
-			name:       "error - pull fails warns",
-			vm:         memoryFakeVM{state: "running"},
-			pullErr:    errMemoryFakePull,
-			wantPulled: true,
-			wantWarn:   "warning: memory sync failed: exporting memory: vm gone\n",
-		},
-		{
-			name: "happy path - shut off vm skips",
-			vm:   memoryFakeVM{state: "shut off"},
-		},
-		{
-			name:       "happy path - unknown state still pulls",
-			vm:         memoryFakeVM{err: errMemoryFakeState},
-			wantPulled: true,
-		},
-		{
-			name:       "error - building puller fails warns",
-			vm:         memoryFakeVM{state: "running"},
-			builderErr: errMemoryFakeHealth,
-			wantWarn:   "warning: memory sync failed: vm unreachable\n",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// given
-			puller := &memoryFakePuller{err: tt.pullErr}
-			newPuller := func() (memoryPuller, error) {
-				if tt.builderErr != nil {
-					return nil, tt.builderErr
-				}
-
-				return puller, nil
-			}
-			var warn bytes.Buffer
-
-			// when
-			syncBeforeStop(context.Background(), tt.vm, newPuller, &warn)
-
-			// then
-			require.Equal(t, tt.wantPulled, puller.pulled)
-			require.Equal(t, tt.wantWarn, warn.String())
 		})
 	}
 }
