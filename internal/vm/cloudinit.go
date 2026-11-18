@@ -38,11 +38,11 @@ var (
 )
 
 type SeedData struct {
-	Hostname, InstanceID, MAC, VMAddress, BridgeAddress string
-	Prefix, ProxyPort                                   int
-	InteractiveKey, BackupKey, CarryKey, AutomationKey  string
-	ClaudeCodeVersion, DotclaudeRef, GitName, GitEmail  string
-	BuiltAt                                             time.Time
+	Hostname, InstanceID, MAC, VMAddress, BridgeAddress            string
+	Prefix, ProxyPort                                              int
+	InteractiveKey, BackupKey, CarryKey, AutomationKey             string
+	ClaudeCodeVersion, NpmVersion, DotclaudeRef, GitName, GitEmail string
+	BuiltAt                                                        time.Time
 }
 
 type Seed struct {
@@ -67,6 +67,7 @@ func NewSeedData(
 		CarryKey:          carryKey,
 		AutomationKey:     automationKey,
 		ClaudeCodeVersion: c.ClaudeCodeVersion,
+		NpmVersion:        c.NpmVersion,
 		DotclaudeRef:      c.DotclaudeRef,
 		GitName:           c.Git.Name,
 		GitEmail:          c.Git.Email,
@@ -117,6 +118,7 @@ func validateSeedData(d SeedData) error {
 		{"carry key", skKeyPattern.MatchString(d.CarryKey)},
 		{"automation key", automationKeyPattern.MatchString(d.AutomationKey)},
 		{"claude code version", versionPattern.MatchString(d.ClaudeCodeVersion)},
+		{"npm version", versionPattern.MatchString(d.NpmVersion)},
 		{"dotclaude ref", refPattern.MatchString(d.DotclaudeRef)},
 		{"vm address", isIPv4(d.VMAddress)},
 		{"bridge address", isIPv4(d.BridgeAddress)},

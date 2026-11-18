@@ -34,6 +34,7 @@ expose:
   max_hours: 8
 prompt_timeout_seconds: 60
 claude_code_version: "2.1.310"
+npm_version: "11.21.2"
 dotclaude_ref: "0123456789abcdef0123456789abcdef01234567"
 repos:
   - tahardi/xena
@@ -75,6 +76,7 @@ func TestLoadVM(t *testing.T) {
 				Expose:               VMExpose{IPhoneAddress: "192.0.2.50", DefaultHours: 4, MaxHours: 8},
 				PromptTimeoutSeconds: 60,
 				ClaudeCodeVersion:    "2.1.310",
+				NpmVersion:           "11.21.2",
 				DotclaudeRef:         "0123456789abcdef0123456789abcdef01234567",
 				Repos:                []string{"tahardi/xena", "tahardi/dotclaude"},
 				Git:                  VMGit{Name: "xena-bot", Email: "bot@example.com"},
@@ -124,6 +126,7 @@ func TestLoadVM(t *testing.T) {
 		)
 		require.Regexp(t, `^52:54:00(:[0-9a-f]{2}){3}$`, got.Network.MAC)
 		require.Regexp(t, `^[0-9]+\.[0-9]+\.[0-9]+$`, got.ClaudeCodeVersion)
+		require.Regexp(t, `^[0-9]+\.[0-9]+\.[0-9]+$`, got.NpmVersion)
 		require.Regexp(t, `^[0-9a-f]{40}$`, got.DotclaudeRef)
 		require.NotEmpty(t, got.Repos)
 		for _, repo := range got.Repos {

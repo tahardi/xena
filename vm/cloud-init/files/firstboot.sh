@@ -15,6 +15,14 @@ systemctl disable --now motd-news.timer
 sysctl --system
 systemctl restart systemd-resolved
 
+npm install --global "npm@{{.NpmVersion}}"
+hash -r
+
+if [[ "$(npm --version)" != "{{.NpmVersion}}" ]]; then
+	echo "checking npm version: want {{.NpmVersion}}, got $(npm --version)" >&2
+	exit 1
+fi
+
 npm install --global --ignore-scripts=false "@anthropic-ai/claude-code@{{.ClaudeCodeVersion}}"
 
 git clone https://github.com/tahardi/dotclaude /usr/local/share/dotclaude

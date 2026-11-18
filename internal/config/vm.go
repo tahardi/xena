@@ -17,6 +17,7 @@ type VM struct {
 	Expose               VMExpose  `yaml:"expose"`
 	PromptTimeoutSeconds int       `yaml:"prompt_timeout_seconds"`
 	ClaudeCodeVersion    string    `yaml:"claude_code_version"`
+	NpmVersion           string    `yaml:"npm_version"`
 	DotclaudeRef         string    `yaml:"dotclaude_ref"`
 	Repos                []string  `yaml:"repos"`
 	Git                  VMGit     `yaml:"git"`
