@@ -30,7 +30,7 @@ Xena moves agentic coding off Taylor's desktop into a disposable, encrypted VM b
 
 ## Trust Boundaries
 
-The desktop is trusted and the VM is not. `xena-cli`, `tokend`, `prompt`, and `watch` are reached by no attacker directly.
+The desktop is trusted and the VM is not. `xena-cli`, `harden`, `tokend`, `prompt`, and `watch` are reached by no attacker directly.
 
 - `xena-cli`: the `xena` command Taylor runs.
 - `secrets-store`: age files encrypted to both YubiKeys.
@@ -38,6 +38,7 @@ The desktop is trusted and the VM is not. `xena-cli`, `tokend`, `prompt`, and `w
 - `proxy`: the system service that is the VM's only way out.
 - `prompt`: the user service that shows host questions and alerts.
 - `firewall`: the `inet xena` nftables table and its cut, resume, and reapply services.
+- `harden`: the `deploy/desktop/harden.sh` script Taylor runs, which writes the desktop's own `inet host_filter` nftables table and the rest of the desktop hardening.
 - `guard`: the attack suite.
 - `vault-gateway`: the `xena-vault` desktop user service, which serves VM vault calls over MCP on a forwarded socket, calls anchorhold, and marks every note it writes `source: xena-vm`.
 - `anchorhold`: the anchorhold CLI the gateway runs as Taylor to search, read, write, and reindex vault notes, including the local embedding model.
@@ -51,7 +52,7 @@ The desktop is trusted and the VM is not. `xena-cli`, `tokend`, `prompt`, and `w
 - `github-app`: the App the VM uses on GitHub.
 - `cloud-sandbox`: the AWS and GCP sandbox accounts.
 - `ci`: GitHub Actions.
-- `vm-to-desktop-net`: all VM packets. Only new TCP to the proxy port passes; everything else is dropped and logged at up to 10 a second; a cut address and broadcast or multicast are dropped without logging.
+- `vm-to-desktop-net`: all VM packets. Only new TCP to the proxy port passes; everything else is dropped and logged at up to 10 a second; a cut address and broadcast or multicast are dropped without logging. The bridge name, VM address, and proxy port come from `config/vm.yaml` and apply to both tables, the `inet xena` table the installer fills and the `inet host_filter` table `harden.sh` renders, so editing that file changes which VM port the desktop accepts.
 - `vm-to-proxy`: VM web requests. Host and port checked against the allowlist, resolved only after, names under `.test`, `.invalid`, `.localhost`, and `.example` resolved only from `/etc/hosts` and never through DNS, private and metadata ranges refused, exact address dialed.
 - `proxy-to-prompt`: questions about unknown hosts. Group-only socket and deny after 60 seconds. The prompt service asks for a touch before allow always; the proxy does not check it.
 - `desktop-to-vm-ssh`: commands and secrets into the VM. Pinned host key, root-owned keys file, only remote Unix socket forwarding, automation key forced to the agent.
@@ -73,6 +74,7 @@ Any part that runs Claude can be misled, so its trust is a best effort and its l
 - `proxy`: trusted with deciding every VM connection and writing the proxy log. Limited by its own user, systemd hardening, address rules allowing only the VM and the local resolver, and no write to the allowlist. It trusts any answer on the prompt socket from the xena-prompt group, which includes every process running as Taylor.
 - `prompt`: trusted with showing host questions and alerts and returning Taylor's answer. Limited by Unix sockets only, asking for a touch before it answers allow always, and deny on timeout.
 - `firewall`: trusted with dropping all VM traffic but the proxy port, logging drops at up to 10 a second, and cutting the VM. Drops from a cut address and broadcast or multicast drops are not logged. Limited by root only, loading at boot before libvirt, and the audit.
+- `harden`: trusted with setting the desktop's own firewall table and the rest of the desktop hardening; its system steps run as root. Limited by Taylor running it by hand. The bridge name, VM address, and proxy port come only from `vm.yaml`, tried as `XENA_VM_CONFIG`, then the installed `/usr/local/share/xena/config/vm.yaml`, then the repo `config/vm.yaml`; the reader refuses before any change when a value is missing or fails its bridge-name, IPv4, port, prefix, and version checks, and reads the file with `python3 -I`. `nft -c` checks the rules before they are written, and they load only when they changed; `--check` changes nothing; it never writes the `inet xena` table.
 - `guard`: trusted with proving each wall holds. Limited by judging from desktop logs, counters, and the bridge's IPv6 address and neighbor tables (read with `ip` on the desktop), never the VM's answer; persistence cases still trust the VM until the libguestfs check exists.
 - `vault-gateway`: trusted with VM reads and writes in the project, ideas, and lesson notes, except Xena reports. Limited by the path policy, a socket only Taylor can open, size and rate caps, and a log of every call.
 - `anchorhold`: trusted with note paths the gateway already checked, and VM-written note text and search queries to parse, store, and embed. Limited by the gateway's path policy, its own refusal of dot-dot, hidden, and symlinked paths, safe YAML loading, no network (the unit allows only Unix sockets and sets `HF_HUB_OFFLINE`), and a 60-second timeout per call. It runs as Taylor with no file confinement.
