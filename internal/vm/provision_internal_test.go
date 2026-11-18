@@ -119,7 +119,7 @@ func TestWriteSSHConfig(t *testing.T) {
 		err := WriteSSHConfig(filepath.Join(parent, "ssh_config"), "192.168.150.10", "/h/key", "/c/known_hosts", "/c")
 
 		// then
-		require.True(t, strings.HasPrefix(err.Error(), "writing ssh config: "), err.Error())
+		requireErr(t, err, nil, "writing ssh config: ")
 	})
 
 	t.Run("error - not an address", func(t *testing.T) {
