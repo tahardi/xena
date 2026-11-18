@@ -94,7 +94,7 @@ remove_files() {
 		files+=("$destdir/usr/local/bin/$name")
 	done
 
-	as_root rm -rf "${files[@]}" "$destdir/usr/local/share/xena"
+	as_root rm -rf "${files[@]}" "$destdir/usr/local/share/xena" "$destdir/usr/local/lib/xena"
 }
 
 remove_apparmor() {

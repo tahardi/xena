@@ -57,6 +57,10 @@ func CutMarker() string {
 	return fromEnv("XENA_CUT_MARKER", "/var/lib/xena/cut")
 }
 
+func GitleaksPath() string {
+	return fromEnv("XENA_GITLEAKS", "/usr/local/lib/xena/gitleaks")
+}
+
 func fromEnv(name, fallback string) string {
 	if v := os.Getenv(name); v != "" {
 		return v
