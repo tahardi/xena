@@ -296,7 +296,7 @@ func (s *Server) writeNote(ctx context.Context, raw json.RawMessage) toolResult 
 		}
 	}
 
-	if err := s.Notes.Write(ctx, rel, WithSource(content), mode); err != nil {
+	if err := s.Notes.Write(ctx, rel, WithSource(content, rel), mode); err != nil {
 		s.Logger.Warn("writing note", "error", err)
 		return textResult("anchorhold failed", true)
 	}
