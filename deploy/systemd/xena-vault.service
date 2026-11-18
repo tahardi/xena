@@ -1,0 +1,21 @@
+[Unit]
+Description=Xena vault gateway
+
+[Service]
+ExecStart=/usr/local/bin/xena-vault
+Restart=on-failure
+UMask=0027
+Environment=HF_HUB_OFFLINE=1
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=TMPDIR=%C/xena/vault
+CacheDirectory=xena/vault
+NoNewPrivileges=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=default.target

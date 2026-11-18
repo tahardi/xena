@@ -28,6 +28,18 @@ Xena moves agentic coding into a disposable, encrypted VM behind a network wall 
 | `xena memory reviewed DIGEST` | Mark the copy shown by `xena memory diff` as reviewed; refuses if memory changed since. |
 | `xena memory restore [--reviewed]` | Load the desktop copy (or the reviewed one, after an incident) into a fresh VM. Refuses when the VM already has memory. |
 
+## Services
+
+| Service | What it does |
+|---|---|
+| `xena-proxy` | Egress proxy for the VM. |
+| `xena-tokend` | Mints GitHub App tokens for the VM. |
+| `xena-prompt` | Desktop prompts and alert notifications (user unit). |
+| `xena-vault` | Vault gateway (user unit). Serves the VM narrow MCP access to notes in `Projects/`, `Learning/Security/`, and `Ideas.md` on `~/.local/state/xena/vault.sock`, marks every note it writes with `source: xena-vm` and the title `xena-vm: <file name>` in its frontmatter and a visible `#xena-vm` line at the top of its body (search and read tools drop frontmatter), and logs each call to `/var/lib/xena-desktop/vault-<date>.jsonl`. |
+| `xena-audit` | Desktop audit, run daily at 04:00 by `xena-audit.timer`. |
+| `xena-nftables` | Loads the Xena nftables table. |
+| `xena-cut`, `xena-resume` | Cut or restore the VM's network. |
+
 ## Talking to the VM
 
 Desktop programs reach the VM through `internal/vmexec`, which runs `ssh` with the automation key and sends one short command such as `health` or `secret-put jira-token`.
