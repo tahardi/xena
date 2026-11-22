@@ -15,3 +15,4 @@ tracked:
   - {"identity": {"kind": "code", "class": "unbounded-read", "file": "internal/memory/sync.go", "hash": "77c455a98da93637"}, "title": "The desktop holds the whole memory export in RAM before checking its size", "card": "XENA-140"}
   - {"identity": {"kind": "code", "class": "unsafe-default", "file": "internal/memory/sync.go", "hash": "3b5fa4dd80a5f5be"}, "title": "Memory restore loads the unreviewed copy by default", "card": "XENA-141"}
   - {"identity": {"kind": "code", "class": "unmonitored-pinned-dependency", "file": "scripts/install.sh", "hash": "7c2a0dc3ea4346bc"}, "title": "Pinned gitleaks that scans VM memory gets no vulnerability scan or update alerts", "card": "XENA-154"}
+  - {"identity": {"kind": "code", "class": "unmonitored-firewall-flush", "file": ".maple/trust-model.yaml", "hash": "d78f4894ee0c0f9a"}, "title": "Model says the audit checks the VM firewall, but nothing reads it live and an nftables restart erases it", "card": "XENA-155"}
