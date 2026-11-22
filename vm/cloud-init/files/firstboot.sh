@@ -13,6 +13,7 @@ apt-get purge -y snapd
 systemctl disable --now motd-news.timer
 
 sysctl --system
+apparmor_parser -r /etc/apparmor.d/bwrap
 systemctl restart systemd-resolved
 
 npm install --global "npm@{{.NpmVersion}}"

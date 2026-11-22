@@ -568,6 +568,20 @@ func TestRenderSeed(t *testing.T) {
 		require.Contains(t, files["/etc/systemd/resolved.conf.d/xena.conf"].decoded, "MulticastDNS=no")
 	})
 
+	t.Run("happy path - claude sandbox", func(t *testing.T) {
+		// given
+		profile := files["/etc/apparmor.d/bwrap"]
+
+		// when
+		script := files[firstboot].decoded
+
+		// then
+		require.Equal(t, "0644", profile.Permissions)
+		require.Contains(t, profile.decoded, "profile bwrap /usr/bin/bwrap flags=(unconfined) {")
+		require.Contains(t, profile.decoded, "  userns,")
+		require.Contains(t, script, "apparmor_parser -r /etc/apparmor.d/bwrap")
+	})
+
 	t.Run("happy path - meta-data", func(t *testing.T) {
 		// given
 		want := "instance-id: xena-dev-1792800000\nlocal-hostname: xena-dev\n"
