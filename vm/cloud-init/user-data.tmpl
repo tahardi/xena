@@ -94,6 +94,11 @@ write_files:
     permissions: "0644"
     encoding: b64
     content: {{ b64 (render "resolved-xena.conf") }}
+  - path: /etc/apparmor.d/bwrap
+    owner: root:root
+    permissions: "0644"
+    encoding: b64
+    content: {{ b64 (render "apparmor-bwrap") }}
   - path: /etc/sysctl.d/60-xena.conf
     owner: root:root
     permissions: "0644"
