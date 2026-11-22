@@ -9,6 +9,9 @@ users:
 apt:
   http_proxy: http://{{.BridgeAddress}}:{{.ProxyPort}}
   https_proxy: http://{{.BridgeAddress}}:{{.ProxyPort}}
+  primary:
+    - arches: [default]
+      uri: http://us.archive.ubuntu.com/ubuntu
 package_update: true
 packages:
   - qemu-guest-agent
