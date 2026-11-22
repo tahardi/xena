@@ -407,6 +407,11 @@ func TestRenderSeed(t *testing.T) {
 		}
 		require.Equal(t, proxyURL, apt["http_proxy"])
 		require.Equal(t, proxyURL, apt["https_proxy"])
+		require.Equal(
+			t,
+			[]any{map[string]any{"arches": []any{"default"}, "uri": "http://us.archive.ubuntu.com/ubuntu"}},
+			apt["primary"],
+		)
 	})
 
 	t.Run("happy path - packages", func(t *testing.T) {
