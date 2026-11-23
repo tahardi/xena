@@ -72,6 +72,10 @@ func (m *Machine) bootPreparedImage(ctx context.Context, base, tmp string, seed 
 		return err
 	}
 
+	if err = os.Chmod(tmp, privateFile); err != nil {
+		return err
+	}
+
 	if _, err = m.run(ctx, nil, "qemu-img", "resize", "-f", "qcow2", tmp, preparedSize); err != nil {
 		return err
 	}

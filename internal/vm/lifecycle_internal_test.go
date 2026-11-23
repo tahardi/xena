@@ -7,8 +7,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -1121,6 +1123,50 @@ func TestRunCommand(t *testing.T) {
 			require.Error(t, err)
 			require.Equal(t, tt.wantErrPrefix, err.Error())
 			require.NotContains(t, err.Error(), tt.wantNotIn)
+		})
+	}
+}
+
+func TestMachine_fetchBaseImage(t *testing.T) {
+	body := []byte("base image")
+	sum := sha256.Sum256(body)
+	sha := hex.EncodeToString(sum[:])
+
+	tests := []struct {
+		name     string
+		existing fs.FileMode
+	}{
+		{name: "happy path - no images folder yet"},
+		{name: "happy path - images folder left private by an older build", existing: 0o700},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// given
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write(body)
+			}))
+			t.Cleanup(server.Close)
+
+			m := newTestMachine(t, newFakeExec(t, nil), &fakeSecrets{}, &fakeRotator{})
+			m.config.Image = config.VMImage{URL: server.URL, SHA256: sha}
+			images := filepath.Join(m.dir, "images")
+
+			if tt.existing != 0 {
+				require.NoError(t, os.MkdirAll(images, tt.existing))
+			}
+
+			// when
+			base, err := m.fetchBaseImage(context.Background(), server.Client())
+
+			// then
+			require.NoError(t, err)
+			require.Equal(t, filepath.Join(images, sha[:imagePrefix]+".img"), base)
+			require.FileExists(t, base)
+
+			info, statErr := os.Stat(images)
+			require.NoError(t, statErr)
+			require.Equal(t, fs.FileMode(imagesDirMode), info.Mode().Perm())
 		})
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -271,6 +272,10 @@ func TestMachine_prepareImage(t *testing.T) {
 			content, readErr := os.ReadFile(got)
 			require.NoError(t, readErr)
 			require.Empty(t, content)
+
+			info, statErr := os.Stat(got)
+			require.NoError(t, statErr)
+			require.Equal(t, fs.FileMode(privateFile), info.Mode().Perm())
 
 			xml := fake.stdinOf(lv + "define")[0]
 			require.Contains(t, xml, "<source file='"+want+".tmp'>")
