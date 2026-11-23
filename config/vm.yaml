@@ -23,7 +23,7 @@ expose:
 prompt_timeout_seconds: 60
 claude_code_version: "2.1.314"
 npm_version: "11.21.2"
-dotclaude_ref: "508212c809058bfca45c8e137aee6b2c09564cec"
+dotclaude_ref: "838667c20041642659ad6513b66485eccc67e3dd"
 repos:
   - tahardi/xena
   - tahardi/dotclaude
