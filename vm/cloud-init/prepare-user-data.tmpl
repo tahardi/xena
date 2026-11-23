@@ -1,0 +1,30 @@
+#cloud-config
+apt:
+  http_proxy: http://{{.BridgeAddress}}:{{.ProxyPort}}
+  https_proxy: http://{{.BridgeAddress}}:{{.ProxyPort}}
+  primary:
+    - arches: [default]
+      uri: http://mirrors.edge.kernel.org/ubuntu
+package_update: true
+packages:
+  - qemu-guest-agent
+  - unattended-upgrades
+  - docker.io
+  - rootlesskit
+  - uidmap
+  - slirp4netns
+  - dbus-user-session
+  - socat
+  - tmux
+  - git
+  - gh
+  - jq
+  - sqlite3
+  - coreutils
+  - findutils
+  - nodejs
+  - npm
+runcmd:
+  - systemctl start qemu-guest-agent
+  - apt-get clean
+  - truncate -s 0 /etc/machine-id
