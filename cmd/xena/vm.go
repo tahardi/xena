@@ -131,7 +131,7 @@ func provisionVM(ctx context.Context, m *vm.Machine, cfg config.VM, logger *slog
 	}
 
 	if state != vm.StateRunning {
-		return fmt.Errorf("provisioning vm: %w", vm.ErrNotRunning)
+		return fmt.Errorf("provisioning vm: %w: %s", vm.ErrNotRunning, state)
 	}
 
 	home, err := os.UserHomeDir()

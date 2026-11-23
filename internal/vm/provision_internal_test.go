@@ -218,7 +218,7 @@ func TestProvisioner_Provision(t *testing.T) {
 		return fmt.Errorf("importing memory: %w", fmt.Errorf("running memory-import in vm: %w", err))
 	}
 
-	memoryExists := importErr(exec.CommandContext(t.Context(), "sh", "-c", "exit 3").Run())
+	importExists := importErr(exec.CommandContext(t.Context(), "sh", "-c", "exit 3").Run())
 	importFails := importErr(exec.CommandContext(t.Context(), "sh", "-c", "exit 1").Run())
 
 	loggedIn := func() []response {
@@ -229,7 +229,8 @@ func TestProvisioner_Provision(t *testing.T) {
 	}
 
 	notLoggedIn := happy()
-	notLoggedIn[len(notLoggedIn)-2].Err = errFake
+	afterLogin := slices.IndexFunc(notLoggedIn, func(r response) bool { return r.Match == loginCall }) + 1
+	notLoggedIn[afterLogin].Err = errFake
 
 	tests := []struct {
 		name        string
@@ -255,7 +256,7 @@ func TestProvisioner_Provision(t *testing.T) {
 		},
 		{
 			name:      "happy path - memory already in the vm",
-			responses: replace(restoreCall, response{Match: restoreCall, Err: memoryExists}),
+			responses: replace(restoreCall, response{Match: restoreCall, Err: importExists}),
 			wantLines: allLines,
 		},
 		{
