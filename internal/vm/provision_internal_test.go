@@ -175,21 +175,6 @@ func TestProvisioner_Provision(t *testing.T) {
 		return rs
 	}
 
-	tokenNever := make([]response, 0, tokenAttempts+6)
-	tokenNever = append(tokenNever,
-		response{Match: exitCall},
-		response{Match: healthCall, Out: "ok\n"},
-		response{Match: versionCall, Out: "2.1.0 (Claude Code)\n"},
-		response{Match: settingCall},
-		response{Match: daemonCall},
-	)
-
-	for range tokenAttempts {
-		tokenNever = append(tokenNever, response{Match: tokenCall, Err: errFake})
-	}
-
-	tokenNever = append(tokenNever, response{Match: daemonCall}, response{Match: exitCall})
-
 	missedTouches := make([]string, 0, tokenAttempts/2)
 	for range tokenAttempts / 2 {
 		missedTouches = append(missedTouches, tokenCall)
@@ -203,14 +188,32 @@ func TestProvisioner_Provision(t *testing.T) {
 		[]string{exitCall},
 	)
 
-	afterToken := happy()[7:]
-	tokenRetry := slices.Clone(happy()[:5])
+	missedChecks := make([]response, 0, tokenAttempts/2)
 	for range tokenAttempts / 2 {
-		tokenRetry = append(tokenRetry, response{Match: tokenCall, Err: errFake})
+		missedChecks = append(missedChecks, response{Match: tokenCall, Err: errFake})
 	}
 
-	tokenRetry = append(tokenRetry, response{Match: daemonCall}, response{Match: tokenCall})
-	tokenRetry = append(tokenRetry, afterToken...)
+	tokenNever := slices.Concat(
+		happy()[:5],
+		missedChecks,
+		[]response{{Match: daemonCall}},
+		missedChecks,
+		[]response{{Match: exitCall}},
+	)
+
+	secondRestartFails := slices.Concat(
+		happy()[:5],
+		missedChecks,
+		[]response{{Match: daemonCall, Err: errFake}, {Match: exitCall}},
+	)
+
+	afterToken := happy()[7:]
+	tokenRetry := slices.Concat(
+		happy()[:5],
+		missedChecks,
+		[]response{{Match: daemonCall}, {Match: tokenCall}},
+		afterToken,
+	)
 
 	allLines := []string{
 		exitCall,
@@ -360,6 +363,12 @@ func TestProvisioner_Provision(t *testing.T) {
 			wantPrefix: "pushing github token: ",
 		},
 		{
+			name:       "error - second token daemon restart fails",
+			responses:  secondRestartFails,
+			wantLines:  slices.Concat(allLines[:5], missedTouches, []string{daemonCall, exitCall}),
+			wantPrefix: "pushing github token: ",
+		},
+		{
 			name:       "error - jira token push fails",
 			responses:  replace(jiraPut, response{Match: jiraPut, Err: errFake}),
 			wantLines:  upTo(jiraPut),
@@ -472,7 +481,8 @@ func TestProvisioner_Provision(t *testing.T) {
 
 			if slices.Contains(lines, daemonCall) {
 				require.NotContains(t, outAt[daemonCall], wantDaemon)
-				require.Contains(t, outAt[daemonCall], wantWaiting)
+				restarts := len(slices.DeleteFunc(slices.Clone(lines), func(l string) bool { return l != daemonCall }))
+				require.Equal(t, restarts, strings.Count(outAt[daemonCall], wantWaiting))
 			}
 
 			if slices.Contains(lines, loginCall) {
