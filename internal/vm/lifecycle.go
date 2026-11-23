@@ -40,6 +40,7 @@ const (
 	diskKeyBytes      = 32
 	privateDir        = 0o700
 	privateFile       = 0o600
+	imagesDirMode     = 0o711
 	imagePrefix       = 12
 	stderrLimit       = 200
 	progressEvery     = 30 * time.Second
@@ -586,7 +587,11 @@ func (m *Machine) fetchBaseImage(ctx context.Context, client *http.Client) (stri
 	}
 
 	images := filepath.Join(m.dir, "images")
-	if err := os.MkdirAll(images, privateDir); err != nil {
+	if err := os.MkdirAll(images, imagesDirMode); err != nil {
+		return "", err
+	}
+
+	if err := os.Chmod(images, imagesDirMode); err != nil {
 		return "", err
 	}
 
