@@ -614,6 +614,7 @@ func TestRepoAllowlist(t *testing.T) {
 		{host: "static.crates.io", port: 443, want: true},
 		{host: "archive.ubuntu.com", port: 80, want: true},
 		{host: "us.archive.ubuntu.com", port: 80, want: true},
+		{host: "mirrors.edge.kernel.org", port: 80, want: true},
 		{host: "security.ubuntu.com", port: 80, want: true},
 		{host: "taylorantoniohardin.atlassian.net", port: 443, want: true},
 		{host: "api.github.com", port: 443, want: true},

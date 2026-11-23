@@ -410,7 +410,7 @@ func TestRenderSeed(t *testing.T) {
 		require.Equal(t, proxyURL, apt["https_proxy"])
 		require.Equal(
 			t,
-			[]any{map[string]any{"arches": []any{"default"}, "uri": "http://us.archive.ubuntu.com/ubuntu"}},
+			[]any{map[string]any{"arches": []any{"default"}, "uri": "http://mirrors.edge.kernel.org/ubuntu"}},
 			apt["primary"],
 		)
 	})
