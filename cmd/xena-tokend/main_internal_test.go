@@ -235,7 +235,7 @@ func TestUnlock(t *testing.T) {
 		require.FileExists(t, marker)
 	})
 
-	t.Run("error - touch notification is critical", func(t *testing.T) {
+	t.Run("error - touch notification is normal urgency", func(t *testing.T) {
 		// given
 		binDir := t.TempDir()
 		fakeAge(t, binDir)
@@ -252,7 +252,7 @@ func TestUnlock(t *testing.T) {
 
 		args, err := os.ReadFile(argsFile)
 		require.NoError(t, err)
-		want := "--app-name=Xena\n--urgency=critical\nTouch your YubiKey\nto unlock the GitHub token service\n"
+		want := "--app-name=Xena\n--urgency=normal\nTouch your YubiKey\nto unlock the GitHub token service\n"
 		assert.Equal(t, want, string(args))
 	})
 

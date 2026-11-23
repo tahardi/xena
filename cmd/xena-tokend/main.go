@@ -135,7 +135,7 @@ func unlock(ctx context.Context, cfg github.AppConfig, out io.Writer, logger *sl
 	_, _ = fmt.Fprintln(out, "touch your YubiKey to unlock the GitHub token service")
 
 	desktop := notify.Desktop{Run: notify.ExecRun}
-	if err := desktop.Show(ctx, "Touch your YubiKey", "to unlock the GitHub token service", true); err != nil {
+	if err := desktop.Show(ctx, "Touch your YubiKey", "to unlock the GitHub token service", false); err != nil {
 		logger.Warn("sending desktop notification", "error", err)
 	}
 
