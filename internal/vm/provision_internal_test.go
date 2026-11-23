@@ -3,10 +3,12 @@ package vm
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -152,6 +154,7 @@ func TestProvisioner_Provision(t *testing.T) {
 			{Match: cloneXena},
 			{Match: cloneMaple},
 			{Match: restoreCall},
+			{Match: credsCall, Err: errFake},
 			{Match: loginCall},
 			{Match: credsCall},
 			{Match: exitCall},
@@ -198,6 +201,7 @@ func TestProvisioner_Provision(t *testing.T) {
 		cloneXena,
 		cloneMaple,
 		restoreCall,
+		credsCall,
 		loginCall,
 		credsCall,
 		exitCall,
@@ -207,6 +211,25 @@ func TestProvisioner_Provision(t *testing.T) {
 		i := slices.Index(allLines[1:], last) + 1
 		return append(slices.Clone(allLines[:i+1]), exitCall)
 	}
+
+	importErr := func(err error) error {
+		require.Error(t, err)
+
+		return fmt.Errorf("importing memory: %w", fmt.Errorf("running memory-import in vm: %w", err))
+	}
+
+	memoryExists := importErr(exec.CommandContext(t.Context(), "sh", "-c", "exit 3").Run())
+	importFails := importErr(exec.CommandContext(t.Context(), "sh", "-c", "exit 1").Run())
+
+	loggedIn := func() []response {
+		rs := slices.DeleteFunc(happy(), func(r response) bool { return r.Match == loginCall })
+		i := slices.IndexFunc(rs, func(r response) bool { return r.Match == credsCall })
+
+		return slices.Delete(rs, i, i+1)
+	}
+
+	notLoggedIn := happy()
+	notLoggedIn[len(notLoggedIn)-2].Err = errFake
 
 	tests := []struct {
 		name        string
@@ -229,6 +252,22 @@ func TestProvisioner_Provision(t *testing.T) {
 			responses:  slices.DeleteFunc(happy(), func(r response) bool { return r.Match == restoreCall }),
 			noRestorer: true,
 			wantLines:  slices.DeleteFunc(slices.Clone(allLines), func(l string) bool { return l == restoreCall }),
+		},
+		{
+			name:      "happy path - memory already in the vm",
+			responses: replace(restoreCall, response{Match: restoreCall, Err: memoryExists}),
+			wantLines: allLines,
+		},
+		{
+			name:      "happy path - already logged in",
+			responses: loggedIn(),
+			wantLines: append(upTo(restoreCall)[:len(upTo(restoreCall))-1], credsCall, exitCall),
+		},
+		{
+			name:       "error - memory import fails",
+			responses:  replace(restoreCall, response{Match: restoreCall, Err: importFails}),
+			wantLines:  upTo(restoreCall),
+			wantPrefix: "restoring memory: ",
 		},
 		{
 			name:       "error - unhealthy agent",
@@ -319,7 +358,7 @@ func TestProvisioner_Provision(t *testing.T) {
 		},
 		{
 			name:       "error - not logged in",
-			responses:  replace(credsCall, response{Match: credsCall, Err: errFake}),
+			responses:  notLoggedIn,
 			wantLines:  allLines,
 			wantErr:    ErrNotLoggedIn,
 			wantPrefix: "logging in to claude: ",
@@ -404,6 +443,8 @@ func TestProvisioner_Provision(t *testing.T) {
 
 			if slices.Contains(lines, loginCall) {
 				require.Contains(t, outAt[loginCall], wantLogin)
+			} else {
+				require.NotContains(t, out.String(), wantLogin)
 			}
 
 			firstClone := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "git clone") })
