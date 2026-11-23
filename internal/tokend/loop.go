@@ -15,6 +15,8 @@ const (
 	refreshLead  = 10 * time.Minute
 	minWait      = 30 * time.Second
 	unlockRetry  = 5 * time.Minute
+	quickRetry   = 10 * time.Second
+	quickTries   = 3
 	refreshRetry = time.Minute
 )
 
@@ -29,6 +31,7 @@ type Loop struct {
 	Logger *slog.Logger
 	minter Minter
 	until  time.Time
+	failed int
 }
 
 func (l *Loop) Step(ctx context.Context) (time.Duration, error) {
@@ -39,9 +42,15 @@ func (l *Loop) Step(ctx context.Context) (time.Duration, error) {
 
 		minter, err := l.Unlock(ctx)
 		if err != nil {
+			l.failed++
+			if l.failed <= quickTries {
+				return quickRetry, fmt.Errorf("unlocking app key: %w", err)
+			}
+
 			return unlockRetry, fmt.Errorf("unlocking app key: %w", err)
 		}
 
+		l.failed = 0
 		l.minter = minter
 		y, m, d := now.Date()
 		l.until = time.Date(y, m, d+1, 0, 0, 0, 0, now.Location())

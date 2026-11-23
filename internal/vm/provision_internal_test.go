@@ -40,7 +40,7 @@ const (
 	wantTouch   = "touch your YubiKey to open the SSH session to the VM"
 	wantDaemon  = "touch your YubiKey to unlock the GitHub token service"
 	wantWaiting = "starting the GitHub token service: take your finger off the YubiKey and touch it when the " +
-		"desktop notification asks"
+		"desktop notification asks; if a touch does nothing, wait for the next notification"
 	wantLogin = "Log in to Claude in the VM: type /login, choose your Claude subscription, open the link on this " +
 		"desktop, check that the consent screen names Claude Code, paste the code, then type /exit."
 )

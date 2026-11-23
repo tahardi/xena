@@ -32,7 +32,7 @@ const (
 		"open the link on this desktop, check that the consent screen names Claude Code, paste the code, " +
 		"then type /exit."
 	waitText = "starting the GitHub token service: take your finger off the YubiKey and touch it when the " +
-		"desktop notification asks"
+		"desktop notification asks; if a touch does nothing, wait for the next notification"
 )
 
 var (
