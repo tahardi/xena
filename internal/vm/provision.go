@@ -30,6 +30,8 @@ const (
 	loginText      = "Log in to Claude in the VM: type /login, choose your Claude subscription, " +
 		"open the link on this desktop, check that the consent screen names Claude Code, paste the code, " +
 		"then type /exit."
+	waitText = "starting the GitHub token service: take your finger off the YubiKey and touch it when the " +
+		"desktop notification asks"
 )
 
 var (
@@ -182,14 +184,20 @@ func (p *Provisioner) checkClaudeCode(ctx context.Context) error {
 func (p *Provisioner) pushGitHubToken(ctx context.Context) error {
 	p.logger.Info("restarting the token daemon to push a fresh github token")
 
-	_, _ = fmt.Fprintln(p.out, "touch your YubiKey to unlock the GitHub token service")
-
-	if _, err := p.run(ctx, nil, "systemctl", "--user", "restart", "xena-tokend.service"); err != nil {
-		return fmt.Errorf("pushing github token: %w", err)
+	if err := p.restartTokenDaemon(ctx); err != nil {
+		return err
 	}
 
 	var lastErr error
-	for range tokenAttempts {
+	for i := range tokenAttempts {
+		if i == tokenAttempts/2 {
+			p.logger.Info("github token not pushed yet, restarting the token daemon once more")
+
+			if err := p.restartTokenDaemon(ctx); err != nil {
+				return err
+			}
+		}
+
 		if _, lastErr = p.remote(ctx, "test -s "+vmHome+"/.config/xena/github-token"); lastErr == nil {
 			return nil
 		}
@@ -202,6 +210,16 @@ func (p *Provisioner) pushGitHubToken(ctx context.Context) error {
 	}
 
 	return fmt.Errorf("pushing github token: %w: last error: %w", ErrTimeout, lastErr)
+}
+
+func (p *Provisioner) restartTokenDaemon(ctx context.Context) error {
+	_, _ = fmt.Fprintln(p.out, waitText)
+
+	if _, err := p.run(ctx, nil, "systemctl", "--user", "restart", "xena-tokend.service"); err != nil {
+		return fmt.Errorf("pushing github token: %w", err)
+	}
+
+	return nil
 }
 
 func (p *Provisioner) pushJiraToken(ctx context.Context) error {

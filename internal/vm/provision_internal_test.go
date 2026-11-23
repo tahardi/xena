@@ -38,7 +38,9 @@ const (
 	exitCall    = "ssh -F /c/ssh_config -O exit xena-dev"
 	wantTouch   = "touch your YubiKey to open the SSH session to the VM"
 	wantDaemon  = "touch your YubiKey to unlock the GitHub token service"
-	wantLogin   = "Log in to Claude in the VM: type /login, choose your Claude subscription, open the link on this " +
+	wantWaiting = "starting the GitHub token service: take your finger off the YubiKey and touch it when the " +
+		"desktop notification asks"
+	wantLogin = "Log in to Claude in the VM: type /login, choose your Claude subscription, open the link on this " +
 		"desktop, check that the consent screen names Claude Code, paste the code, then type /exit."
 )
 
@@ -186,7 +188,29 @@ func TestProvisioner_Provision(t *testing.T) {
 		tokenNever = append(tokenNever, response{Match: tokenCall, Err: errFake})
 	}
 
-	tokenNever = append(tokenNever, response{Match: exitCall})
+	tokenNever = append(tokenNever, response{Match: daemonCall}, response{Match: exitCall})
+
+	missedTouches := make([]string, 0, tokenAttempts/2)
+	for range tokenAttempts / 2 {
+		missedTouches = append(missedTouches, tokenCall)
+	}
+
+	tokenNeverLines := slices.Concat(
+		[]string{exitCall, healthCall, versionCall, settingCall, daemonCall},
+		missedTouches,
+		[]string{daemonCall},
+		missedTouches,
+		[]string{exitCall},
+	)
+
+	afterToken := happy()[7:]
+	tokenRetry := slices.Clone(happy()[:5])
+	for range tokenAttempts / 2 {
+		tokenRetry = append(tokenRetry, response{Match: tokenCall, Err: errFake})
+	}
+
+	tokenRetry = append(tokenRetry, response{Match: daemonCall}, response{Match: tokenCall})
+	tokenRetry = append(tokenRetry, afterToken...)
 
 	allLines := []string{
 		exitCall,
@@ -206,6 +230,8 @@ func TestProvisioner_Provision(t *testing.T) {
 		credsCall,
 		exitCall,
 	}
+
+	tokenRetryLines := slices.Concat(allLines[:5], missedTouches, []string{daemonCall, tokenCall}, allLines[7:])
 
 	upTo := func(last string) []string {
 		i := slices.Index(allLines[1:], last) + 1
@@ -289,8 +315,14 @@ func TestProvisioner_Provision(t *testing.T) {
 			wantPrefix: "checking managed settings: ",
 		},
 		{
-			name:       "error - github token never lands",
+			name:      "happy path - restarts the token daemon when the first touch is missed",
+			responses: tokenRetry,
+			wantLines: tokenRetryLines,
+		},
+		{
+			name:       "error - token never arrives",
 			responses:  tokenNever,
+			wantLines:  tokenNeverLines,
 			wantErr:    ErrTimeout,
 			wantPrefix: "pushing github token: ",
 		},
@@ -439,7 +471,8 @@ func TestProvisioner_Provision(t *testing.T) {
 			}
 
 			if slices.Contains(lines, daemonCall) {
-				require.Contains(t, outAt[daemonCall], wantDaemon)
+				require.NotContains(t, outAt[daemonCall], wantDaemon)
+				require.Contains(t, outAt[daemonCall], wantWaiting)
 			}
 
 			if slices.Contains(lines, loginCall) {
