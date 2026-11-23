@@ -161,18 +161,20 @@ func TestMachine_prepareImage(t *testing.T) {
 		},
 		{
 			name: "error - state read fails during cleanup",
-			responses: func(t *testing.T, _ *string) []response {
+			responses: func(t *testing.T, sources *string) []response {
 				t.Helper()
 
 				return []response{
 					{Match: "qemu-img convert", Effect: createEmpty(t)},
-					{Match: "qemu-img resize", Err: errFake},
+					{Match: "qemu-img resize"},
+					{Match: "cloud-localds", Effect: writeISO(t, sources)},
+					{Match: lv + "define", Err: errFake},
 					{Match: stateCall, Err: errReadState},
 				}
 			},
 			wantErr:       errReadState,
 			wantErrSubstr: "preparing image: ",
-			wantCalls:     []string{stateCall},
+			wantCalls:     []string{lv + "define", stateCall},
 		},
 		{
 			name: "error - network cut",
