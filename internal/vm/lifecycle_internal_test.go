@@ -948,10 +948,12 @@ func TestMachine_Build(t *testing.T) {
 			if tt.exists {
 				head = []response{{Match: stateCall, Out: "shut off\n"}}
 			}
+
 			var prepare []response
 			if !tt.fresh {
 				prepare = prepareResponses(t, &prepareSources)
 			}
+
 			responses := slices.Concat(
 				head,
 				prepare,
@@ -1008,6 +1010,7 @@ func TestMachine_Build(t *testing.T) {
 			}
 
 			now := time.Date(2026, time.November, 15, 12, 0, 0, 0, time.UTC)
+
 			prepared := preparedPath(t, m, now)
 			if tt.fresh {
 				require.NoError(t, os.WriteFile(prepared, []byte("prepared"), 0o600))
@@ -1027,10 +1030,12 @@ func TestMachine_Build(t *testing.T) {
 			require.NoError(t, err)
 
 			disk := m.DiskPath()
+
 			var prepareWant []string
 			if !tt.fresh {
 				prepareWant = prepareCalls(m, base, prepared, prepareSources)
 			}
+
 			want := slices.Concat(
 				[]string{stateCall},
 				prepareWant,

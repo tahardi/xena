@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +16,8 @@ import (
 
 	"github.com/tahardi/xena/internal/config"
 )
+
+var errReadState = errors.New("reading state")
 
 func preparedPath(t *testing.T, m *Machine, now time.Time) string {
 	t.Helper()
@@ -145,6 +148,33 @@ func TestMachine_prepareImage(t *testing.T) {
 			),
 		},
 		{
+			name: "error - copying the base image fails",
+			responses: func(*testing.T, *string) []response {
+				return []response{
+					{Match: "qemu-img convert", Err: errFake},
+					{Match: stateCall, Out: "undefined\n"},
+				}
+			},
+			wantErr:       errFake,
+			wantErrSubstr: "preparing image: ",
+			wantCalls:     []string{stateCall},
+		},
+		{
+			name: "error - state read fails during cleanup",
+			responses: func(t *testing.T, _ *string) []response {
+				t.Helper()
+
+				return []response{
+					{Match: "qemu-img convert", Effect: createEmpty(t)},
+					{Match: "qemu-img resize", Err: errFake},
+					{Match: stateCall, Err: errReadState},
+				}
+			},
+			wantErr:       errReadState,
+			wantErrSubstr: "preparing image: ",
+			wantCalls:     []string{stateCall},
+		},
+		{
 			name: "error - network cut",
 			cut:  true,
 			responses: func(t *testing.T, sources *string) []response {
@@ -206,9 +236,11 @@ func TestMachine_prepareImage(t *testing.T) {
 				require.ErrorIs(t, err, tt.wantErr)
 				require.Contains(t, err.Error(), tt.wantErrSubstr)
 				require.NoFileExists(t, want)
+
 				if tt.cut {
 					require.NotContains(t, fake.lines(), lv+"start xena-dev")
 				}
+
 				lines := fake.lines()
 				require.Equal(t, tt.wantCalls, lines[len(lines)-len(tt.wantCalls):])
 				return
@@ -228,6 +260,7 @@ func TestMachine_prepareImage(t *testing.T) {
 
 			require.Equal(t, prepareCalls(m, base, want, sources), fake.lines())
 			require.NoFileExists(t, stale)
+
 			if tt.oldSHA {
 				require.NotEqual(t, want, existing)
 				require.NoFileExists(t, existing)

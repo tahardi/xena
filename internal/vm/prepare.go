@@ -108,6 +108,14 @@ func (m *Machine) bootPreparedImage(ctx context.Context, base, tmp string, seed 
 }
 
 func (m *Machine) cleanupPrepare(ctx context.Context, tmp string) error {
+	return errors.Join(
+		m.removePrepareDomain(ctx),
+		removeIfExists(tmp),
+		removeIfExists(m.prepareSeedPath()),
+	)
+}
+
+func (m *Machine) removePrepareDomain(ctx context.Context) error {
 	state, err := m.State(ctx)
 	if err != nil {
 		return err
@@ -125,7 +133,7 @@ func (m *Machine) cleanupPrepare(ctx context.Context, tmp string) error {
 		}
 	}
 
-	return errors.Join(removeIfExists(tmp), removeIfExists(m.prepareSeedPath()))
+	return nil
 }
 
 func removeMatches(dir string, patterns ...string) error {
