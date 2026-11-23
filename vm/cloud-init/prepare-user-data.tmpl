@@ -1,4 +1,7 @@
 #cloud-config
+disable_root: true
+ssh_pwauth: false
+users: []
 apt:
   http_proxy: http://{{.BridgeAddress}}:{{.ProxyPort}}
   https_proxy: http://{{.BridgeAddress}}:{{.ProxyPort}}
