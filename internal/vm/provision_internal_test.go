@@ -22,6 +22,7 @@ const (
 	jiraEnv     = "JIRA_SITE=https://example.atlassian.net\nJIRA_EMAIL=bot@example.com\nJIRA_TOKEN=jira-fake-0000\n"
 	versionCall = sshCfg + "claude --version"
 	settingCall = sshCfg + "test -f /etc/claude-code/managed-settings.json"
+	clearCall   = sshCfg + "rm -f /home/dev/.config/xena/github-token"
 	daemonCall  = "systemctl --user restart xena-tokend.service"
 	tokenCall   = sshCfg + "test -s /home/dev/.config/xena/github-token"
 	healthCall  = "agent health"
@@ -38,7 +39,9 @@ const (
 	exitCall    = "ssh -F /c/ssh_config -O exit xena-dev"
 	wantTouch   = "touch your YubiKey to open the SSH session to the VM"
 	wantDaemon  = "touch your YubiKey to unlock the GitHub token service"
-	wantLogin   = "Log in to Claude in the VM: type /login, choose your Claude subscription, open the link on this " +
+	wantWaiting = "starting the GitHub token service: take your finger off the YubiKey and touch it when the " +
+		"desktop notification asks; if a touch does nothing, wait for the next notification"
+	wantLogin = "Log in to Claude in the VM: type /login, choose your Claude subscription, open the link on this " +
 		"desktop, check that the consent screen names Claude Code, paste the code, then type /exit."
 )
 
@@ -146,6 +149,7 @@ func TestProvisioner_Provision(t *testing.T) {
 			{Match: healthCall, Out: "ok\n"},
 			{Match: versionCall, Out: "2.1.0 (Claude Code)\n"},
 			{Match: settingCall},
+			{Match: clearCall},
 			{Match: daemonCall},
 			{Match: tokenCall, Err: errFake},
 			{Match: tokenCall},
@@ -173,26 +177,52 @@ func TestProvisioner_Provision(t *testing.T) {
 		return rs
 	}
 
-	tokenNever := make([]response, 0, tokenAttempts+6)
-	tokenNever = append(tokenNever,
-		response{Match: exitCall},
-		response{Match: healthCall, Out: "ok\n"},
-		response{Match: versionCall, Out: "2.1.0 (Claude Code)\n"},
-		response{Match: settingCall},
-		response{Match: daemonCall},
-	)
-
-	for range tokenAttempts {
-		tokenNever = append(tokenNever, response{Match: tokenCall, Err: errFake})
+	missedTouches := make([]string, 0, tokenAttempts/2)
+	for range tokenAttempts / 2 {
+		missedTouches = append(missedTouches, tokenCall)
 	}
 
-	tokenNever = append(tokenNever, response{Match: exitCall})
+	tokenNeverLines := slices.Concat(
+		[]string{exitCall, healthCall, versionCall, settingCall, clearCall, daemonCall},
+		missedTouches,
+		[]string{daemonCall},
+		missedTouches,
+		[]string{exitCall},
+	)
+
+	missedChecks := make([]response, 0, tokenAttempts/2)
+	for range tokenAttempts / 2 {
+		missedChecks = append(missedChecks, response{Match: tokenCall, Err: errFake})
+	}
+
+	tokenNever := slices.Concat(
+		happy()[:6],
+		missedChecks,
+		[]response{{Match: daemonCall}},
+		missedChecks,
+		[]response{{Match: exitCall}},
+	)
+
+	secondRestartFails := slices.Concat(
+		happy()[:6],
+		missedChecks,
+		[]response{{Match: daemonCall, Err: errFake}, {Match: exitCall}},
+	)
+
+	afterToken := happy()[8:]
+	tokenRetry := slices.Concat(
+		happy()[:6],
+		missedChecks,
+		[]response{{Match: daemonCall}, {Match: tokenCall}},
+		afterToken,
+	)
 
 	allLines := []string{
 		exitCall,
 		healthCall,
 		versionCall,
 		settingCall,
+		clearCall,
 		daemonCall,
 		tokenCall,
 		tokenCall,
@@ -206,6 +236,8 @@ func TestProvisioner_Provision(t *testing.T) {
 		credsCall,
 		exitCall,
 	}
+
+	tokenRetryLines := slices.Concat(allLines[:6], missedTouches, []string{daemonCall, tokenCall}, allLines[8:])
 
 	upTo := func(last string) []string {
 		i := slices.Index(allLines[1:], last) + 1
@@ -289,8 +321,14 @@ func TestProvisioner_Provision(t *testing.T) {
 			wantPrefix: "checking managed settings: ",
 		},
 		{
-			name:       "error - github token never lands",
+			name:      "happy path - restarts the token daemon when the first touch is missed",
+			responses: tokenRetry,
+			wantLines: tokenRetryLines,
+		},
+		{
+			name:       "error - token never arrives",
 			responses:  tokenNever,
+			wantLines:  tokenNeverLines,
 			wantErr:    ErrTimeout,
 			wantPrefix: "pushing github token: ",
 		},
@@ -298,7 +336,7 @@ func TestProvisioner_Provision(t *testing.T) {
 			name:       "error - jira token unreadable",
 			responses:  happy(),
 			getErr:     errFake,
-			wantLines:  append(slices.Clone(allLines[:7]), exitCall),
+			wantLines:  append(slices.Clone(allLines[:8]), exitCall),
 			wantPrefix: "reading jira bot token: ",
 		},
 		{
@@ -322,9 +360,21 @@ func TestProvisioner_Provision(t *testing.T) {
 			wantPrefix: "checking claude code: ",
 		},
 		{
+			name:       "error - clearing the old github token fails",
+			responses:  replace(clearCall, response{Match: clearCall, Err: errFake}),
+			wantLines:  upTo(clearCall),
+			wantPrefix: "pushing github token: ",
+		},
+		{
 			name:       "error - token daemon restart fails",
 			responses:  replace(daemonCall, response{Match: daemonCall, Err: errFake}),
 			wantLines:  upTo(daemonCall),
+			wantPrefix: "pushing github token: ",
+		},
+		{
+			name:       "error - second token daemon restart fails",
+			responses:  secondRestartFails,
+			wantLines:  slices.Concat(allLines[:6], missedTouches, []string{daemonCall, exitCall}),
 			wantPrefix: "pushing github token: ",
 		},
 		{
@@ -439,7 +489,9 @@ func TestProvisioner_Provision(t *testing.T) {
 			}
 
 			if slices.Contains(lines, daemonCall) {
-				require.Contains(t, outAt[daemonCall], wantDaemon)
+				require.NotContains(t, outAt[daemonCall], wantDaemon)
+				restarts := len(slices.DeleteFunc(slices.Clone(lines), func(l string) bool { return l != daemonCall }))
+				require.Equal(t, restarts, strings.Count(outAt[daemonCall], wantWaiting))
 			}
 
 			if slices.Contains(lines, loginCall) {
