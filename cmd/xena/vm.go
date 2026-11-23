@@ -23,7 +23,10 @@ const (
 	snapshotArgs = 2
 )
 
-var errMissingSnapshotName = errors.New("missing snapshot name")
+var (
+	errMissingSnapshotName = errors.New("missing snapshot name")
+	errUnexpectedArgument  = errors.New("unexpected argument")
+)
 
 func runVM(ctx context.Context, args []string, logger *slog.Logger) error {
 	if len(args) == 0 {
@@ -33,6 +36,10 @@ func runVM(ctx context.Context, args []string, logger *slog.Logger) error {
 	sub := args[0]
 	switch sub {
 	case "build", "start", "stop", "destroy":
+	case "provision":
+		if len(args) != 1 {
+			return fmt.Errorf("checking arguments: %w: %s", errUnexpectedArgument, args[1])
+		}
 	case "snapshot", "restore":
 		if len(args) != snapshotArgs {
 			return fmt.Errorf("checking arguments: %w", errMissingSnapshotName)
@@ -55,6 +62,8 @@ func runVM(ctx context.Context, args []string, logger *slog.Logger) error {
 	switch sub {
 	case "build":
 		err = buildVM(ctx, m, cfg, logger)
+	case "provision":
+		err = provisionVM(ctx, m, cfg, logger)
 	case "start":
 		err = m.Start(ctx)
 	case "stop":
@@ -107,6 +116,24 @@ func buildVM(ctx context.Context, m *vm.Machine, cfg config.VM, logger *slog.Log
 		return err
 	}
 
+	if err := provisionVM(ctx, m, cfg, logger); err != nil {
+		return err
+	}
+
+	_, err := fmt.Fprintf(os.Stdout, "vm ready in %s\n", time.Since(start).Round(time.Second))
+	return err
+}
+
+func provisionVM(ctx context.Context, m *vm.Machine, cfg config.VM, logger *slog.Logger) error {
+	state, err := m.State(ctx)
+	if err != nil {
+		return fmt.Errorf("provisioning vm: %w", err)
+	}
+
+	if state != vm.StateRunning {
+		return fmt.Errorf("provisioning vm: %w: %s", vm.ErrNotRunning, state)
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("finding home directory: %w", err)
@@ -147,12 +174,7 @@ func buildVM(ctx context.Context, m *vm.Machine, cfg config.VM, logger *slog.Log
 	}
 
 	p := vm.NewProvisioner(cfg, sshConfig, agent, jira, restorer, os.Stderr, vmPollEvery, logger)
-	if err = p.Provision(ctx); err != nil {
-		return err
-	}
-
-	_, err = fmt.Fprintf(os.Stdout, "vm ready in %s\n", time.Since(start).Round(time.Second))
-	return err
+	return p.Provision(ctx)
 }
 
 func newDiskKeyStore(logger *slog.Logger) (*touchStore, error) {

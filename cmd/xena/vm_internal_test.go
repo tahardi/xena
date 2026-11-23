@@ -25,6 +25,17 @@ func TestRunVM(t *testing.T) {
 		{name: "error - unknown subcommand", args: []string{"bogus"}, wantErr: errUnknownCommand},
 		{name: "error - snapshot without name", args: []string{"snapshot"}, wantErrPrefix: "checking arguments: "},
 		{name: "error - restore without name", args: []string{"restore"}, wantErrPrefix: "checking arguments: "},
+		{
+			name:          "error - provision takes no arguments",
+			args:          []string{"provision", "extra"},
+			wantErr:       errUnexpectedArgument,
+			wantErrPrefix: "checking arguments: ",
+		},
+		{
+			name:          "error - provision without vm config",
+			args:          []string{"provision"},
+			wantErrPrefix: "loading vm config: ",
+		},
 		{name: "error - start without vm config", args: []string{"start"}, wantErrPrefix: "loading vm config: "},
 		{
 			name:          "error - build with no vm dir",

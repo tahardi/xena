@@ -24,6 +24,8 @@ const (
 	vmHome         = "/home/dev"
 	jiraBotEntry   = "jira-bot-token"
 	jiraVMSecret   = "jira-token"
+	memoryExists   = 3
+	credentials    = vmHome + "/.claude/.credentials.json"
 	managedSetting = "/etc/claude-code/managed-settings.json"
 	loginText      = "Log in to Claude in the VM: type /login, choose your Claude subscription, " +
 		"open the link on this desktop, check that the consent screen names Claude Code, paste the code, " +
@@ -243,7 +245,13 @@ func (p *Provisioner) restoreMemory(ctx context.Context) error {
 		return nil
 	}
 
-	if err := p.restorer.Restore(ctx, true); err != nil {
+	err := p.restorer.Restore(ctx, true)
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok && exitErr.ExitCode() == memoryExists {
+		p.logger.Info("memory already in the vm, skipping restore")
+		return nil
+	}
+
+	if err != nil {
 		return fmt.Errorf("restoring memory: %w", err)
 	}
 
@@ -251,13 +259,18 @@ func (p *Provisioner) restoreMemory(ctx context.Context) error {
 }
 
 func (p *Provisioner) login(ctx context.Context) error {
+	if _, err := p.remote(ctx, "test -s "+credentials); err == nil {
+		p.logger.Info("claude already logged in, skipping login")
+		return nil
+	}
+
 	_, _ = fmt.Fprintln(p.out, loginText)
 
 	if err := p.interactive(ctx, "ssh", "-F", p.sshConfig, "-t", sshHost, "--", "claude"); err != nil {
 		return fmt.Errorf("logging in to claude: %w", err)
 	}
 
-	if _, err := p.remote(ctx, "test -s "+vmHome+"/.claude/.credentials.json"); err != nil {
+	if _, err := p.remote(ctx, "test -s "+credentials); err != nil {
 		return fmt.Errorf("logging in to claude: %w: %w", ErrNotLoggedIn, err)
 	}
 

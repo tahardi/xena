@@ -15,7 +15,7 @@ var errUnknownSecret = errors.New("unknown secret")
 
 var domainStates = map[libvirt.DomainState]string{
 	libvirt.DomainNostate:     "no state",
-	libvirt.DomainRunning:     stateRunning,
+	libvirt.DomainRunning:     StateRunning,
 	libvirt.DomainBlocked:     "idle",
 	libvirt.DomainPaused:      "paused",
 	libvirt.DomainShutdown:    "in shutdown",

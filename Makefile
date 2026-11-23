@@ -48,6 +48,10 @@ vm-restore: agent
 vm: agent
 	XENA_REPO_CONFIG_DIR=$(CURDIR)/config go run ./cmd/xena vm build
 
+.PHONY: vm-provision
+vm-provision: agent
+	XENA_REPO_CONFIG_DIR=$(CURDIR)/config go run ./cmd/xena vm provision
+
 .PHONY: tidy
 tidy:
 	@go mod tidy

@@ -28,7 +28,7 @@ const (
 	readyAttempts     = 120
 	firstBootAttempts = 360
 	diskKeyName       = "vm-disk-key"
-	stateRunning      = "running"
+	StateRunning      = "running"
 	stateShutOff      = "shut off"
 	stateUndef        = "undefined"
 	networkName       = "xena"
@@ -107,12 +107,13 @@ const (
 )
 
 var (
-	ErrRunning   = errors.New("vm is running")
-	ErrExists    = errors.New("vm exists")
-	ErrTimeout   = errors.New("timed out")
-	ErrCut       = errors.New("vm network is cut")
-	ErrUndefined = errors.New("vm is not defined")
-	ErrCloudInit = errors.New("cloud-init failed")
+	ErrRunning    = errors.New("vm is running")
+	ErrNotRunning = errors.New("vm is not running")
+	ErrExists     = errors.New("vm exists")
+	ErrTimeout    = errors.New("timed out")
+	ErrCut        = errors.New("vm network is cut")
+	ErrUndefined  = errors.New("vm is not defined")
+	ErrCloudInit  = errors.New("cloud-init failed")
 
 	errInvalidImageSHA = errors.New("invalid image sha256")
 	errBooting         = errors.New("vm is still booting")
@@ -506,7 +507,7 @@ func (m *Machine) start(ctx context.Context) error {
 	}
 
 	switch state {
-	case stateRunning:
+	case StateRunning:
 		return nil
 	case stateUndef:
 		return fmt.Errorf("starting vm: %w", ErrUndefined)
