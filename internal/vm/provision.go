@@ -26,6 +26,7 @@ const (
 	jiraVMSecret   = "jira-token"
 	memoryExists   = 3
 	credentials    = vmHome + "/.claude/.credentials.json"
+	githubToken    = vmHome + "/.config/xena/github-token"
 	managedSetting = "/etc/claude-code/managed-settings.json"
 	loginText      = "Log in to Claude in the VM: type /login, choose your Claude subscription, " +
 		"open the link on this desktop, check that the consent screen names Claude Code, paste the code, " +
@@ -184,6 +185,10 @@ func (p *Provisioner) checkClaudeCode(ctx context.Context) error {
 func (p *Provisioner) pushGitHubToken(ctx context.Context) error {
 	p.logger.Info("restarting the token daemon to push a fresh github token")
 
+	if _, err := p.remote(ctx, "rm -f "+githubToken); err != nil {
+		return fmt.Errorf("pushing github token: %w", err)
+	}
+
 	if err := p.restartTokenDaemon(ctx); err != nil {
 		return err
 	}
@@ -198,7 +203,7 @@ func (p *Provisioner) pushGitHubToken(ctx context.Context) error {
 			}
 		}
 
-		if _, lastErr = p.remote(ctx, "test -s "+vmHome+"/.config/xena/github-token"); lastErr == nil {
+		if _, lastErr = p.remote(ctx, "test -s "+githubToken); lastErr == nil {
 			return nil
 		}
 

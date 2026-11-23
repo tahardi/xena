@@ -22,6 +22,7 @@ const (
 	jiraEnv     = "JIRA_SITE=https://example.atlassian.net\nJIRA_EMAIL=bot@example.com\nJIRA_TOKEN=jira-fake-0000\n"
 	versionCall = sshCfg + "claude --version"
 	settingCall = sshCfg + "test -f /etc/claude-code/managed-settings.json"
+	clearCall   = sshCfg + "rm -f /home/dev/.config/xena/github-token"
 	daemonCall  = "systemctl --user restart xena-tokend.service"
 	tokenCall   = sshCfg + "test -s /home/dev/.config/xena/github-token"
 	healthCall  = "agent health"
@@ -148,6 +149,7 @@ func TestProvisioner_Provision(t *testing.T) {
 			{Match: healthCall, Out: "ok\n"},
 			{Match: versionCall, Out: "2.1.0 (Claude Code)\n"},
 			{Match: settingCall},
+			{Match: clearCall},
 			{Match: daemonCall},
 			{Match: tokenCall, Err: errFake},
 			{Match: tokenCall},
@@ -181,7 +183,7 @@ func TestProvisioner_Provision(t *testing.T) {
 	}
 
 	tokenNeverLines := slices.Concat(
-		[]string{exitCall, healthCall, versionCall, settingCall, daemonCall},
+		[]string{exitCall, healthCall, versionCall, settingCall, clearCall, daemonCall},
 		missedTouches,
 		[]string{daemonCall},
 		missedTouches,
@@ -194,7 +196,7 @@ func TestProvisioner_Provision(t *testing.T) {
 	}
 
 	tokenNever := slices.Concat(
-		happy()[:5],
+		happy()[:6],
 		missedChecks,
 		[]response{{Match: daemonCall}},
 		missedChecks,
@@ -202,14 +204,14 @@ func TestProvisioner_Provision(t *testing.T) {
 	)
 
 	secondRestartFails := slices.Concat(
-		happy()[:5],
+		happy()[:6],
 		missedChecks,
 		[]response{{Match: daemonCall, Err: errFake}, {Match: exitCall}},
 	)
 
-	afterToken := happy()[7:]
+	afterToken := happy()[8:]
 	tokenRetry := slices.Concat(
-		happy()[:5],
+		happy()[:6],
 		missedChecks,
 		[]response{{Match: daemonCall}, {Match: tokenCall}},
 		afterToken,
@@ -220,6 +222,7 @@ func TestProvisioner_Provision(t *testing.T) {
 		healthCall,
 		versionCall,
 		settingCall,
+		clearCall,
 		daemonCall,
 		tokenCall,
 		tokenCall,
@@ -234,7 +237,7 @@ func TestProvisioner_Provision(t *testing.T) {
 		exitCall,
 	}
 
-	tokenRetryLines := slices.Concat(allLines[:5], missedTouches, []string{daemonCall, tokenCall}, allLines[7:])
+	tokenRetryLines := slices.Concat(allLines[:6], missedTouches, []string{daemonCall, tokenCall}, allLines[8:])
 
 	upTo := func(last string) []string {
 		i := slices.Index(allLines[1:], last) + 1
@@ -333,7 +336,7 @@ func TestProvisioner_Provision(t *testing.T) {
 			name:       "error - jira token unreadable",
 			responses:  happy(),
 			getErr:     errFake,
-			wantLines:  append(slices.Clone(allLines[:7]), exitCall),
+			wantLines:  append(slices.Clone(allLines[:8]), exitCall),
 			wantPrefix: "reading jira bot token: ",
 		},
 		{
@@ -357,6 +360,12 @@ func TestProvisioner_Provision(t *testing.T) {
 			wantPrefix: "checking claude code: ",
 		},
 		{
+			name:       "error - clearing the old github token fails",
+			responses:  replace(clearCall, response{Match: clearCall, Err: errFake}),
+			wantLines:  upTo(clearCall),
+			wantPrefix: "pushing github token: ",
+		},
+		{
 			name:       "error - token daemon restart fails",
 			responses:  replace(daemonCall, response{Match: daemonCall, Err: errFake}),
 			wantLines:  upTo(daemonCall),
@@ -365,7 +374,7 @@ func TestProvisioner_Provision(t *testing.T) {
 		{
 			name:       "error - second token daemon restart fails",
 			responses:  secondRestartFails,
-			wantLines:  slices.Concat(allLines[:5], missedTouches, []string{daemonCall, exitCall}),
+			wantLines:  slices.Concat(allLines[:6], missedTouches, []string{daemonCall, exitCall}),
 			wantPrefix: "pushing github token: ",
 		},
 		{
