@@ -122,6 +122,10 @@ func parseUserData(t *testing.T, seed vm.Seed) (map[string]any, map[string]seedF
 	return doc, files
 }
 
+func keyMirror() []any {
+	return []any{map[string]any{"arches": []any{"default"}, "uri": "http://mirrors.edge.kernel.org/ubuntu"}}
+}
+
 func TestNewSeedData(t *testing.T) {
 	// given
 	c := config.VM{
@@ -408,28 +412,23 @@ func TestRenderSeed(t *testing.T) {
 		}
 		require.Equal(t, proxyURL, apt["http_proxy"])
 		require.Equal(t, proxyURL, apt["https_proxy"])
-		require.Equal(
-			t,
-			[]any{map[string]any{"arches": []any{"default"}, "uri": "http://mirrors.edge.kernel.org/ubuntu"}},
-			apt["primary"],
-		)
+		require.Equal(t, keyMirror(), apt["primary"])
 	})
 
-	t.Run("happy path - packages", func(t *testing.T) {
+	t.Run("happy path - packages come from the prepared image", func(t *testing.T) {
 		// given
-		want := []any{
-			"qemu-guest-agent", "unattended-upgrades", "docker.io", "rootlesskit", "uidmap", "slirp4netns",
-			"dbus-user-session", "socat", "tmux", "git", "gh", "jq", "sqlite3", "coreutils", "findutils", "nodejs",
-			"npm",
-		}
+		apt, ok := doc["apt"].(map[string]any)
+		require.True(t, ok)
 
 		// when
-		got, ok := doc["packages"].([]any)
 		upgrades := files["/etc/apt/apt.conf.d/20auto-upgrades"].decoded
 
 		// then
-		require.True(t, ok)
-		require.Subset(t, got, want)
+		require.NotContains(t, doc, "packages")
+		require.Equal(t, false, doc["package_update"])
+		require.Equal(t, proxyURL, apt["http_proxy"])
+		require.Equal(t, proxyURL, apt["https_proxy"])
+		require.Equal(t, keyMirror(), apt["primary"])
 		require.Contains(t, upgrades, `APT::Periodic::Unattended-Upgrade "1";`)
 		require.Contains(t, upgrades, `Unattended-Upgrade::Automatic-Reboot "false";`)
 	})
@@ -689,4 +688,65 @@ func TestRenderSeed(t *testing.T) {
 			require.ErrorContains(t, renderErr, "validating seed data: ")
 		})
 	}
+}
+
+func TestRenderPrepareSeed(t *testing.T) {
+	t.Run("happy path - packages and mirror", func(t *testing.T) {
+		// given
+		data := vm.SeedData{
+			Hostname:      "xena-dev",
+			InstanceID:    "prepare-1792800000",
+			MAC:           "52:54:00:78:65:6e",
+			VMAddress:     "192.168.150.10",
+			Prefix:        24,
+			BridgeAddress: "192.168.150.1",
+			ProxyPort:     3128,
+		}
+		want := []any{
+			"qemu-guest-agent", "unattended-upgrades", "docker.io", "rootlesskit", "uidmap", "slirp4netns",
+			"dbus-user-session", "socat", "tmux", "git", "gh", "jq", "sqlite3", "coreutils", "findutils", "nodejs",
+			"npm",
+		}
+
+		// when
+		seed, err := vm.RenderPrepareSeed(data)
+
+		// then
+		require.NoError(t, err)
+		doc, _ := parseUserData(t, seed)
+		apt, ok := doc["apt"].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, true, doc["package_update"])
+		require.Equal(t, []any{}, doc["users"])
+		require.Equal(t, true, doc["disable_root"])
+		require.Equal(t, false, doc["ssh_pwauth"])
+		require.Equal(t, want, doc["packages"])
+		require.Equal(t, keyMirror(), apt["primary"])
+		require.Equal(t, proxyURL, apt["http_proxy"])
+		require.Equal(t, proxyURL, apt["https_proxy"])
+		require.Equal(
+			t,
+			[]any{"systemctl start qemu-guest-agent", "apt-get clean", "truncate -s 0 /etc/machine-id"},
+			doc["runcmd"],
+		)
+		require.Contains(t, string(seed.MetaData), "instance-id: prepare-1792800000\n")
+		require.Contains(t, string(seed.NetworkConfig), "192.168.150.10/24")
+	})
+
+	t.Run("happy path - stable", func(t *testing.T) {
+		// given
+		first := validSeedData(t)
+		second := first
+		second.InstanceID = "prepare-1"
+		second.BuiltAt = first.BuiltAt.Add(48 * time.Hour)
+
+		// when
+		a, errA := vm.RenderPrepareSeed(first)
+		b, errB := vm.RenderPrepareSeed(second)
+
+		// then
+		require.NoError(t, errA)
+		require.NoError(t, errB)
+		require.Equal(t, string(a.UserData), string(b.UserData))
+	})
 }

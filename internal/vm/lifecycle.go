@@ -64,9 +64,11 @@ const (
     <disk type='file' device='disk'>
       <driver name='qemu' type='qcow2'/>
       <source file='{{x .Disk}}'>
+{{- if .Encrypted}}
         <encryption format='luks'>
           <secret type='passphrase' usage='{{x .Disk}}'/>
         </encryption>
+{{- end}}
       </source>
       <target dev='vda' bus='virtio'/>
     </disk>
@@ -125,6 +127,7 @@ var (
 type domainData struct {
 	Name, Disk, Seed, Network, MAC string
 	MemoryMiB, CPUs                int
+	Encrypted                      bool
 }
 
 type execFunc func(ctx context.Context, stdin io.Reader, name string, args ...string) ([]byte, error)
@@ -196,25 +199,7 @@ func (m *Machine) SeedPath() string {
 }
 
 func (m *Machine) Define(ctx context.Context) error {
-	var xml bytes.Buffer
-	err := domainTemplate.Execute(&xml, domainData{
-		Name:      m.config.Name,
-		Disk:      m.DiskPath(),
-		Seed:      m.SeedPath(),
-		Network:   networkName,
-		MAC:       m.config.Network.MAC,
-		MemoryMiB: m.config.MemoryMiB,
-		CPUs:      m.config.CPUs,
-	})
-	if err != nil {
-		return fmt.Errorf("rendering domain: %w", err)
-	}
-
-	if err = m.virt.DefineDomain(ctx, xml.String()); err != nil {
-		return fmt.Errorf("defining vm: %w", err)
-	}
-
-	return nil
+	return m.defineDomain(ctx, m.DiskPath(), m.SeedPath(), true)
 }
 
 func (m *Machine) Start(ctx context.Context) error {
@@ -411,6 +396,11 @@ func (m *Machine) Build(ctx context.Context, client *http.Client, now time.Time)
 		return fmt.Errorf("fetching image: %w", err)
 	}
 
+	prepared, err := m.prepareImage(ctx, base, now)
+	if err != nil {
+		return err
+	}
+
 	automationKey, err := m.makeAutomationKey(ctx)
 	if err != nil {
 		return fmt.Errorf("making automation key: %w", err)
@@ -422,7 +412,7 @@ func (m *Machine) Build(ctx context.Context, client *http.Client, now time.Time)
 
 	m.logger.Info("creating encrypted vm disk", "path", m.DiskPath())
 
-	if err = m.createEncryptedDisk(ctx, base); err != nil {
+	if err = m.createEncryptedDisk(ctx, prepared); err != nil {
 		return err
 	}
 
@@ -461,6 +451,29 @@ func (m *Machine) Build(ctx context.Context, client *http.Client, now time.Time)
 	return nil
 }
 
+func (m *Machine) defineDomain(ctx context.Context, disk, seed string, encrypted bool) error {
+	var xml bytes.Buffer
+	err := domainTemplate.Execute(&xml, domainData{
+		Name:      m.config.Name,
+		Disk:      disk,
+		Seed:      seed,
+		Network:   networkName,
+		MAC:       m.config.Network.MAC,
+		MemoryMiB: m.config.MemoryMiB,
+		CPUs:      m.config.CPUs,
+		Encrypted: encrypted,
+	})
+	if err != nil {
+		return fmt.Errorf("rendering domain: %w", err)
+	}
+
+	if err = m.virt.DefineDomain(ctx, xml.String()); err != nil {
+		return fmt.Errorf("defining vm: %w", err)
+	}
+
+	return nil
+}
+
 func (m *Machine) logCloudInitOutput(ctx context.Context) {
 	lines, err := m.guestFileTail(ctx, cloudOutput)
 	if err != nil {
@@ -473,11 +486,19 @@ func (m *Machine) logCloudInitOutput(ctx context.Context) {
 	}
 }
 
-func (m *Machine) start(ctx context.Context) error {
+func checkCut() error {
 	if _, err := os.Stat(config.CutMarker()); err == nil {
 		return fmt.Errorf("starting vm: %w", ErrCut)
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("checking cut marker: %w", err)
+	}
+
+	return nil
+}
+
+func (m *Machine) start(ctx context.Context) error {
+	if err := checkCut(); err != nil {
+		return err
 	}
 
 	state, err := m.State(ctx)
@@ -615,6 +636,10 @@ func (m *Machine) makeSeedISO(ctx context.Context, automationKey string, now tim
 		return err
 	}
 
+	return m.writeSeedISO(ctx, seed, m.SeedPath())
+}
+
+func (m *Machine) writeSeedISO(ctx context.Context, seed Seed, path string) error {
 	tmp, err := os.MkdirTemp("", "xena-seed-*")
 	if err != nil {
 		return err
@@ -637,7 +662,7 @@ func (m *Machine) makeSeedISO(ctx context.Context, automationKey string, now tim
 		nil,
 		"cloud-localds",
 		"--network-config="+filepath.Join(tmp, "network-config"),
-		m.SeedPath(),
+		path,
 		filepath.Join(tmp, "user-data"),
 		filepath.Join(tmp, "meta-data"),
 	)

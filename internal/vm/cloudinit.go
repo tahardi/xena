@@ -109,6 +109,25 @@ func RenderSeed(d SeedData) (Seed, error) {
 	return Seed{UserData: []byte(userData), MetaData: []byte(metaData), NetworkConfig: []byte(networkConfig)}, nil
 }
 
+func RenderPrepareSeed(d SeedData) (Seed, error) {
+	userData, err := execute(cloudInitDir+"/prepare-user-data.tmpl", d, nil)
+	if err != nil {
+		return Seed{}, fmt.Errorf("rendering prepare seed: %w", err)
+	}
+
+	metaData, err := execute(cloudInitDir+"/meta-data.tmpl", d, nil)
+	if err != nil {
+		return Seed{}, fmt.Errorf("rendering prepare seed: %w", err)
+	}
+
+	networkConfig, err := execute(cloudInitDir+"/network-config.tmpl", d, nil)
+	if err != nil {
+		return Seed{}, fmt.Errorf("rendering prepare seed: %w", err)
+	}
+
+	return Seed{UserData: []byte(userData), MetaData: []byte(metaData), NetworkConfig: []byte(networkConfig)}, nil
+}
+
 func validateSeedData(d SeedData) error {
 	checks := []struct {
 		name  string

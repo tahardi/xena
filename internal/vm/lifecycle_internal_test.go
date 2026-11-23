@@ -890,11 +890,13 @@ func TestMachine_Build(t *testing.T) {
 		diskExists    bool
 		diskHidden    bool
 		noDir         bool
+		fresh         bool
 		wantCalls     []string
 		wantErr       error
 		wantErrPrefix string
 	}{
 		{name: "happy path - builds and boots"},
+		{name: "happy path - reuses a fresh prepared image", fresh: true},
 		{
 			name:      "error - domain exists",
 			exists:    true,
@@ -940,14 +942,21 @@ func TestMachine_Build(t *testing.T) {
 			require.NoError(t, os.WriteFile(automation, []byte("old"), 0o600))
 
 			hostKey := ed25519Blob(t, "ssh-ed25519", nil)
-			var seedSources string
+			var seedSources, prepareSources string
 
 			head := []response{{Match: stateCall, Out: "undefined\n"}}
 			if tt.exists {
 				head = []response{{Match: stateCall, Out: "shut off\n"}}
 			}
+
+			var prepare []response
+			if !tt.fresh {
+				prepare = prepareResponses(t, &prepareSources)
+			}
+
 			responses := slices.Concat(
 				head,
+				prepare,
 				[]response{
 					{Match: "ssh-keygen", Effect: func(_ []string) {
 						require.NoFileExists(t, automation)
@@ -1002,6 +1011,11 @@ func TestMachine_Build(t *testing.T) {
 
 			now := time.Date(2026, time.November, 15, 12, 0, 0, 0, time.UTC)
 
+			prepared := preparedPath(t, m, now)
+			if tt.fresh {
+				require.NoError(t, os.WriteFile(prepared, []byte("prepared"), 0o600))
+			}
+
 			// when
 			err := m.Build(context.Background(), http.DefaultClient, now)
 
@@ -1016,14 +1030,21 @@ func TestMachine_Build(t *testing.T) {
 			require.NoError(t, err)
 
 			disk := m.DiskPath()
+
+			var prepareWant []string
+			if !tt.fresh {
+				prepareWant = prepareCalls(m, base, prepared, prepareSources)
+			}
+
 			want := slices.Concat(
+				[]string{stateCall},
+				prepareWant,
 				[]string{
-					stateCall,
 					"ssh-keygen -q -t ed25519 -N  -C xena-automation -f " + automation,
 					"cloud-localds --network-config=" + filepath.Join(seedSources, "network-config") + " " +
 						m.SeedPath() + " " + filepath.Join(seedSources, "user-data") + " " +
 						filepath.Join(seedSources, "meta-data"),
-					strings.Replace(convertCall(disk), "/img/base.img", base, 1),
+					strings.Replace(convertCall(disk), "/img/base.img", prepared, 1),
 					resizeCall(disk),
 					lv + "define",
 				},
@@ -1040,7 +1061,10 @@ func TestMachine_Build(t *testing.T) {
 
 			diskKey := store.puts["vm-disk-key"]
 			require.Regexp(t, `^[0-9a-f]{64}$`, diskKey)
-			require.Equal(t, []string{diskKey, diskKey}, fake.stdinOf("qemu-img"))
+			require.Equal(t, []string{diskKey, diskKey}, slices.Concat(
+				fake.stdinOf("qemu-img convert -f qcow2 -O qcow2 --object"),
+				fake.stdinOf("qemu-img resize --object"),
+			))
 			for _, line := range fake.lines() {
 				require.NotContains(t, line, diskKey)
 			}
